@@ -2,7 +2,7 @@
  * CopilotManager — orchestrates the Copilot SDK adapter within the daemon.
  *
  * Responsibilities:
- *  • Creates the right adapter (mock vs real) based on env / config
+ *  • Creates the SDK adapter (or accepts an injected adapter for testing)
  *  • Forwards adapter state changes to HQ via `copilot-sdk-state`
  *  • Handles incoming HQ commands (create/resume/send/abort/list)
  *  • Relays session events to HQ as `copilot-sdk-session-event`
@@ -12,8 +12,7 @@
 
 import type { DaemonToHqMessage, HqToDaemonMessage, SessionConfigWire } from '../../shared/protocol.js';
 import type { CopilotAdapter, CopilotSession, SessionConfig, ToolDefinition } from './adapter.js';
-import { MockCopilotAdapter } from './mock-adapter.js';
-import { SdkCopilotAdapter, isSdkAvailable } from './sdk-adapter.js';
+import { SdkCopilotAdapter } from './sdk-adapter.js';
 import { createHqTools } from './hq-tools.js';
 import { buildSystemMessage } from './system-message.js';
 
@@ -33,8 +32,8 @@ export interface CopilotManagerOptions {
   projectId?: string;
   /** Human-readable project name */
   projectName?: string;
-  /** Force mock adapter regardless of SDK availability */
-  useMock?: boolean;
+  /** Override adapter for testing (defaults to SdkCopilotAdapter) */
+  adapter?: CopilotAdapter;
   /** Session-list poll interval in ms (default 30 000) */
   pollIntervalMs?: number;
 }
@@ -61,19 +60,7 @@ export class CopilotManager {
 
     this.hqTools = createHqTools(this.sendToHq, this.projectId);
 
-    const useMock =
-      options.useMock ?? process.env.LAUNCHPAD_COPILOT_MOCK === 'true';
-
-    if (useMock) {
-      this.adapter = new MockCopilotAdapter();
-    } else if (!isSdkAvailable()) {
-      console.warn(
-        '⚠ @github/copilot-sdk not available — falling back to mock Copilot adapter',
-      );
-      this.adapter = new MockCopilotAdapter();
-    } else {
-      this.adapter = new SdkCopilotAdapter({ cwd: process.cwd() });
-    }
+    this.adapter = options.adapter ?? new SdkCopilotAdapter({ cwd: process.cwd() });
   }
 
   /** Start the adapter and begin polling sessions */
@@ -89,24 +76,12 @@ export class CopilotManager {
     try {
       await this.adapter.start();
     } catch (err) {
-      // SDK adapter failed (e.g., Copilot CLI not in PATH) — fall back to mock
-      if (this.adapter instanceof SdkCopilotAdapter) {
-        console.warn(
-          `⚠ Copilot SDK start failed — falling back to mock adapter: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        this.stateUnsub?.();
-        this.adapter = new MockCopilotAdapter();
-        this.stateUnsub = this.adapter.onStateChange((state) => {
-          this.sendToHq({
-            type: 'copilot-sdk-state',
-            timestamp: Date.now(),
-            payload: { state },
-          });
-        });
-        await this.adapter.start();
-      } else {
-        throw err;
-      }
+      // SDK failed (e.g. Copilot CLI not in PATH) — copilot features unavailable
+      // but the daemon keeps running without copilot capability
+      console.warn(
+        `⚠ Copilot SDK failed to start — copilot features unavailable: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
     }
 
     // Initial session list

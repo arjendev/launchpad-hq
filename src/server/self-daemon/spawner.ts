@@ -135,7 +135,6 @@ export class SelfDaemonSpawner {
         LAUNCHPAD_HQ_URL: this.config.hqUrl,
         LAUNCHPAD_DAEMON_TOKEN: this.config.token,
         LAUNCHPAD_PROJECT_ID: this.config.projectId,
-        LAUNCHPAD_COPILOT_MOCK: "true",
       },
       stdio: ["ignore", "pipe", "pipe", "ipc"],
       execArgv,

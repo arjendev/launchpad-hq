@@ -1,7 +1,120 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { CopilotManager } from '../manager.js';
 import type { DaemonToHqMessage, HqToDaemonMessage } from '../../../shared/protocol.js';
-import type { CopilotSessionEvent } from '../adapter.js';
+import type {
+  CopilotAdapter,
+  CopilotSession,
+  CopilotSessionEvent,
+  CopilotSdkSessionInfo,
+  CopilotSdkState,
+  SessionConfig,
+} from '../adapter.js';
+
+// ---------------------------------------------------------------------------
+// Inline test adapter — replaces the deleted MockCopilotAdapter for tests
+// ---------------------------------------------------------------------------
+
+class TestCopilotSession implements CopilotSession {
+  readonly sessionId: string;
+  private handlers: Array<(event: CopilotSessionEvent) => void> = [];
+  private events: CopilotSessionEvent[] = [];
+
+  constructor(sessionId: string) {
+    this.sessionId = sessionId;
+  }
+
+  async send(options: { prompt: string }): Promise<string> {
+    const response = `Test response to: "${options.prompt}"`;
+    this.emit({ type: 'session.start', data: {}, timestamp: Date.now() });
+    this.emit({ type: 'user.message', data: { content: options.prompt }, timestamp: Date.now() });
+    this.emit({ type: 'assistant.message.delta', data: { delta: response }, timestamp: Date.now() });
+    this.emit({ type: 'tool.executionStart', data: { tool: 'test_tool' }, timestamp: Date.now() });
+    this.emit({ type: 'tool.executionComplete', data: { tool: 'test_tool' }, timestamp: Date.now() });
+    this.emit({ type: 'assistant.message', data: { content: response }, timestamp: Date.now() });
+    this.emit({ type: 'session.idle', data: {}, timestamp: Date.now() });
+    return response;
+  }
+
+  on(handler: (event: CopilotSessionEvent) => void): () => void {
+    this.handlers.push(handler);
+    return () => { this.handlers = this.handlers.filter((h) => h !== handler); };
+  }
+
+  async abort(): Promise<void> { /* no-op */ }
+  async getMessages(): Promise<CopilotSessionEvent[]> { return [...this.events]; }
+  async destroy(): Promise<void> { this.handlers = []; }
+
+  private emit(event: CopilotSessionEvent): void {
+    this.events.push(event);
+    for (const handler of this.handlers) handler(event);
+  }
+}
+
+class TestCopilotAdapter implements CopilotAdapter {
+  private _state: CopilotSdkState = 'disconnected';
+  private stateHandlers: Array<(state: CopilotSdkState) => void> = [];
+  private sessions = new Map<string, TestCopilotSession>();
+
+  get state(): CopilotSdkState { return this._state; }
+
+  async start(): Promise<void> {
+    this.setState('connecting');
+    this.setState('connected');
+  }
+
+  async stop(): Promise<void> {
+    this.sessions.clear();
+    this.setState('disconnected');
+  }
+
+  async listSessions(): Promise<CopilotSdkSessionInfo[]> {
+    return [
+      { sessionId: 'test-session-001', repository: 'test/repo', branch: 'main', summary: 'Test session' },
+    ];
+  }
+
+  async getLastSessionId(): Promise<string | null> { return null; }
+
+  async createSession(_config: SessionConfig): Promise<CopilotSession> {
+    const id = `test-${randomUUID().slice(0, 8)}`;
+    const session = new TestCopilotSession(id);
+    this.sessions.set(id, session);
+    return session;
+  }
+
+  async resumeSession(sessionId: string): Promise<CopilotSession> {
+    const existing = this.sessions.get(sessionId);
+    if (existing) return existing;
+    const session = new TestCopilotSession(sessionId);
+    this.sessions.set(sessionId, session);
+    return session;
+  }
+
+  onStateChange(handler: (state: CopilotSdkState) => void): () => void {
+    this.stateHandlers.push(handler);
+    return () => { this.stateHandlers = this.stateHandlers.filter((h) => h !== handler); };
+  }
+
+  private setState(next: CopilotSdkState): void {
+    this._state = next;
+    for (const handler of this.stateHandlers) handler(next);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Failing adapter — simulates SDK start failure
+// ---------------------------------------------------------------------------
+
+class FailingCopilotAdapter extends TestCopilotAdapter {
+  override async start(): Promise<void> {
+    throw new Error('Copilot CLI not found in PATH');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 describe('CopilotManager', () => {
   let manager: CopilotManager;
@@ -12,7 +125,7 @@ describe('CopilotManager', () => {
     sent = [];
     manager = new CopilotManager({
       sendToHq,
-      useMock: true,
+      adapter: new TestCopilotAdapter(),
       pollIntervalMs: 60_000, // long interval to avoid noise in tests
     });
   });
@@ -60,6 +173,49 @@ describe('CopilotManager', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Graceful failure — SDK start fails
+  // -----------------------------------------------------------------------
+
+  describe('start() with failing adapter', () => {
+    it('does not throw when SDK fails to start', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const failManager = new CopilotManager({
+        sendToHq,
+        adapter: new FailingCopilotAdapter(),
+        pollIntervalMs: 60_000,
+      });
+
+      // Should not throw
+      await failManager.start();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Copilot SDK failed to start'),
+      );
+
+      await failManager.stop();
+      warnSpy.mockRestore();
+    });
+
+    it('does not start polling when SDK fails', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const failManager = new CopilotManager({
+        sendToHq,
+        adapter: new FailingCopilotAdapter(),
+        pollIntervalMs: 60_000,
+      });
+
+      await failManager.start();
+
+      // No session list should be sent
+      const listMessages = sent.filter((m) => m.type === 'copilot-sdk-session-list');
+      expect(listMessages).toHaveLength(0);
+
+      await failManager.stop();
+      vi.restoreAllMocks();
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // copilot-create-session command
   // -----------------------------------------------------------------------
 
@@ -99,7 +255,7 @@ describe('CopilotManager', () => {
       const msg: HqToDaemonMessage = {
         type: 'copilot-resume-session',
         timestamp: Date.now(),
-        payload: { requestId: 'req-2', sessionId: 'mock-session-001' },
+        payload: { requestId: 'req-2', sessionId: 'test-session-001' },
       };
 
       await manager.handleMessage(msg);
@@ -111,7 +267,7 @@ describe('CopilotManager', () => {
       );
       expect(startEvent).toBeDefined();
       expect(startEvent!.payload.event.data.resumed).toBe(true);
-      expect(startEvent!.payload.sessionId).toBe('mock-session-001');
+      expect(startEvent!.payload.sessionId).toBe('test-session-001');
     });
   });
 
@@ -295,53 +451,18 @@ describe('CopilotManager', () => {
   });
 
   // -----------------------------------------------------------------------
-  // SDK adapter used when SDK is available and not mocked
+  // Default adapter (SDK) when no adapter option provided
   // -----------------------------------------------------------------------
 
-  describe('SDK adapter selection', () => {
-    it('uses real SDK adapter when useMock=false and SDK is available', async () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const fallbackSent: DaemonToHqMessage[] = [];
-      const fallbackManager = new CopilotManager({
-        sendToHq: (msg) => fallbackSent.push(msg),
-        useMock: false,
+  describe('default adapter', () => {
+    it('creates SdkCopilotAdapter when no adapter option is given', () => {
+      const defaultManager = new CopilotManager({
+        sendToHq,
         pollIntervalMs: 60_000,
       });
 
-      // Should succeed — either via real SDK or mock fallback
-      await fallbackManager.start();
-      expect(fallbackManager.adapterState).toBe('connected');
-
-      await fallbackManager.stop();
-      warnSpy.mockRestore();
-    });
-
-    it('handles commands regardless of adapter type', async () => {
-      vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const fallbackSent: DaemonToHqMessage[] = [];
-      const fallbackManager = new CopilotManager({
-        sendToHq: (msg) => fallbackSent.push(msg),
-        useMock: false,
-        pollIntervalMs: 60_000,
-      });
-
-      await fallbackManager.start();
-
-      await fallbackManager.handleMessage({
-        type: 'copilot-create-session',
-        timestamp: Date.now(),
-        payload: { requestId: 'fb-1' },
-      });
-
-      const startEvent = fallbackSent.find(
-        (m) =>
-          m.type === 'copilot-sdk-session-event' &&
-          m.payload.event.type === 'session.start',
-      );
-      expect(startEvent).toBeDefined();
-
-      await fallbackManager.stop();
-      vi.restoreAllMocks();
+      // The adapter is an SdkCopilotAdapter — state starts as disconnected
+      expect(defaultManager.adapterState).toBe('disconnected');
     });
   });
 
@@ -355,7 +476,7 @@ describe('CopilotManager', () => {
     beforeEach(() => {
       managerWithProject = new CopilotManager({
         sendToHq,
-        useMock: true,
+        adapter: new TestCopilotAdapter(),
         pollIntervalMs: 60_000,
         projectId: 'test-project',
         projectName: 'Test Project',
@@ -393,7 +514,7 @@ describe('CopilotManager', () => {
       await managerWithProject.handleMessage({
         type: 'copilot-resume-session',
         timestamp: Date.now(),
-        payload: { requestId: 'req-hq-2', sessionId: 'mock-session-001' },
+        payload: { requestId: 'req-hq-2', sessionId: 'test-session-001' },
       });
 
       const startEvent = sent.find(

@@ -101,7 +101,6 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
 
   const copilot = new CopilotManager({
     sendToHq: (msg) => client.send(msg),
-    useMock: process.env.LAUNCHPAD_COPILOT_MOCK === 'true',
   });
 
   client.on('message', (msg) => {

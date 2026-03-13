@@ -131,7 +131,6 @@ describe("SelfDaemonSpawner", () => {
       LAUNCHPAD_HQ_URL: "ws://localhost:3000",
       LAUNCHPAD_DAEMON_TOKEN: "test-token-abc123",
       LAUNCHPAD_PROJECT_ID: "owner/repo",
-      LAUNCHPAD_COPILOT_MOCK: "true",
     });
   });
 
