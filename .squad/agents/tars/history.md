@@ -127,3 +127,12 @@ Key achievements:
 - Proper ws.terminate() error handling on CONNECTING state
 - TypeScript path imports work correctly with updated tsconfig rootDir
 
+### 2026-03-14: Copilot SDK Auto-Fallback & Daemon Startup Robustness
+- **Root cause:** Daemon crashed in project devcontainers when `@github/copilot-sdk` was not installed and `LAUNCHPAD_COPILOT_MOCK` was not set — `assertSdk()` threw, and stdout buffers didn't flush so logs appeared empty
+- **Fix 1 — Auto-fallback:** `sdk-adapter.ts` now exports `isSdkAvailable()`. `CopilotManager` constructor checks it: if SDK unavailable, falls back to `MockCopilotAdapter` with a `console.warn()` — daemon never crashes due to missing SDK
+- **Fix 2 — Startup robustness:** `cli.ts` now installs `uncaughtException` / `unhandledRejection` handlers before any imports, and wraps the daemon startup in try/catch. Errors always reach logs.
+- **Startup banner:** `daemon/index.ts` logs project+hq info immediately on `client.connect()` so log files are never empty
+- **Pattern:** Graceful degradation via feature detection (`isSdkAvailable()`) over configuration requirements — daemon should always start, even with reduced capability
+- **Key files:** `src/daemon/copilot/sdk-adapter.ts`, `src/daemon/copilot/manager.ts`, `src/cli.ts`, `src/daemon/index.ts`
+- **Tests:** 620 passing (3 new: `isSdkAvailable()`, auto-fallback constructor, auto-fallback commands)
+
