@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { SdkCopilotAdapter } from '../sdk-adapter.js';
+import { SdkCopilotAdapter, isSdkAvailable } from '../sdk-adapter.js';
 
 describe('SdkCopilotAdapter', () => {
   it('starts in disconnected state', () => {
@@ -44,5 +44,11 @@ describe('SdkCopilotAdapter', () => {
     unsub();
     // No crash → pass
     expect(true).toBe(true);
+  });
+});
+
+describe('isSdkAvailable()', () => {
+  it('returns false when SDK is not installed', () => {
+    expect(isSdkAvailable()).toBe(false);
   });
 });

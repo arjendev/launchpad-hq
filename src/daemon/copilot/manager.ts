@@ -13,7 +13,7 @@
 import type { DaemonToHqMessage, HqToDaemonMessage, SessionConfigWire } from '../../shared/protocol.js';
 import type { CopilotAdapter, CopilotSession, SessionConfig, ToolDefinition } from './adapter.js';
 import { MockCopilotAdapter } from './mock-adapter.js';
-import { SdkCopilotAdapter } from './sdk-adapter.js';
+import { SdkCopilotAdapter, isSdkAvailable } from './sdk-adapter.js';
 import { createHqTools } from './hq-tools.js';
 import { buildSystemMessage } from './system-message.js';
 
@@ -64,9 +64,16 @@ export class CopilotManager {
     const useMock =
       options.useMock ?? process.env.LAUNCHPAD_COPILOT_MOCK === 'true';
 
-    this.adapter = useMock
-      ? new MockCopilotAdapter()
-      : new SdkCopilotAdapter();
+    if (useMock) {
+      this.adapter = new MockCopilotAdapter();
+    } else if (!isSdkAvailable()) {
+      console.warn(
+        '⚠ @github/copilot-sdk not available — falling back to mock Copilot adapter',
+      );
+      this.adapter = new MockCopilotAdapter();
+    } else {
+      this.adapter = new SdkCopilotAdapter();
+    }
   }
 
   /** Start the adapter and begin polling sessions */
