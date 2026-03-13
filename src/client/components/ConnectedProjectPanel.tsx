@@ -150,71 +150,6 @@ function DaemonStatusSection({ project }: { project: DashboardProject }) {
   );
 }
 
-// ── Copilot Session Card ───────────────────────────────
-
-function SessionCard({
-  session,
-  onSelect,
-}: {
-  session: AggregatedSession;
-  onSelect?: (sessionId: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-
-  const handleClick = () => {
-    if (onSelect) {
-      onSelect(session.sessionId);
-    } else {
-      setExpanded((prev) => !prev);
-    }
-  };
-
-  return (
-    <Paper
-      withBorder
-      p="xs"
-      radius="sm"
-      style={{ cursor: "pointer" }}
-      onClick={handleClick}
-    >
-      <Group gap="xs" wrap="nowrap" mb={expanded ? "xs" : 0}>
-        <Badge
-          size="xs"
-          color={sessionStatusColor[session.status]}
-          variant="dot"
-        >
-          {session.status}
-        </Badge>
-        <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-          <Text size="sm" fw={500} truncate>
-            {session.title ?? `Session ${session.sessionId.slice(0, 8)}`}
-          </Text>
-        </Stack>
-        <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
-          {timeAgo(session.updatedAt)}
-        </Text>
-      </Group>
-      {session.summary && (
-        <Text size="xs" c="dimmed" lineClamp={2}>
-          "{session.summary}"
-        </Text>
-      )}
-      {expanded && (
-        <Stack gap={4} mt="xs" onClick={(e) => e.stopPropagation()}>
-          {session.model && (
-            <Text size="xs" c="dimmed">
-              Model: {session.model}
-            </Text>
-          )}
-          <Text size="xs" c="dimmed">
-            Started: {timeAgo(session.startedAt)}
-          </Text>
-        </Stack>
-      )}
-    </Paper>
-  );
-}
-
 // ── Resume Session Modal ───────────────────────────────
 
 function ResumeSessionModal({
@@ -288,7 +223,7 @@ function CopilotSessionsSection({
   onSelectSession?: (sessionId: string) => void;
 }) {
   const projectId = `${project.owner}/${project.repo}`;
-  const { sessions, isLoading, isError } = useAggregatedSessions(projectId);
+  const { sessions } = useAggregatedSessions(projectId);
   const { daemon } = useDaemonForProject(projectId);
   const createSession = useCreateSession();
   const resumeSession = useResumeSession();
@@ -346,28 +281,6 @@ function CopilotSessionsSection({
         onResume={handleResume}
         isPending={resumeSession.isPending}
       />
-
-      {isLoading && (
-        <Stack align="center" p="sm">
-          <Loader size="sm" />
-        </Stack>
-      )}
-
-      {isError && (
-        <Text size="sm" c="red" p="xs">
-          Failed to load sessions
-        </Text>
-      )}
-
-      {!isLoading && !isError && sessions.length === 0 && (
-        <Text size="sm" c="dimmed" p="xs" ta="center">
-          No active Copilot sessions
-        </Text>
-      )}
-
-      {sessions.map((s) => (
-        <SessionCard key={s.sessionId} session={s} onSelect={onSelectSession} />
-      ))}
     </Stack>
   );
 }
