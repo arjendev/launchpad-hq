@@ -5,11 +5,52 @@
 - **Stack:** Node.js, TypeScript, npx CLI, Terminal/Web UI, GitHub API, Copilot SDK, Devcontainer API
 - **Created:** 2026-03-13
 
+## Core Context
+
+**Phase 1 Backend Foundation:** Romilly delivered 49 tests across three core systems. Issue #2 established Fastify skeleton with plugin pattern, CORS, static serving, graceful shutdown. Issue #7 implemented GitHub REST API endpoints (issues, PRs, overview, dashboard) with GraphQL integration and error mapping. Issue #12 built Project CRUD API (add, list, remove, update, discover) with GitHub validation and enrichment cleanup. Issue #13 created WebSocket server with ConnectionManager, channel subscriptions, heartbeat monitoring, and decorator pattern for broadcast.
+
+**Phase 2 Server Intelligence:** Issue #18 implemented attention system (rule-based alerting). Rules: evaluateStaleIssues (configurable staleDays, escalates to critical at 2×), evaluatePrNeedsReview, stubs for CI-failing and session-idle. Manager uses in-memory Map with configurable maxItems/LRU eviction. Periodic evaluation via setInterval scans all tracked projects. Dismissal state persists across cycles. REST endpoints: GET /api/attention (filterable), GET /api/attention/count (unread + severity breakdown), POST /api/attention/:id/dismiss. WebSocket broadcasts on "attention" channel. 35 new tests.
+
+**Wave 1 Registry & Integration:** Issue #34 completed daemon registry (33 tests). DaemonRegistry tracks connected daemons (register/unregister/heartbeat/sendTo/broadcast). DaemonWsHandler manages auth handshake (challenge/response + nonce validation). Separate `/ws/daemon` path with own WebSocketServer. Message routing: register/heartbeat/status-update/terminal-data/copilot-*/attention-*. REST API: GET /api/daemons, GET /api/daemons/:id, POST /api/daemons/:id/command. Fixed critical bug: removed socket.destroy() from browser WS plugin that was killing daemon connections.
+
+**Test Coverage:** 49 Phase 1 + 35 Phase 2 + 33 Wave 1 = 117 total new tests. 351 integrated tests passing. All Phase 1 issues (#7, #12, #13, #18, #34) closed.
+
+**Key Patterns:**
+- Fastify plugin pattern: FastifyPluginAsync exported from route files, registered in index.ts with dependency ordering
+- Promise.allSettled for graceful per-project failures (don't let one bad repo break dashboard)
+- Rule engine uses pure functions — testable without mocking
+- Manager uses SHA-256 deterministic IDs for stable deduplication across evaluation cycles
+- Dismissal state persists in-memory between evaluations
+- WebSocket: separate paths with separate upgrade handlers (don't destroy non-matching sockets)
+- Auth handshake: challenge (with nonce) + response (token + nonce) + accept/reject
+
 ## Learnings
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
-### 2026-03-13: Fastify server skeleton (#2)
+### 2026-03-13: Phase 1 Summary
+
+**Completed Issues:** #7, #12, #13 (3/8 Phase 1 items)  
+**Total Tests Added:** 19 + 16 + 14 = 49 tests  
+**Commits:** 3 (REST API, project CRUD, WebSocket server)  
+
+Romilly delivered the complete backend API surface for launchpad:
+1. **REST API endpoints** — github-data.ts routes for issues, PRs, overview, dashboard with GraphQL integration
+2. **Project CRUD API** — full lifecycle management with GitHub validation, discovery endpoint, enrichment cleanup
+3. **WebSocket server** — channel-based messaging with connection tracking, heartbeat monitoring, broadcast capability
+
+All three modules are integrated into the server with correct plugin registration order. The state plugin (TARS #10) was wired into index.ts, unblocking project routes. GitHub GraphQL plugin (TARS #6) was wired into index.ts, enabling data endpoints.
+
+Romilly's work is the bridge between TARS' data access layer and Brand's frontend. All issues closed on GitHub.
+
+### 2026-03-13: Attention system — data model & server logic (#18)
+- **Module:** `src/server/attention/` — types, rules engine, manager, Fastify plugin, barrel export.
+- **Types:** `AttentionItem` (id, type, severity, project, message, timestamp, url, sourceId, dismissed). `AttentionType`: issue_stale, pr_needs_review, ci_failing, session_idle. `AttentionSeverity`: info, warning, critical.
+- **Rule engine:** `rules.ts` — pure functions: `evaluateStaleIssues` (configurable staleDays, escalates to critical at 2× threshold), `evaluatePrNeedsReview` (open non-draft PRs), `evaluateCiFailing` (stub — needs checks API), `evaluateSessionIdle` (stub — needs Copilot SDK #15). `evaluateRules()` orchestrates all enabled rules. `evaluateProjectAttention()` fetches data via GraphQL then evaluates.
+- **Manager:** `AttentionManager` class — in-memory Map store, configurable maxItems with LRU eviction (dismissed first). `list()` with filtering (severity, project, type, dismissed) and sorting (severity → date). `dismiss()`, `unreadCount()`, `unreadCountBySeverity()`.
+- **Evaluation loop:** `start()/stop()` — periodic `setInterval` that scans all tracked projects via `stateService.getConfig()`. Uses `Promise.allSettled` for graceful per-project failures. Preserves dismissed state across evaluations. Broadcasts new items via WebSocket.
+- **REST endpoints:** `GET /api/attention` (filterable list), `GET /api/attention/count` (unread count + by-severity breakdown), `POST /api/attention/:id/dismiss` (mark read, returns updated count).
+- **WebSocket:** Added `"attention"` to `Channel` union in `ws/types.ts`. Plugin broadcasts `{ type: "attention:new", items, unreadCount }` to attention channel subscribers.
 - **Entry point:** `src/server/index.ts` — boots Fastify, registers plugins (CORS, static), routes, and handles graceful shutdown.
 - **Config:** `src/server/config.ts` — centralized `loadConfig()` reads PORT, HOST, NODE_ENV, CORS_ORIGIN from env. Default port 3000.
 - **Route pattern:** Fastify plugin pattern. Routes live in `src/server/routes/`. Each file exports a `FastifyPluginAsync` registered via `server.register()`.
