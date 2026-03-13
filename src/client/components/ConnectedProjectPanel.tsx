@@ -7,6 +7,7 @@ import {
   Divider,
   Group,
   Loader,
+  Modal,
   Paper,
   Stack,
   Text,
@@ -19,6 +20,7 @@ import {
   useDaemonForProject,
   useAggregatedSessions,
   useCreateSession,
+  useResumeSession,
   useAttentionItems,
   useAttentionCount,
   useDismissAttention,
@@ -61,6 +63,7 @@ const sessionStatusColor: Record<AggregatedSessionStatus, string> = {
   active: "green",
   idle: "yellow",
   error: "red",
+  ended: "gray",
 };
 
 const severityColor: Record<AttentionSeverity, string> = {
@@ -184,13 +187,8 @@ function SessionCard({
         </Badge>
         <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
           <Text size="sm" fw={500} truncate>
-            Session {session.sessionId.slice(0, 8)}
+            {session.title ?? `Session ${session.sessionId.slice(0, 8)}`}
           </Text>
-          {session.branch && (
-            <Text size="xs" c="dimmed" truncate>
-              {session.branch}
-            </Text>
-          )}
         </Stack>
         <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
           {timeAgo(session.updatedAt)}
@@ -203,11 +201,6 @@ function SessionCard({
       )}
       {expanded && (
         <Stack gap={4} mt="xs" onClick={(e) => e.stopPropagation()}>
-          {session.repository && (
-            <Text size="xs" c="dimmed">
-              Repo: {session.repository}
-            </Text>
-          )}
           {session.model && (
             <Text size="xs" c="dimmed">
               Model: {session.model}
@@ -222,6 +215,71 @@ function SessionCard({
   );
 }
 
+// ── Resume Session Modal ───────────────────────────────
+
+function ResumeSessionModal({
+  opened,
+  onClose,
+  sessions,
+  onResume,
+  isPending,
+}: {
+  opened: boolean;
+  onClose: () => void;
+  sessions: AggregatedSession[];
+  onResume: (sessionId: string) => void;
+  isPending: boolean;
+}) {
+  const resumable = sessions.filter((s) => s.status === "idle" || s.status === "ended");
+
+  return (
+    <Modal opened={opened} onClose={onClose} title="Resume Session" size="md">
+      {resumable.length === 0 ? (
+        <Text size="sm" c="dimmed" ta="center" p="md">
+          No idle or ended sessions available to resume
+        </Text>
+      ) : (
+        <Stack gap="xs">
+          {resumable.map((s) => (
+            <Paper
+              key={s.sessionId}
+              withBorder
+              p="xs"
+              radius="sm"
+              style={{ cursor: "pointer" }}
+              onClick={() => onResume(s.sessionId)}
+            >
+              <Group gap="xs" wrap="nowrap">
+                <Badge size="xs" color={sessionStatusColor[s.status]} variant="dot">
+                  {s.status}
+                </Badge>
+                <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                  <Text size="sm" fw={500} truncate>
+                    {s.summary || s.title || "Untitled"}
+                  </Text>
+                  <Group gap="xs">
+                    <Text size="xs" c="dimmed">
+                      Started: {timeAgo(s.startedAt)}
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      Updated: {timeAgo(s.updatedAt)}
+                    </Text>
+                  </Group>
+                </Stack>
+              </Group>
+            </Paper>
+          ))}
+          {isPending && (
+            <Stack align="center" p="xs">
+              <Loader size="sm" />
+            </Stack>
+          )}
+        </Stack>
+      )}
+    </Modal>
+  );
+}
+
 function CopilotSessionsSection({
   project,
   onSelectSession,
@@ -233,26 +291,61 @@ function CopilotSessionsSection({
   const { sessions, isLoading, isError } = useAggregatedSessions(projectId);
   const { daemon } = useDaemonForProject(projectId);
   const createSession = useCreateSession();
+  const resumeSession = useResumeSession();
   const isOnline = !!daemon;
+  const [resumeModalOpen, setResumeModalOpen] = useState(false);
 
   const handleCreate = () => {
     createSession.mutate({ owner: project.owner, repo: project.repo });
   };
 
+  const handleResume = (sessionId: string) => {
+    resumeSession.mutate(
+      { sessionId },
+      {
+        onSuccess: () => {
+          setResumeModalOpen(false);
+          onSelectSession?.(sessionId);
+        },
+      },
+    );
+  };
+
   return (
     <Stack gap="xs">
-      <Tooltip label={isOnline ? "Start a new Copilot session" : "Daemon offline"}>
-        <Button
-          variant="light"
-          size="xs"
-          fullWidth
-          disabled={!isOnline}
-          loading={createSession.isPending}
-          onClick={handleCreate}
-        >
-          ➕ New Session
-        </Button>
-      </Tooltip>
+      <Group gap="xs">
+        <Tooltip label={isOnline ? "Start a new Copilot session" : "Daemon offline"}>
+          <Button
+            variant="light"
+            size="xs"
+            style={{ flex: 1 }}
+            disabled={!isOnline}
+            loading={createSession.isPending}
+            onClick={handleCreate}
+          >
+            ➕ New Session
+          </Button>
+        </Tooltip>
+        <Tooltip label="Resume an idle or ended session">
+          <Button
+            variant="light"
+            size="xs"
+            style={{ flex: 1 }}
+            disabled={!isOnline}
+            onClick={() => setResumeModalOpen(true)}
+          >
+            ▶️ Resume
+          </Button>
+        </Tooltip>
+      </Group>
+
+      <ResumeSessionModal
+        opened={resumeModalOpen}
+        onClose={() => setResumeModalOpen(false)}
+        sessions={sessions}
+        onResume={handleResume}
+        isPending={resumeSession.isPending}
+      />
 
       {isLoading && (
         <Stack align="center" p="sm">

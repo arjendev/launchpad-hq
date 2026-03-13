@@ -18,6 +18,9 @@ import type {
   CopilotSession,
   AttentionItem,
   AttentionCountResponse,
+  ModeResponse,
+  PlanResponse,
+  ModelsResponse,
 } from "./types.js";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -379,6 +382,144 @@ export function useAbortSession() {
   });
 }
 
+// ── New SDK control hooks ─────────────────────────────
+
+/** Resume an idle/ended Copilot session with optional config. */
+export function useResumeSession() {
+  const qc = useQueryClient();
+  return useMutation<
+    { ok: boolean },
+    Error,
+    { sessionId: string; config?: Record<string, unknown> }
+  >({
+    mutationFn: ({ sessionId, config }) =>
+      fetchJson(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/resume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config ? { config } : {}),
+      }),
+    onSuccess: (_data, { sessionId }) => {
+      void qc.invalidateQueries({ queryKey: ["aggregated-session", sessionId] });
+      void qc.invalidateQueries({ queryKey: ["aggregated-sessions"] });
+      void qc.invalidateQueries({ queryKey: ["copilot-sessions"] });
+    },
+  });
+}
+
+/** Change the model for a Copilot session. */
+export function useSetModel() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean }, Error, { sessionId: string; model: string }>({
+    mutationFn: ({ sessionId, model }) =>
+      fetchJson(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/set-model`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model }),
+      }),
+    onSuccess: (_data, { sessionId }) => {
+      void qc.invalidateQueries({ queryKey: ["aggregated-session", sessionId] });
+      void qc.invalidateQueries({ queryKey: ["aggregated-sessions"] });
+    },
+  });
+}
+
+/** Get the current mode for a session. */
+export function useGetMode(sessionId: string | null) {
+  return useQuery<ModeResponse>({
+    queryKey: ["session-mode", sessionId],
+    queryFn: () =>
+      fetchJson<ModeResponse>(
+        `/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId!)}/mode`,
+      ),
+    enabled: !!sessionId,
+  });
+}
+
+/** Set the mode for a Copilot session. */
+export function useSetMode() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean }, Error, { sessionId: string; mode: string }>({
+    mutationFn: ({ sessionId, mode }) =>
+      fetchJson(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      }),
+    onSuccess: (_data, { sessionId }) => {
+      void qc.invalidateQueries({ queryKey: ["session-mode", sessionId] });
+      void qc.invalidateQueries({ queryKey: ["aggregated-session", sessionId] });
+      void qc.invalidateQueries({ queryKey: ["aggregated-sessions"] });
+    },
+  });
+}
+
+/** Get the plan for a session. */
+export function useGetPlan(sessionId: string | null) {
+  return useQuery<PlanResponse>({
+    queryKey: ["session-plan", sessionId],
+    queryFn: () =>
+      fetchJson<PlanResponse>(
+        `/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId!)}/plan`,
+      ),
+    enabled: !!sessionId,
+  });
+}
+
+/** Update (set) the plan for a session. */
+export function useUpdatePlan() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean }, Error, { sessionId: string; content: string }>({
+    mutationFn: ({ sessionId, content }) =>
+      fetchJson(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      }),
+    onSuccess: (_data, { sessionId }) => {
+      void qc.invalidateQueries({ queryKey: ["session-plan", sessionId] });
+    },
+  });
+}
+
+/** Delete the plan for a session. */
+export function useDeletePlan() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean }, Error, string>({
+    mutationFn: (sessionId) =>
+      fetchJson(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/plan`, {
+        method: "DELETE",
+      }),
+    onSuccess: (_data, sessionId) => {
+      void qc.invalidateQueries({ queryKey: ["session-plan", sessionId] });
+    },
+  });
+}
+
+/** Disconnect a session (without aborting). */
+export function useDisconnectSession() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean }, Error, string>({
+    mutationFn: (sessionId) =>
+      fetchJson(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/disconnect`, {
+        method: "POST",
+      }),
+    onSuccess: (_data, sessionId) => {
+      void qc.invalidateQueries({ queryKey: ["aggregated-session", sessionId] });
+      void qc.invalidateQueries({ queryKey: ["aggregated-sessions"] });
+      void qc.invalidateQueries({ queryKey: ["copilot-sessions"] });
+    },
+  });
+}
+
+/** List available Copilot models. */
+export function useListModels() {
+  return useQuery<ModelsResponse>({
+    queryKey: ["copilot-models"],
+    queryFn: () => fetchJson<ModelsResponse>("/api/copilot/models"),
+    refetchInterval: 30_000,
+  });
+}
+
 /**
  * Merges REST messages + real-time WebSocket events into a unified
  * ConversationEntry[] for the conversation viewer.
@@ -422,6 +563,9 @@ export function useConversationEntries(sessionId: string | null): {
 
     // Only process events for our session
     if (wsEvent.sessionId !== sessionId) return;
+
+    // Event logging for debugging
+    console.log('[LaunchpadHQ Event]', wsEvent.type, wsEvent);
 
     if (wsEvent.type === "copilot:session-event" && wsEvent.event) {
       const event = wsEvent.event;

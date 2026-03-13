@@ -3,11 +3,13 @@ import {
   Badge,
   Box,
   Button,
+  Collapse,
   Divider,
   Group,
   Loader,
   Paper,
   ScrollArea,
+  Select,
   Stack,
   Text,
   TextInput,
@@ -17,6 +19,12 @@ import {
   useConversationEntries,
   useSendPrompt,
   useAbortSession,
+  useListModels,
+  useSetModel,
+  useSetMode,
+  useGetPlan,
+  useDeletePlan,
+  useDisconnectSession,
 } from "../services/hooks.js";
 import type { ConversationEntry } from "../services/types.js";
 
@@ -33,12 +41,14 @@ const statusColor: Record<string, string> = {
   active: "green",
   idle: "yellow",
   error: "red",
+  ended: "gray",
 };
 
 const statusLabel: Record<string, string> = {
   active: "● active",
   idle: "● idle",
   error: "● error",
+  ended: "● ended",
 };
 
 // ── Individual message components (memoized) ───────────
@@ -241,6 +251,111 @@ const ConversationMessage = memo(function ConversationMessage({
   }
 });
 
+// ── SDK Control Panel ──────────────────────────────────
+
+const AVAILABLE_MODES = ["agent", "edit", "ask"];
+
+function SdkControlPanel({ sessionId }: { sessionId: string }) {
+  const { data: session } = useAggregatedSession(sessionId);
+  const { data: modelsData } = useListModels();
+  const { data: planData } = useGetPlan(sessionId);
+  const setModel = useSetModel();
+  const setMode = useSetMode();
+  const deletePlan = useDeletePlan();
+  const disconnectSession = useDisconnectSession();
+
+  const [planExpanded, setPlanExpanded] = useState(false);
+
+  const modelOptions = (modelsData?.models ?? []).map((m) => ({
+    value: m,
+    label: m,
+  }));
+
+  return (
+    <Stack gap="xs" p="xs">
+      {/* Model selector */}
+      <Group gap="xs" wrap="nowrap" align="flex-end">
+        <Select
+          label="Model"
+          size="xs"
+          data={modelOptions}
+          value={session?.model ?? null}
+          onChange={(val) => {
+            if (val) setModel.mutate({ sessionId, model: val });
+          }}
+          placeholder="Select model"
+          style={{ flex: 1 }}
+          disabled={setModel.isPending}
+          allowDeselect={false}
+        />
+      </Group>
+
+      {/* Mode control */}
+      <Stack gap={4}>
+        <Text size="xs" fw={500}>
+          Mode
+        </Text>
+        <Group gap={4}>
+          {AVAILABLE_MODES.map((m) => (
+            <Button
+              key={m}
+              size="compact-xs"
+              variant={session?.mode === m ? "filled" : "light"}
+              onClick={() => setMode.mutate({ sessionId, mode: m })}
+              disabled={setMode.isPending}
+            >
+              {m}
+            </Button>
+          ))}
+        </Group>
+      </Stack>
+
+      {/* Plan viewer */}
+      <Stack gap={4}>
+        <Group gap="xs" justify="space-between">
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            onClick={() => setPlanExpanded((p) => !p)}
+          >
+            📋 Plan {planExpanded ? "▾" : "▸"}
+          </Button>
+          {planData?.content && (
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="red"
+              onClick={() => deletePlan.mutate(sessionId)}
+              loading={deletePlan.isPending}
+            >
+              Delete Plan
+            </Button>
+          )}
+        </Group>
+        <Collapse in={planExpanded}>
+          <Paper withBorder p="xs" radius="sm">
+            <Text size="xs" style={{ whiteSpace: "pre-wrap" }}>
+              {planData?.content || "No plan set"}
+            </Text>
+          </Paper>
+        </Collapse>
+      </Stack>
+
+      {/* Disconnect */}
+      <Button
+        size="compact-xs"
+        variant="light"
+        color="orange"
+        onClick={() => disconnectSession.mutate(sessionId)}
+        loading={disconnectSession.isPending}
+        fullWidth
+      >
+        ⛓️‍💥 Disconnect
+      </Button>
+    </Stack>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────
 
 export function CopilotConversation({
@@ -255,6 +370,7 @@ export function CopilotConversation({
   const abortSession = useAbortSession();
 
   const [promptText, setPromptText] = useState("");
+  const [controlPanelOpen, setControlPanelOpen] = useState(false);
 
   // Auto-scroll logic
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -330,15 +446,10 @@ export function CopilotConversation({
               </Button>
             )}
             <Text size="sm" fw={600} truncate>
-              Session {sessionId.slice(0, 8)}
+              {session?.title ?? `Session ${sessionId.slice(0, 8)}`}
             </Text>
           </Group>
           <Group gap={4} wrap="nowrap">
-            {session?.branch && (
-              <Badge size="xs" variant="light" color="gray">
-                {session.branch}
-              </Badge>
-            )}
             <Badge
               size="xs"
               variant="dot"
@@ -346,6 +457,14 @@ export function CopilotConversation({
             >
               {statusLabel[sessionStatus ?? "idle"] ?? sessionStatus}
             </Badge>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              onClick={() => setControlPanelOpen((o) => !o)}
+              data-testid="control-panel-toggle"
+            >
+              ⚙️
+            </Button>
             <Button
               size="compact-xs"
               variant="subtle"
@@ -358,12 +477,14 @@ export function CopilotConversation({
             </Button>
           </Group>
         </Group>
-        {session?.repository && (
-          <Text size="xs" c="dimmed" truncate>
-            {session.repository}
-          </Text>
-        )}
       </Box>
+
+      {/* SDK Control Panel */}
+      <Collapse in={controlPanelOpen}>
+        <Box style={{ borderBottom: "1px solid var(--lp-border)" }}>
+          <SdkControlPanel sessionId={sessionId} />
+        </Box>
+      </Collapse>
 
       {/* Message area */}
       <ScrollArea
