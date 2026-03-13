@@ -107,38 +107,106 @@ export interface IssuesResponse {
   totalFiltered: number;
 }
 
-// ── Devcontainer types (match server containers/types.ts) ────
+// ── Daemon types (match server daemon-registry/registry.ts) ────
 
-export type ContainerStatus = "running" | "stopped";
+export type DaemonConnectionState = "authenticating" | "connected" | "disconnected";
 
-export interface DevContainer {
-  containerId: string;
-  name: string;
-  status: ContainerStatus;
-  workspaceFolder: string;
+export interface DaemonSummary {
+  daemonId: string;
+  projectId: string;
+  projectName: string;
+  runtimeTarget: string;
+  state: DaemonConnectionState;
+  connectedAt: number;
+  lastHeartbeat: number;
+  disconnectedAt?: number;
+  version: string;
+  capabilities: string[];
+}
+
+// ── Aggregated Copilot session types (match server copilot-aggregator) ────
+
+export type AggregatedSessionStatus = "active" | "idle" | "error";
+
+export interface AggregatedSession {
+  sessionId: string;
+  daemonId: string;
+  projectId: string;
+  cwd?: string;
+  gitRoot?: string;
   repository?: string;
-  ports: string[];
-  image: string;
-  createdAt: string;
+  branch?: string;
+  summary?: string;
+  status: AggregatedSessionStatus;
+  model?: string;
+  startedAt: number;
+  lastEvent?: { type: string; timestamp: number };
+  updatedAt: number;
 }
 
-export interface DiscoveryResult {
-  containers: DevContainer[];
-  scannedAt: string;
-  dockerAvailable: boolean;
-  error?: string;
+export interface AggregatedSessionMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+  timestamp: number;
 }
 
-export interface ContainerStatusUpdate {
-  type: "container_status_update";
-  containers: DevContainer[];
-  changes: Array<{
-    containerId: string;
-    name: string;
-    previousStatus: ContainerStatus | "absent";
-    currentStatus: ContainerStatus | "absent";
-  }>;
-  scannedAt: string;
+export interface SessionMessagesResponse {
+  sessionId: string;
+  messages: AggregatedSessionMessage[];
+  count: number;
+}
+
+export interface ToolInvocationRecord {
+  sessionId: string;
+  projectId: string;
+  tool: "report_progress" | "request_human_review" | "report_blocker";
+  args: Record<string, unknown>;
+  timestamp: number;
+}
+
+export interface SessionToolsResponse {
+  sessionId: string;
+  invocations: ToolInvocationRecord[];
+  count: number;
+}
+
+export type CopilotSessionEventType =
+  | "user.message"
+  | "assistant.message"
+  | "assistant.message.delta"
+  | "assistant.reasoning"
+  | "assistant.reasoning.delta"
+  | "tool.executionStart"
+  | "tool.executionComplete"
+  | "session.start"
+  | "session.idle"
+  | "session.error";
+
+export interface CopilotSessionEvent {
+  type: CopilotSessionEventType;
+  data: Record<string, unknown>;
+  timestamp: number;
+}
+
+/** Unified entry type for the conversation viewer */
+export type ConversationEntryType =
+  | "user"
+  | "assistant"
+  | "tool"
+  | "hq-tool"
+  | "status"
+  | "error";
+
+export interface ConversationEntry {
+  id: string;
+  type: ConversationEntryType;
+  content: string;
+  timestamp: number;
+  toolName?: string;
+  toolStatus?: "running" | "completed" | "failed";
+  hqToolName?: string;
+  hqToolArgs?: Record<string, unknown>;
+  isStreaming?: boolean;
 }
 
 // ── Copilot session types (match server copilot/types.ts) ────

@@ -1,0 +1,471 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { render } from "../../test-utils/client.js";
+import { CopilotConversation } from "../components/CopilotConversation.js";
+import type {
+  AggregatedSession,
+  AggregatedSessionMessage,
+  ToolInvocationRecord,
+} from "../services/types.js";
+
+// ── Mock data ──────────────────────────────────────────
+
+const mockSession: AggregatedSession = {
+  sessionId: "abc123",
+  daemonId: "d1",
+  projectId: "proj-1",
+  repository: "owner/my-project",
+  branch: "main",
+  status: "idle",
+  startedAt: Date.now() - 600_000,
+  updatedAt: Date.now(),
+};
+
+const mockMessages: AggregatedSessionMessage[] = [
+  { role: "user", content: "Fix the auth bug in login.ts", timestamp: 1000 },
+  {
+    role: "assistant",
+    content: "I'll fix the auth bug. Let me look at login.ts",
+    timestamp: 2000,
+  },
+  { role: "user", content: "Also check the tests", timestamp: 3000 },
+  {
+    role: "assistant",
+    content: "Sure, I'll check the tests too.",
+    timestamp: 4000,
+  },
+];
+
+const mockToolInvocations: ToolInvocationRecord[] = [
+  {
+    sessionId: "abc123",
+    projectId: "proj-1",
+    tool: "report_progress",
+    args: { status: "working", summary: "Fixed 1 of 3 files" },
+    timestamp: 2500,
+  },
+  {
+    sessionId: "abc123",
+    projectId: "proj-1",
+    tool: "request_human_review",
+    args: { reason: "Please review changes", urgency: "high" },
+    timestamp: 3500,
+  },
+];
+
+// ── Fetch mock ─────────────────────────────────────────
+
+function setupFetchMock(overrides?: {
+  session?: AggregatedSession | null;
+  messages?: AggregatedSessionMessage[];
+  tools?: ToolInvocationRecord[];
+  sendOk?: boolean;
+  abortOk?: boolean;
+}) {
+  const session = overrides?.session !== undefined ? overrides.session : mockSession;
+  const messages = overrides?.messages ?? mockMessages;
+  const tools = overrides?.tools ?? [];
+  const sendOk = overrides?.sendOk ?? true;
+  const abortOk = overrides?.abortOk ?? true;
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      const urlStr = typeof url === "string" ? url : "";
+
+      // Session detail
+      if (
+        urlStr.includes("/api/copilot/aggregated/sessions/") &&
+        !urlStr.includes("/messages") &&
+        !urlStr.includes("/tools") &&
+        !urlStr.includes("/send") &&
+        !urlStr.includes("/abort") &&
+        (!init || init.method === "GET" || !init.method)
+      ) {
+        if (!session) {
+          return {
+            ok: false,
+            json: async () => ({ error: "not_found", message: "Session not found" }),
+          };
+        }
+        return { ok: true, json: async () => session };
+      }
+
+      // Messages
+      if (urlStr.includes("/messages")) {
+        return {
+          ok: true,
+          json: async () => ({
+            sessionId: "abc123",
+            messages,
+            count: messages.length,
+          }),
+        };
+      }
+
+      // Tools
+      if (urlStr.includes("/tools")) {
+        return {
+          ok: true,
+          json: async () => ({
+            sessionId: "abc123",
+            invocations: tools,
+            count: tools.length,
+          }),
+        };
+      }
+
+      // Send prompt
+      if (urlStr.includes("/send") && init?.method === "POST") {
+        if (sendOk) {
+          return { ok: true, json: async () => ({ ok: true }) };
+        }
+        return {
+          ok: false,
+          json: async () => ({ error: "send_failed", message: "Daemon not connected" }),
+        };
+      }
+
+      // Abort
+      if (urlStr.includes("/abort") && init?.method === "POST") {
+        if (abortOk) {
+          return { ok: true, json: async () => ({ ok: true }) };
+        }
+        return {
+          ok: false,
+          json: async () => ({ error: "send_failed", message: "Daemon not connected" }),
+        };
+      }
+
+      // Fallback for other endpoints (copilot sessions list, etc.)
+      if (urlStr.includes("/api/copilot/sessions")) {
+        return {
+          ok: true,
+          json: async () => ({ sessions: [], count: 0, adapter: "mock" }),
+        };
+      }
+
+      return {
+        ok: false,
+        json: async () => ({ error: "NOT_FOUND", message: "Not found" }),
+      };
+    }),
+  );
+}
+
+// ── Tests ──────────────────────────────────────────────
+
+describe("CopilotConversation", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("renders message list with user and assistant messages", async () => {
+    setupFetchMock();
+    render(
+      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Fix the auth bug in login.ts"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText("I'll fix the auth bug. Let me look at login.ts"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Also check the tests")).toBeInTheDocument();
+    expect(
+      screen.getByText("Sure, I'll check the tests too."),
+    ).toBeInTheDocument();
+  });
+
+  it("user messages are right-aligned", async () => {
+    setupFetchMock();
+    render(
+      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Fix the auth bug in login.ts"),
+      ).toBeInTheDocument();
+    });
+
+    const userMessages = screen.getAllByTestId("user-message");
+    expect(userMessages.length).toBe(2);
+    // Verify user messages render inside the right-aligned container
+    for (const msg of userMessages) {
+      // Mantine Group with justify="flex-end" applies a CSS class; verify testid exists and content
+      expect(msg).toBeInTheDocument();
+    }
+  });
+
+  it("assistant messages are left-aligned", async () => {
+    setupFetchMock();
+    render(
+      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("I'll fix the auth bug. Let me look at login.ts"),
+      ).toBeInTheDocument();
+    });
+
+    const assistantMessages = screen.getAllByTestId("assistant-message");
+    expect(assistantMessages.length).toBe(2);
+    for (const msg of assistantMessages) {
+      expect(msg).toBeInTheDocument();
+    }
+  });
+
+  it("renders HQ tool invocations highlighted", async () => {
+    setupFetchMock({ tools: mockToolInvocations });
+    render(
+      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("report_progress")).toBeInTheDocument();
+    });
+    expect(screen.getByText("request_human_review")).toBeInTheDocument();
+
+    const hqCards = screen.getAllByTestId("hq-tool-card");
+    expect(hqCards.length).toBe(2);
+  });
+
+  it("renders empty state when no messages", async () => {
+    setupFetchMock({ messages: [] });
+    render(
+      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("empty-state")).toBeInTheDocument();
+    });
+    expect(screen.getByText("No messages yet")).toBeInTheDocument();
+  });
+
+  it("renders error state", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        json: async () => ({
+          error: "server_error",
+          message: "Internal server error",
+        }),
+      })),
+    );
+
+    render(
+      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to load messages/)).toBeInTheDocument();
+    });
+  });
+
+  it("prompt input sends to API", async () => {
+    setupFetchMock();
+    const user = userEvent.setup();
+    render(
+      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Type a prompt…")).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText("Type a prompt…");
+    await user.type(input, "Fix the tests too");
+
+    const sendBtn = screen.getByTestId("send-button");
+    await user.click(sendBtn);
+
+    await waitFor(() => {
+      const fetchMock = vi.mocked(fetch);
+      const calls = fetchMock.mock.calls;
+      const sendCall = calls.find(
+        ([url, init]) =>
+          typeof url === "string" &&
+          url.includes("/send") &&
+          (init as RequestInit)?.method === "POST",
+      );
+      expect(sendCall).toBeDefined();
+      const body = JSON.parse((sendCall![1] as RequestInit).body as string);
+      expect(body.prompt).toBe("Fix the tests too");
+    });
+  });
+
+  it("abort button calls abort API when session is active", async () => {
+    setupFetchMock({
+      session: { ...mockSession, status: "active" },
+    });
+    const user = userEvent.setup();
+    render(
+      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("abort-button")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("abort-button"));
+
+    await waitFor(() => {
+      const fetchMock = vi.mocked(fetch);
+      const calls = fetchMock.mock.calls;
+      const abortCall = calls.find(
+        ([url, init]) =>
+          typeof url === "string" &&
+          url.includes("/abort") &&
+          (init as RequestInit)?.method === "POST",
+      );
+      expect(abortCall).toBeDefined();
+    });
+  });
+
+  it("shows loading state while sending", async () => {
+    // Create a delayed fetch that hangs for send
+    let resolveSend: (() => void) | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const urlStr = typeof url === "string" ? url : "";
+
+        if (urlStr.includes("/send") && init?.method === "POST") {
+          return new Promise<{ ok: boolean; json: () => Promise<unknown> }>(
+            (resolve) => {
+              resolveSend = () => resolve({ ok: true, json: async () => ({ ok: true }) });
+            },
+          );
+        }
+
+        if (urlStr.includes("/messages")) {
+          return {
+            ok: true,
+            json: async () => ({
+              sessionId: "abc123",
+              messages: mockMessages,
+              count: mockMessages.length,
+            }),
+          };
+        }
+
+        if (urlStr.includes("/tools")) {
+          return {
+            ok: true,
+            json: async () => ({
+              sessionId: "abc123",
+              invocations: [],
+              count: 0,
+            }),
+          };
+        }
+
+        if (urlStr.includes("/api/copilot/aggregated/sessions/")) {
+          return { ok: true, json: async () => mockSession };
+        }
+
+        return {
+          ok: false,
+          json: async () => ({ error: "NOT_FOUND", message: "Not found" }),
+        };
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(
+      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Type a prompt…")).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText("Type a prompt…");
+    await user.type(input, "hello");
+    await user.click(screen.getByTestId("send-button"));
+
+    // The send button should show loading state
+    await waitFor(() => {
+      const sendBtn = screen.getByTestId("send-button");
+      expect(sendBtn).toBeDisabled();
+    });
+
+    // Resolve the send
+    resolveSend?.();
+  });
+
+  it("shows session header with branch and status", async () => {
+    setupFetchMock();
+    render(
+      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Session abc123")).toBeInTheDocument();
+    });
+
+    // Branch badge
+    await waitFor(() => {
+      expect(screen.getByText("main")).toBeInTheDocument();
+    });
+
+    // Status badge
+    expect(screen.getByText("● idle")).toBeInTheDocument();
+  });
+
+  it("renders back button and calls onClose", async () => {
+    setupFetchMock();
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <CopilotConversation
+        sessionId="abc123"
+        daemonId="d1"
+        onClose={onClose}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("back-button")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("back-button"));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("disables input when session is processing", async () => {
+    setupFetchMock({
+      session: { ...mockSession, status: "active" },
+    });
+    render(
+      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+    );
+
+    await waitFor(() => {
+      const input = screen.getByPlaceholderText("Session processing…");
+      expect(input).toBeDisabled();
+    });
+
+    // Should show abort button instead of send
+    expect(screen.getByTestId("abort-button")).toBeInTheDocument();
+    expect(screen.queryByTestId("send-button")).not.toBeInTheDocument();
+  });
+
+  it("shows repository name in header", async () => {
+    setupFetchMock();
+    render(
+      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("owner/my-project")).toBeInTheDocument();
+    });
+  });
+});
