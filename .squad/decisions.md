@@ -244,3 +244,11 @@
 **What:** Feature-detect SDK availability, auto-fallback to mock with a warning. `isSdkAvailable()` exported from `sdk-adapter.ts` — single source of truth. `CopilotManager` constructor: if `!useMock && !isSdkAvailable()` → use `MockCopilotAdapter` + `console.warn()`. `cli.ts`: global `uncaughtException` / `unhandledRejection` handlers installed before any imports; daemon startup wrapped in try/catch. `daemon/index.ts`: startup banner logged immediately on connect so logs are never empty.
 **Why:** Daemon should always start — reduced capability (mock copilot) is better than a crash. Configuration-free: no env vars required for basic operation. When the real SDK ships, the fallback disappears automatically (sdkAvailable becomes true). Global error handlers ensure any future crash also produces visible log output.
 **Impact:** No behavior change when `LAUNCHPAD_COPILOT_MOCK=true` (still uses mock directly). No behavior change when SDK is installed (still uses real adapter). New behavior: SDK missing + no mock env → graceful degradation to mock with warning.
+
+### 2026-03-13: SDK message projectId injection
+**By:** Romilly
+**Date:** 2026-03-13
+**Status:** Implemented
+**What:** Handler injects projectId from WS-to-daemonId mapping into SDK message payloads before emitting to registry. Aggregator uses daemonId as fallback (safe since daemonId === projectId, both are `owner/repo`). Poll errors now logged via `console.warn`.
+**Why:** SDK sessions (`copilot-sdk-session-event`, `copilot-sdk-session-list`) were arriving without projectId, defaulting to "unknown" and disappearing from project-filtered lists. Handler injection ensures all message types carry projectId.
+**Impact:** Files: `src/server/copilot/handler.ts`, `src/server/copilot/aggregator.ts`, `src/daemon/copilot/manager.ts`. 603 tests pass. Commit: 1c93ce1.
