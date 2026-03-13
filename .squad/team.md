@@ -14,7 +14,7 @@
 |------|------|---------|--------|
 | Cooper | Lead | .squad/agents/cooper/charter.md | 🏗️ Active |
 | Brand | Frontend Dev | .squad/agents/brand/charter.md | ⚛️ Active |
-| Romilly | Backend Dev (HQ) | .squad/agents/romilly/charter.md | 🔧 Active |
+| Romilly | HQ Server Specialist | .squad/agents/romilly/charter.md | 🔧 Active |
 | TARS | Daemon & SDK Specialist | .squad/agents/tars/charter.md | ⚙️ Active |
 | Doyle | Quality Reviewer | .squad/agents/doyle/charter.md | 🧪 Active |
 | Scribe | Session Logger | .squad/agents/scribe/charter.md | 📋 Active |
