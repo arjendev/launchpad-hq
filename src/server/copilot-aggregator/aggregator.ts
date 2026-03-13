@@ -4,7 +4,20 @@ import type {
   CopilotSessionEvent,
   CopilotSdkState,
   CopilotMessage,
+  CopilotHqToolName,
 } from "../../shared/protocol.js";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface ToolInvocationRecord {
+  sessionId: string;
+  projectId: string;
+  tool: CopilotHqToolName;
+  args: Record<string, unknown>;
+  timestamp: number;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,6 +56,9 @@ export interface AggregatorEvents {
     daemonId: string,
     state: CopilotSdkState,
   ) => void;
+  "tool-invocation": (
+    record: ToolInvocationRecord,
+  ) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -57,6 +73,7 @@ export class CopilotSessionAggregator extends EventEmitter {
   private sessions = new Map<string, AggregatedSession>();
   private sdkStates = new Map<string, DaemonSdkState>();
   private conversationHistory = new Map<string, CopilotMessage[]>();
+  private toolInvocations = new Map<string, ToolInvocationRecord[]>();
 
   // ── Session updates ────────────────────────────────────
 
@@ -145,6 +162,47 @@ export class CopilotSessionAggregator extends EventEmitter {
     return this.conversationHistory.get(sessionId) ?? [];
   }
 
+  // ── Tool invocations ──────────────────────────────────
+
+  /** Handle a tool invocation from a Copilot session */
+  handleToolInvocation(
+    sessionId: string,
+    projectId: string,
+    tool: CopilotHqToolName,
+    args: Record<string, unknown>,
+    timestamp: number,
+  ): void {
+    const record: ToolInvocationRecord = { sessionId, projectId, tool, args, timestamp };
+
+    const existing = this.toolInvocations.get(sessionId) ?? [];
+    existing.push(record);
+    this.toolInvocations.set(sessionId, existing);
+
+    // Update session status based on tool type
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      if (tool === 'report_progress') {
+        const status = args.status as string | undefined;
+        if (status === 'blocked') {
+          session.status = 'error';
+        } else if (status === 'completed') {
+          session.status = 'idle';
+        }
+        session.updatedAt = Date.now();
+      } else if (tool === 'report_blocker') {
+        session.status = 'error';
+        session.updatedAt = Date.now();
+      }
+    }
+
+    this.emit("tool-invocation", record);
+  }
+
+  /** Get tool invocation history for a session */
+  getToolInvocations(sessionId: string): ToolInvocationRecord[] {
+    return this.toolInvocations.get(sessionId) ?? [];
+  }
+
   // ── Daemon lifecycle ───────────────────────────────────
 
   /** Clean up all sessions for a disconnected daemon */
@@ -156,6 +214,7 @@ export class CopilotSessionAggregator extends EventEmitter {
         removedSessionIds.push(id);
         this.sessions.delete(id);
         this.conversationHistory.delete(id);
+        this.toolInvocations.delete(id);
       }
     }
 

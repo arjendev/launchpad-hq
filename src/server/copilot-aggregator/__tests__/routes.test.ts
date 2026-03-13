@@ -253,6 +253,62 @@ describe("Copilot session routes", () => {
     });
   });
 
+  // ── GET /api/copilot/aggregated/sessions/:sessionId/tools ──
+
+  describe("GET /api/copilot/aggregated/sessions/:sessionId/tools", () => {
+    it("returns tool invocation history for a session", async () => {
+      server.copilotAggregator.updateSessions("d1", "proj-1", [
+        { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
+      ]);
+      server.copilotAggregator.handleToolInvocation(
+        "s1", "proj-1", "report_progress",
+        { status: "working", summary: "Making progress" }, 3000,
+      );
+      server.copilotAggregator.handleToolInvocation(
+        "s1", "proj-1", "request_human_review",
+        { reason: "Please check", urgency: "high" }, 4000,
+      );
+
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions/s1/tools",
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.sessionId).toBe("s1");
+      expect(body.count).toBe(2);
+      expect(body.invocations[0].tool).toBe("report_progress");
+      expect(body.invocations[1].tool).toBe("request_human_review");
+    });
+
+    it("returns empty invocations for session with no tools used", async () => {
+      server.copilotAggregator.updateSessions("d1", "proj-1", [
+        { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
+      ]);
+
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions/s1/tools",
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.count).toBe(0);
+      expect(body.invocations).toEqual([]);
+    });
+
+    it("returns 404 for unknown session", async () => {
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions/nonexistent/tools",
+      });
+
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error).toBe("not_found");
+    });
+  });
+
   // ── POST /api/daemons/:id/copilot/sessions ────────────
 
   describe("POST /api/daemons/:id/copilot/sessions", () => {

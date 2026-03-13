@@ -11,9 +11,11 @@
  */
 
 import type { DaemonToHqMessage, HqToDaemonMessage, SessionConfigWire } from '../../shared/protocol.js';
-import type { CopilotAdapter, CopilotSession, SessionConfig } from './adapter.js';
+import type { CopilotAdapter, CopilotSession, SessionConfig, ToolDefinition } from './adapter.js';
 import { MockCopilotAdapter } from './mock-adapter.js';
 import { SdkCopilotAdapter } from './sdk-adapter.js';
+import { createHqTools } from './hq-tools.js';
+import { buildSystemMessage } from './system-message.js';
 
 export type SendToHq = (msg: DaemonToHqMessage) => void;
 
@@ -27,6 +29,10 @@ function toSessionConfig(wire?: SessionConfigWire): SessionConfig {
 export interface CopilotManagerOptions {
   /** Function to send messages to HQ over the daemon WebSocket */
   sendToHq: SendToHq;
+  /** Project identifier for this daemon */
+  projectId?: string;
+  /** Human-readable project name */
+  projectName?: string;
   /** Force mock adapter regardless of SDK availability */
   useMock?: boolean;
   /** Session-list poll interval in ms (default 30 000) */
@@ -43,10 +49,17 @@ export class CopilotManager {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private pollIntervalMs: number;
   private stateUnsub: (() => void) | null = null;
+  private projectId: string;
+  private projectName?: string;
+  private hqTools: ToolDefinition[];
 
   constructor(options: CopilotManagerOptions) {
     this.sendToHq = options.sendToHq;
     this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+    this.projectId = options.projectId ?? 'unknown';
+    this.projectName = options.projectName;
+
+    this.hqTools = createHqTools(this.sendToHq, this.projectId);
 
     const useMock =
       options.useMock ?? process.env.LAUNCHPAD_COPILOT_MOCK === 'true';
@@ -150,7 +163,8 @@ export class CopilotManager {
     config?: SessionConfigWire,
   ): Promise<void> {
     try {
-      const session = await this.adapter.createSession(toSessionConfig(config));
+      const sessionConfig = this.injectHqConfig(toSessionConfig(config));
+      const session = await this.adapter.createSession(sessionConfig);
       this.trackSession(session);
 
       this.sendToHq({
@@ -187,7 +201,8 @@ export class CopilotManager {
     config?: Partial<SessionConfigWire>,
   ): Promise<void> {
     try {
-      const session = await this.adapter.resumeSession(sessionId, toSessionConfig(config as SessionConfigWire | undefined));
+      const sessionConfig = this.injectHqConfig(toSessionConfig(config as SessionConfigWire | undefined));
+      const session = await this.adapter.resumeSession(sessionId, sessionConfig);
       this.trackSession(session);
 
       this.sendToHq({
@@ -297,5 +312,14 @@ export class CopilotManager {
     } catch {
       // Silently skip on poll failure
     }
+  }
+
+  /** Merge HQ tools and system message into a session config */
+  private injectHqConfig(config: SessionConfig): SessionConfig {
+    return {
+      ...config,
+      tools: [...(config.tools ?? []), ...this.hqTools],
+      systemMessage: config.systemMessage ?? buildSystemMessage(this.projectId, this.projectName),
+    };
   }
 }

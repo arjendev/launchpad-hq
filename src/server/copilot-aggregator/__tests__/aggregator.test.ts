@@ -170,9 +170,9 @@ describe("CopilotSessionAggregator", () => {
     });
   });
 
-  // ── removeDaemon ──────────────────────────────────────
+  // ── Query methods ─────────────────────────────────────
 
-  describe("removeDaemon", () => {
+  describe("queries", () => {
     it("removes all sessions for a daemon", () => {
       aggregator.updateSessions("d1", "proj-1", [
         makeSessionInfo({ sessionId: "s1" }),
@@ -267,6 +267,85 @@ describe("CopilotSessionAggregator", () => {
 
     it("findDaemonForSession returns undefined for missing session", () => {
       expect(aggregator.findDaemonForSession("nope")).toBeUndefined();
+    });
+  });
+
+  // ── Tool invocations ─────────────────────────────────
+
+  describe("handleToolInvocation", () => {
+    it("stores tool invocation in history", () => {
+      aggregator.handleToolInvocation("s1", "proj-1", "report_progress", { status: "working", summary: "On it" }, 5000);
+
+      const invocations = aggregator.getToolInvocations("s1");
+      expect(invocations).toHaveLength(1);
+      expect(invocations[0].tool).toBe("report_progress");
+      expect(invocations[0].args.summary).toBe("On it");
+      expect(invocations[0].timestamp).toBe(5000);
+    });
+
+    it("accumulates multiple invocations for same session", () => {
+      aggregator.handleToolInvocation("s1", "proj-1", "report_progress", { status: "working", summary: "Starting" }, 1000);
+      aggregator.handleToolInvocation("s1", "proj-1", "report_progress", { status: "completed", summary: "Done" }, 2000);
+
+      expect(aggregator.getToolInvocations("s1")).toHaveLength(2);
+    });
+
+    it("returns empty array for unknown session", () => {
+      expect(aggregator.getToolInvocations("nonexistent")).toEqual([]);
+    });
+
+    it("updates session status to 'error' for report_blocker", () => {
+      aggregator.updateSessions("d1", "proj-1", [
+        makeSessionInfo({ sessionId: "s1", state: "active" }),
+      ]);
+
+      aggregator.handleToolInvocation("s1", "proj-1", "report_blocker", { blocker: "Cannot compile" }, 5000);
+
+      expect(aggregator.getSession("s1")!.status).toBe("error");
+    });
+
+    it("updates session status to 'error' for report_progress with blocked status", () => {
+      aggregator.updateSessions("d1", "proj-1", [
+        makeSessionInfo({ sessionId: "s1", state: "active" }),
+      ]);
+
+      aggregator.handleToolInvocation("s1", "proj-1", "report_progress", { status: "blocked", summary: "Stuck" }, 5000);
+
+      expect(aggregator.getSession("s1")!.status).toBe("error");
+    });
+
+    it("updates session status to 'idle' for report_progress with completed status", () => {
+      aggregator.updateSessions("d1", "proj-1", [
+        makeSessionInfo({ sessionId: "s1", state: "active" }),
+      ]);
+
+      aggregator.handleToolInvocation("s1", "proj-1", "report_progress", { status: "completed", summary: "All done" }, 5000);
+
+      expect(aggregator.getSession("s1")!.status).toBe("idle");
+    });
+
+    it("emits tool-invocation event", () => {
+      const handler = vi.fn();
+      aggregator.on("tool-invocation", handler);
+
+      aggregator.handleToolInvocation("s1", "proj-1", "request_human_review", { reason: "Check code", urgency: "high" }, 5000);
+
+      expect(handler).toHaveBeenCalledOnce();
+      expect(handler.mock.calls[0][0]).toMatchObject({
+        sessionId: "s1",
+        tool: "request_human_review",
+      });
+    });
+
+    it("cleans up tool invocations when daemon is removed", () => {
+      aggregator.updateSessions("d1", "proj-1", [
+        makeSessionInfo({ sessionId: "s1" }),
+      ]);
+      aggregator.handleToolInvocation("s1", "proj-1", "report_progress", { status: "working", summary: "hi" }, 1000);
+
+      aggregator.removeDaemon("d1");
+
+      expect(aggregator.getToolInvocations("s1")).toEqual([]);
     });
   });
 });
