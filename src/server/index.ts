@@ -24,6 +24,8 @@ import daemonRoutes from "./routes/daemons.js";
 import terminalRelayPlugin from "./terminal-relay/plugin.js";
 import terminalRoutes from "./routes/terminals.js";
 import copilotSessionRoutes from "./routes/copilot-sessions.js";
+import selfDaemonPlugin from "./self-daemon/plugin.js";
+import selfDaemonRoutes from "./routes/self-daemon.js";
 
 const config = loadConfig();
 
@@ -94,6 +96,11 @@ await server.register(attentionPlugin);
 await server.register(daemonRoutes);
 await server.register(terminalRoutes);
 await server.register(copilotSessionRoutes);
+
+// --- Self-daemon (spawns HQ's own daemon as a child process) ---
+
+await server.register(selfDaemonPlugin);
+await server.register(selfDaemonRoutes);
 
 // --- Lifecycle ---
 
