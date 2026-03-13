@@ -29,3 +29,14 @@
 - Write path uses last-write-wins: reads current SHA from cache/remote before PUT
 - DI pattern via `StateManagerDeps` for testability — tests inject mock client/cache without vi.mock class issues
 - 23 unit tests: 12 for GitHubStateClient (mocked fetch), 11 for StateManager (injected mock deps)
+
+### 2026-03-13: GitHub GraphQL Client Module
+- GraphQL client lives in `src/server/github/` with three new files: `graphql-types.ts`, `graphql.ts`, `graphql-plugin.ts`
+- Uses `graphql-request` library (GraphQLClient) — lightweight, typed, supports response middleware for header access
+- `GitHubGraphQL` class wraps all queries: `listViewerRepos`, `listIssues`, `listPullRequests`, `fetchRepoMetadata`, `fetchIssuesForRepos`
+- `fetchIssuesForRepos` uses GraphQL aliases to batch multiple repo queries into a single request (critical for ~500ms multi-repo fetch)
+- Rate-limit tracking via `responseMiddleware` parsing `X-RateLimit-*` headers; exposed as `rateLimit` getter
+- Custom `GitHubGraphQLError` with typed `code` field: `RATE_LIMITED`, `UNAUTHORIZED`, `NOT_FOUND`, `GRAPHQL_ERROR`, `NETWORK_ERROR`
+- GitHub returns non-standard `type` field on GraphQL errors — requires cast `(error as unknown as { type?: string })` to access
+- Fastify plugin uses `fp()` with `dependencies: ["github-auth"]`; decorates server with `githubGraphQL`
+- 15 unit tests with fully mocked `graphql-request` (vi.mock + mockRequestFn pattern)
