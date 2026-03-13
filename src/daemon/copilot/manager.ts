@@ -280,6 +280,7 @@ export class CopilotManager {
     const session = this.activeSessions.get(sessionId);
     if (session) {
       await session.abort();
+      await session.destroy();
 
       // Unsubscribe from session events
       const unsub = this.sessionUnsubscribers.get(sessionId);
@@ -288,21 +289,24 @@ export class CopilotManager {
 
       // Remove from active sessions
       this.activeSessions.delete(sessionId);
-
-      // Notify HQ so aggregator can clean up if it hasn't already
-      this.sendToHq({
-        type: 'copilot-sdk-session-event',
-        timestamp: Date.now(),
-        payload: {
-          sessionId,
-          event: {
-            type: 'session.ended',
-            data: {},
-            timestamp: Date.now(),
-          },
-        },
-      });
     }
+
+    // Always try to delete from SDK registry (even if not in activeSessions)
+    await this.adapter.deleteSession(sessionId);
+
+    // Notify HQ so aggregator can clean up if it hasn't already
+    this.sendToHq({
+      type: 'copilot-sdk-session-event',
+      timestamp: Date.now(),
+      payload: {
+        sessionId,
+        event: {
+          type: 'session.ended',
+          data: {},
+          timestamp: Date.now(),
+        },
+      },
+    });
   }
 
   // -----------------------------------------------------------------------

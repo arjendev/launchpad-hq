@@ -74,6 +74,7 @@ export class CopilotSessionAggregator extends EventEmitter {
   private sdkStates = new Map<string, DaemonSdkState>();
   private conversationHistory = new Map<string, CopilotMessage[]>();
   private toolInvocations = new Map<string, ToolInvocationRecord[]>();
+  private tombstones = new Set<string>();
 
   // ── Session updates ────────────────────────────────────
 
@@ -86,6 +87,11 @@ export class CopilotSessionAggregator extends EventEmitter {
     const now = Date.now();
 
     for (const info of sessions) {
+      if (this.tombstones.has(info.sessionId)) {
+        console.log(`[aggregator] Rejecting tombstoned session ${info.sessionId}`);
+        continue;
+      }
+
       const existing = this.sessions.get(info.sessionId);
       const aggregated: AggregatedSession = {
         ...existing,
@@ -231,6 +237,7 @@ export class CopilotSessionAggregator extends EventEmitter {
 
   /** Remove a single session and all associated data */
   removeSession(sessionId: string): void {
+    this.tombstones.add(sessionId);
     const existed = this.sessions.delete(sessionId);
     this.conversationHistory.delete(sessionId);
     this.toolInvocations.delete(sessionId);
