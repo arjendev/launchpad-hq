@@ -1,0 +1,646 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { createTestServer, type FastifyInstance } from "../../test-utils/server.js";
+import { DaemonRegistry } from "../daemon-registry/registry.js";
+import { DaemonWsHandler, type TokenLookup, type BrowserBroadcast } from "../daemon-registry/handler.js";
+import type { DaemonInfo, DaemonToHqMessage, HqToDaemonMessage } from "../../shared/protocol.js";
+import { HEARTBEAT_TIMEOUT_MS } from "../../shared/constants.js";
+import daemonRoutes from "../routes/daemons.js";
+
+// --- Mock helpers ---
+
+function createMockSocket() {
+  const sent: string[] = [];
+  let closeHandler: (() => void) | null = null;
+  let messageHandler: ((data: string) => void) | null = null;
+  let errorHandler: ((err: Error) => void) | null = null;
+  return {
+    sent,
+    readyState: 1,
+    OPEN: 1 as const,
+    send(data: string) {
+      sent.push(data);
+    },
+    close() {
+      if (closeHandler) closeHandler();
+    },
+    terminate() {},
+    ping() {},
+    on(event: string, handler: (...args: unknown[]) => void) {
+      if (event === "close") closeHandler = handler as () => void;
+      if (event === "message") messageHandler = handler as (data: string) => void;
+      if (event === "error") errorHandler = handler as (err: Error) => void;
+    },
+    // Test helpers to simulate events
+    simulateMessage(data: string) {
+      if (messageHandler) messageHandler(data);
+    },
+    simulateClose() {
+      if (closeHandler) closeHandler();
+    },
+    simulateError(err: Error) {
+      if (errorHandler) errorHandler(err);
+    },
+  };
+}
+
+function createMockLog() {
+  return {
+    info: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    trace: vi.fn(),
+    child() {
+      return createMockLog();
+    },
+    silent() {},
+    level: "silent",
+  };
+}
+
+function makeDaemonInfo(overrides?: Partial<DaemonInfo>): DaemonInfo {
+  return {
+    projectId: "proj-1",
+    projectName: "Test Project",
+    runtimeTarget: "local",
+    capabilities: ["terminal", "copilot"],
+    version: "0.1.0",
+    protocolVersion: "1.0.0" as DaemonInfo["protocolVersion"],
+    ...overrides,
+  };
+}
+
+// --- DaemonRegistry tests ---
+
+describe("DaemonRegistry", () => {
+  let registry: DaemonRegistry;
+
+  beforeEach(() => {
+    registry = new DaemonRegistry();
+  });
+
+  afterEach(() => {
+    registry.stopHeartbeatMonitor();
+  });
+
+  it("registers and retrieves a daemon", () => {
+    const ws = createMockSocket();
+    const info = makeDaemonInfo();
+    registry.register("d1", ws as never, info);
+
+    expect(registry.size).toBe(1);
+    const daemon = registry.getDaemon("d1");
+    expect(daemon).toBeDefined();
+    expect(daemon!.info.projectName).toBe("Test Project");
+    expect(daemon!.state).toBe("connected");
+  });
+
+  it("unregisters a daemon and emits event", () => {
+    const ws = createMockSocket();
+    registry.register("d1", ws as never, makeDaemonInfo());
+
+    const disconnected = vi.fn();
+    registry.on("daemon:disconnected", disconnected);
+
+    const summary = registry.unregister("d1");
+    expect(summary).toBeDefined();
+    expect(summary!.state).toBe("disconnected");
+    expect(registry.size).toBe(0);
+    expect(disconnected).toHaveBeenCalledOnce();
+  });
+
+  it("unregister returns undefined for unknown id", () => {
+    expect(registry.unregister("ghost")).toBeUndefined();
+  });
+
+  it("getAllDaemons returns summaries", () => {
+    const ws1 = createMockSocket();
+    const ws2 = createMockSocket();
+    registry.register("d1", ws1 as never, makeDaemonInfo({ projectId: "p1", projectName: "P1" }));
+    registry.register("d2", ws2 as never, makeDaemonInfo({ projectId: "p2", projectName: "P2" }));
+
+    const all = registry.getAllDaemons();
+    expect(all).toHaveLength(2);
+    expect(all.map((d) => d.projectName).sort()).toEqual(["P1", "P2"]);
+    // Should not have ws property (serialisable)
+    expect(all[0]).not.toHaveProperty("ws");
+  });
+
+  it("emits daemon:connected on register", () => {
+    const connected = vi.fn();
+    registry.on("daemon:connected", connected);
+
+    const ws = createMockSocket();
+    registry.register("d1", ws as never, makeDaemonInfo());
+
+    expect(connected).toHaveBeenCalledOnce();
+    expect(connected.mock.calls[0][0].daemonId).toBe("d1");
+  });
+
+  it("sendToDaemon sends to the correct socket", () => {
+    const ws = createMockSocket();
+    registry.register("d1", ws as never, makeDaemonInfo());
+
+    const message: HqToDaemonMessage = {
+      type: "request-status",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1" },
+    };
+
+    expect(registry.sendToDaemon("d1", message)).toBe(true);
+    expect(ws.sent).toHaveLength(1);
+    expect(JSON.parse(ws.sent[0]).type).toBe("request-status");
+  });
+
+  it("sendToDaemon returns false for unknown daemon", () => {
+    const message: HqToDaemonMessage = {
+      type: "request-status",
+      timestamp: Date.now(),
+      payload: { projectId: "x" },
+    };
+    expect(registry.sendToDaemon("ghost", message)).toBe(false);
+  });
+
+  it("broadcastToDaemons sends to all connected", () => {
+    const ws1 = createMockSocket();
+    const ws2 = createMockSocket();
+    registry.register("d1", ws1 as never, makeDaemonInfo({ projectId: "p1" }));
+    registry.register("d2", ws2 as never, makeDaemonInfo({ projectId: "p2" }));
+
+    const msg: HqToDaemonMessage = {
+      type: "request-status",
+      timestamp: Date.now(),
+      payload: { projectId: "all" },
+    };
+    registry.broadcastToDaemons(msg);
+
+    expect(ws1.sent).toHaveLength(1);
+    expect(ws2.sent).toHaveLength(1);
+  });
+
+  it("recordHeartbeat updates last heartbeat time", () => {
+    const ws = createMockSocket();
+    registry.register("d1", ws as never, makeDaemonInfo());
+    const before = registry.getDaemon("d1")!.lastHeartbeat;
+
+    registry.recordHeartbeat("d1");
+    const after = registry.getDaemon("d1")!.lastHeartbeat;
+
+    expect(after).toBeGreaterThanOrEqual(before);
+  });
+
+  it("checkHeartbeats removes timed-out daemons", () => {
+    const ws = createMockSocket();
+    registry.register("d1", ws as never, makeDaemonInfo());
+
+    // Manually set lastHeartbeat to the past
+    const daemon = registry.getDaemon("d1")!;
+    daemon.lastHeartbeat = Date.now() - HEARTBEAT_TIMEOUT_MS - 1000;
+
+    const timedOut = registry.checkHeartbeats();
+    expect(timedOut).toContain("d1");
+    expect(registry.size).toBe(0);
+  });
+
+  it("checkHeartbeats does not remove fresh daemons", () => {
+    const ws = createMockSocket();
+    registry.register("d1", ws as never, makeDaemonInfo());
+
+    const timedOut = registry.checkHeartbeats();
+    expect(timedOut).toHaveLength(0);
+    expect(registry.size).toBe(1);
+  });
+
+  it("handles re-registration (daemon reconnect)", () => {
+    const ws1 = createMockSocket();
+    const ws2 = createMockSocket();
+    registry.register("d1", ws1 as never, makeDaemonInfo());
+    registry.register("d1", ws2 as never, makeDaemonInfo());
+
+    expect(registry.size).toBe(1);
+    // New socket should be active
+    const daemon = registry.getDaemon("d1")!;
+    expect(daemon.ws).toBe(ws2);
+  });
+});
+
+// --- DaemonWsHandler tests ---
+
+describe("DaemonWsHandler", () => {
+  let registry: DaemonRegistry;
+  let broadcast: ReturnType<typeof vi.fn>;
+  let log: ReturnType<typeof createMockLog>;
+  const validToken = "a".repeat(64);
+
+  function createHandler(tokenLookup?: TokenLookup) {
+    const lookup = tokenLookup ?? ((_id: string) => validToken);
+    return new DaemonWsHandler(registry, lookup, broadcast as BrowserBroadcast, log as never);
+  }
+
+  beforeEach(() => {
+    registry = new DaemonRegistry();
+    broadcast = vi.fn();
+    log = createMockLog();
+  });
+
+  afterEach(() => {
+    registry.stopHeartbeatMonitor();
+  });
+
+  it("sends auth-challenge on new connection", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    expect(ws.sent).toHaveLength(1);
+    const msg = JSON.parse(ws.sent[0]);
+    expect(msg.type).toBe("auth-challenge");
+    expect(msg.payload.nonce).toBeDefined();
+  });
+
+  it("rejects auth with wrong nonce", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    const challenge = JSON.parse(ws.sent[0]);
+    const authResponse: DaemonToHqMessage = {
+      type: "auth-response",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", token: validToken, nonce: "wrong-nonce" },
+    };
+    ws.simulateMessage(JSON.stringify(authResponse));
+
+    // Should have challenge + reject
+    expect(ws.sent).toHaveLength(2);
+    const reject = JSON.parse(ws.sent[1]);
+    expect(reject.type).toBe("auth-reject");
+    expect(reject.payload.reason).toBe("Nonce mismatch");
+  });
+
+  it("rejects auth with invalid token", () => {
+    const handler = createHandler(() => "expected-token");
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    const challenge = JSON.parse(ws.sent[0]);
+    const authResponse: DaemonToHqMessage = {
+      type: "auth-response",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", token: "wrong-token", nonce: challenge.payload.nonce },
+    };
+    ws.simulateMessage(JSON.stringify(authResponse));
+
+    expect(ws.sent).toHaveLength(2);
+    const reject = JSON.parse(ws.sent[1]);
+    expect(reject.type).toBe("auth-reject");
+    expect(reject.payload.reason).toBe("Invalid token");
+  });
+
+  it("accepts auth with correct token and nonce", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    const challenge = JSON.parse(ws.sent[0]);
+    const authResponse: DaemonToHqMessage = {
+      type: "auth-response",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
+    };
+    ws.simulateMessage(JSON.stringify(authResponse));
+
+    expect(ws.sent).toHaveLength(2);
+    const accept = JSON.parse(ws.sent[1]);
+    expect(accept.type).toBe("auth-accept");
+  });
+
+  it("processes register message after auth", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    // Auth flow
+    const challenge = JSON.parse(ws.sent[0]);
+    ws.simulateMessage(JSON.stringify({
+      type: "auth-response",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
+    }));
+
+    // Now send register
+    ws.simulateMessage(JSON.stringify({
+      type: "register",
+      timestamp: Date.now(),
+      payload: makeDaemonInfo(),
+    }));
+
+    expect(registry.size).toBe(1);
+    expect(registry.getDaemon("proj-1")).toBeDefined();
+  });
+
+  it("ignores non-auth messages before authentication", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    ws.simulateMessage(JSON.stringify({
+      type: "register",
+      timestamp: Date.now(),
+      payload: makeDaemonInfo(),
+    }));
+
+    // Should not register — still in auth phase
+    expect(registry.size).toBe(0);
+    expect(log.warn).toHaveBeenCalled();
+  });
+
+  it("routes heartbeat messages", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    // Complete auth
+    const challenge = JSON.parse(ws.sent[0]);
+    ws.simulateMessage(JSON.stringify({
+      type: "auth-response",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
+    }));
+
+    // Register
+    ws.simulateMessage(JSON.stringify({
+      type: "register",
+      timestamp: Date.now(),
+      payload: makeDaemonInfo(),
+    }));
+
+    const beforeHb = registry.getDaemon("proj-1")!.lastHeartbeat;
+
+    // Send heartbeat
+    ws.simulateMessage(JSON.stringify({
+      type: "heartbeat",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", uptimeMs: 5000 },
+    }));
+
+    expect(registry.getDaemon("proj-1")!.lastHeartbeat).toBeGreaterThanOrEqual(beforeHb);
+  });
+
+  it("routes status-update to browser clients", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    // Complete auth + register
+    const challenge = JSON.parse(ws.sent[0]);
+    ws.simulateMessage(JSON.stringify({
+      type: "auth-response",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "register",
+      timestamp: Date.now(),
+      payload: makeDaemonInfo(),
+    }));
+
+    // Send status update
+    ws.simulateMessage(JSON.stringify({
+      type: "status-update",
+      timestamp: Date.now(),
+      payload: {
+        projectId: "proj-1",
+        state: { initialized: true, daemonOnline: true, workState: "working" },
+      },
+    }));
+
+    expect(broadcast).toHaveBeenCalledWith("daemon", expect.objectContaining({
+      type: "daemon:status-update",
+      daemonId: "proj-1",
+    }));
+  });
+
+  it("routes terminal-data to browser clients", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    // Auth + register
+    const challenge = JSON.parse(ws.sent[0]);
+    ws.simulateMessage(JSON.stringify({
+      type: "auth-response",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "register",
+      timestamp: Date.now(),
+      payload: makeDaemonInfo(),
+    }));
+
+    // Terminal data
+    ws.simulateMessage(JSON.stringify({
+      type: "terminal-data",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", sessionId: "s1", data: "hello" },
+    }));
+
+    expect(broadcast).toHaveBeenCalledWith("terminal", expect.objectContaining({
+      type: "terminal:data",
+      projectId: "proj-1",
+      sessionId: "s1",
+    }));
+  });
+
+  it("routes copilot-session-update to browser clients", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    // Auth + register
+    const challenge = JSON.parse(ws.sent[0]);
+    ws.simulateMessage(JSON.stringify({
+      type: "auth-response",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "register",
+      timestamp: Date.now(),
+      payload: makeDaemonInfo(),
+    }));
+
+    ws.simulateMessage(JSON.stringify({
+      type: "copilot-session-update",
+      timestamp: Date.now(),
+      payload: {
+        projectId: "proj-1",
+        session: { sessionId: "cs1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
+      },
+    }));
+
+    expect(broadcast).toHaveBeenCalledWith("copilot", expect.objectContaining({
+      type: "copilot:session-update",
+    }));
+  });
+
+  it("handles disconnect and broadcasts to browsers", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    // Auth + register
+    const challenge = JSON.parse(ws.sent[0]);
+    ws.simulateMessage(JSON.stringify({
+      type: "auth-response",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "register",
+      timestamp: Date.now(),
+      payload: makeDaemonInfo(),
+    }));
+
+    expect(registry.size).toBe(1);
+
+    // Simulate disconnect
+    ws.simulateClose();
+
+    expect(registry.size).toBe(0);
+    expect(broadcast).toHaveBeenCalledWith("daemon", expect.objectContaining({
+      type: "daemon:disconnected",
+    }));
+  });
+
+  it("ignores invalid JSON from daemon", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    // Complete auth first
+    const challenge = JSON.parse(ws.sent[0]);
+    ws.simulateMessage(JSON.stringify({
+      type: "auth-response",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
+    }));
+
+    // Send garbage
+    ws.simulateMessage("not valid json{{{");
+    expect(log.warn).toHaveBeenCalled();
+  });
+
+  it("cleanup closes pending connections", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    handler.cleanup();
+    // Should not throw
+  });
+});
+
+// --- REST endpoint tests ---
+
+describe("Daemon REST routes", () => {
+  let server: FastifyInstance;
+  let registry: DaemonRegistry;
+
+  beforeEach(async () => {
+    server = await createTestServer();
+    registry = new DaemonRegistry();
+    server.decorate("daemonRegistry", registry);
+    await server.register(daemonRoutes);
+  });
+
+  afterEach(async () => {
+    registry.stopHeartbeatMonitor();
+    await server.close();
+  });
+
+  it("GET /api/daemons returns empty list", async () => {
+    const res = await server.inject({ method: "GET", url: "/api/daemons" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
+  });
+
+  it("GET /api/daemons returns registered daemons", async () => {
+    const ws = createMockSocket();
+    registry.register("d1", ws as never, makeDaemonInfo({ projectName: "Alpha" }));
+
+    const res = await server.inject({ method: "GET", url: "/api/daemons" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0].projectName).toBe("Alpha");
+  });
+
+  it("GET /api/daemons/:id returns daemon detail", async () => {
+    const ws = createMockSocket();
+    registry.register("d1", ws as never, makeDaemonInfo({ projectName: "Beta" }));
+
+    const res = await server.inject({ method: "GET", url: "/api/daemons/d1" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.projectName).toBe("Beta");
+    expect(body.protocolVersion).toBe("1.0.0");
+  });
+
+  it("GET /api/daemons/:id returns 404 for unknown", async () => {
+    const res = await server.inject({ method: "GET", url: "/api/daemons/ghost" });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("not_found");
+  });
+
+  it("POST /api/daemons/:id/command sends to daemon", async () => {
+    const ws = createMockSocket();
+    registry.register("d1", ws as never, makeDaemonInfo());
+
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/daemons/d1/command",
+      payload: { action: "restart" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+    expect(ws.sent).toHaveLength(1);
+    expect(JSON.parse(ws.sent[0]).type).toBe("command");
+  });
+
+  it("POST /api/daemons/:id/command returns 404 for unknown daemon", async () => {
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/daemons/ghost/command",
+      payload: { action: "restart" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("POST /api/daemons/:id/command returns 400 for missing action", async () => {
+    const ws = createMockSocket();
+    registry.register("d1", ws as never, makeDaemonInfo());
+
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/daemons/d1/command",
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("POST /api/daemons/:id/command returns 502 when daemon is disconnected", async () => {
+    const ws = createMockSocket();
+    ws.readyState = 3; // CLOSED
+    registry.register("d1", ws as never, makeDaemonInfo());
+
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/daemons/d1/command",
+      payload: { action: "stop" },
+    });
+    expect(res.statusCode).toBe(502);
+  });
+});

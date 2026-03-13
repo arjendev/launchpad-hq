@@ -27,8 +27,7 @@ async function websocketPlugin(fastify: FastifyInstance) {
     const url = new URL(request.url ?? "/", `http://${request.headers.host}`);
 
     if (url.pathname !== "/ws") {
-      // Not ours — let other upgrade handlers (if any) take it
-      socket.destroy();
+      // Not ours — let other upgrade handlers (e.g. daemon WS) take it
       return;
     }
 
