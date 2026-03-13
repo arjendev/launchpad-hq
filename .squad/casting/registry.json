@@ -19,7 +19,7 @@
     "romilly": {
       "persistent_name": "Romilly",
       "universe": "Interstellar",
-      "role": "Core Dev",
+      "role": "Backend Dev",
       "created_at": "2026-03-13T08:48:00Z",
       "legacy_named": false,
       "status": "active"
@@ -29,6 +29,14 @@
       "universe": "Interstellar",
       "role": "Platform Dev",
       "created_at": "2026-03-13T08:48:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "case": {
+      "persistent_name": "CASE",
+      "universe": "Interstellar",
+      "role": "Copilot SDK Specialist",
+      "created_at": "2026-03-13T09:34:00Z",
       "legacy_named": false,
       "status": "active"
     },
