@@ -1,0 +1,477 @@
+import { useState } from "react";
+import {
+  Accordion,
+  Badge,
+  Box,
+  Button,
+  Divider,
+  Group,
+  Loader,
+  Paper,
+  Stack,
+  Text,
+  ThemeIcon,
+  Title,
+  Tooltip,
+} from "@mantine/core";
+import { useSelectedProject } from "../contexts/ProjectContext.js";
+import {
+  useDaemonForProject,
+  useAggregatedSessions,
+  useAttentionItems,
+  useAttentionCount,
+  useDismissAttention,
+} from "../services/hooks.js";
+import type {
+  AggregatedSession,
+  AggregatedSessionStatus,
+  AttentionItem,
+  AttentionSeverity,
+  DashboardProject,
+} from "../services/types.js";
+import { CopilotConversation } from "./CopilotConversation.js";
+
+// ── Helpers ────────────────────────────────────────────
+
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  const secs = Math.floor(diff / 1_000);
+  if (secs < 10) return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function timeAgoIso(iso: string): string {
+  return timeAgo(new Date(iso).getTime());
+}
+
+const RUNTIME_TARGET_LABELS: Record<string, string> = {
+  "wsl-devcontainer": "WSL+DC",
+  wsl: "WSL",
+  local: "Local",
+};
+
+const sessionStatusColor: Record<AggregatedSessionStatus, string> = {
+  active: "green",
+  idle: "yellow",
+  error: "red",
+};
+
+const severityColor: Record<AttentionSeverity, string> = {
+  info: "blue",
+  warning: "yellow",
+  critical: "red",
+};
+
+// ── No Project Selected ────────────────────────────────
+
+function NoProjectSelected() {
+  return (
+    <Stack align="center" justify="center" p="xl" gap="sm" style={{ minHeight: 200 }}>
+      <Text size="lg" c="dimmed">
+        📂
+      </Text>
+      <Text size="sm" c="dimmed" ta="center">
+        No project selected
+      </Text>
+      <Text size="xs" c="dimmed" ta="center">
+        Click a project in the sidebar to view details
+      </Text>
+    </Stack>
+  );
+}
+
+// ── Daemon Status Section ──────────────────────────────
+
+function DaemonStatusSection({ project }: { project: DashboardProject }) {
+  const projectId = `${project.owner}/${project.repo}`;
+  const { daemon, isLoading } = useDaemonForProject(projectId);
+
+  if (isLoading) {
+    return (
+      <Stack align="center" p="sm">
+        <Loader size="sm" />
+      </Stack>
+    );
+  }
+
+  const isOnline = !!daemon;
+
+  return (
+    <Paper withBorder p="sm" radius="sm">
+      <Stack gap="xs">
+        <Group gap="xs">
+          <ThemeIcon
+            size="xs"
+            radius="xl"
+            color={isOnline ? "green" : "gray"}
+            variant="filled"
+          >
+            <Box w={6} h={6} style={{ borderRadius: "50%" }} />
+          </ThemeIcon>
+          <Text size="sm" fw={600}>
+            Daemon: {isOnline ? "Online" : "Offline"}
+          </Text>
+        </Group>
+
+        <Group gap={4}>
+          <Badge size="xs" variant="light" color="grape">
+            {RUNTIME_TARGET_LABELS[project.runtimeTarget] ?? project.runtimeTarget}
+          </Badge>
+          {isOnline && project.workState && (
+            <Badge size="xs" variant="light" color="blue">
+              {project.workState}
+            </Badge>
+          )}
+        </Group>
+
+        {isOnline && daemon && (
+          <Text size="xs" c="dimmed">
+            Last seen: {timeAgo(daemon.lastHeartbeat)}
+          </Text>
+        )}
+
+        {isOnline && daemon?.version && (
+          <Text size="xs" c="dimmed">
+            v{daemon.version}
+          </Text>
+        )}
+      </Stack>
+    </Paper>
+  );
+}
+
+// ── Copilot Session Card ───────────────────────────────
+
+function SessionCard({
+  session,
+  onSelect,
+}: {
+  session: AggregatedSession;
+  onSelect?: (sessionId: string, daemonId: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const handleClick = () => {
+    if (onSelect) {
+      onSelect(session.sessionId, session.daemonId);
+    } else {
+      setExpanded((prev) => !prev);
+    }
+  };
+
+  return (
+    <Paper
+      withBorder
+      p="xs"
+      radius="sm"
+      style={{ cursor: "pointer" }}
+      onClick={handleClick}
+    >
+      <Group gap="xs" wrap="nowrap" mb={expanded ? "xs" : 0}>
+        <Badge
+          size="xs"
+          color={sessionStatusColor[session.status]}
+          variant="dot"
+        >
+          {session.status}
+        </Badge>
+        <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+          <Text size="sm" fw={500} truncate>
+            Session {session.sessionId.slice(0, 8)}
+          </Text>
+          {session.branch && (
+            <Text size="xs" c="dimmed" truncate>
+              {session.branch}
+            </Text>
+          )}
+        </Stack>
+        <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
+          {timeAgo(session.updatedAt)}
+        </Text>
+      </Group>
+      {session.summary && (
+        <Text size="xs" c="dimmed" lineClamp={2}>
+          "{session.summary}"
+        </Text>
+      )}
+      {expanded && (
+        <Stack gap={4} mt="xs" onClick={(e) => e.stopPropagation()}>
+          {session.repository && (
+            <Text size="xs" c="dimmed">
+              Repo: {session.repository}
+            </Text>
+          )}
+          {session.model && (
+            <Text size="xs" c="dimmed">
+              Model: {session.model}
+            </Text>
+          )}
+          <Text size="xs" c="dimmed">
+            Started: {timeAgo(session.startedAt)}
+          </Text>
+        </Stack>
+      )}
+    </Paper>
+  );
+}
+
+function CopilotSessionsSection({
+  project,
+  onSelectSession,
+}: {
+  project: DashboardProject;
+  onSelectSession?: (sessionId: string, daemonId: string) => void;
+}) {
+  const projectId = `${project.owner}/${project.repo}`;
+  const { sessions, isLoading, isError } = useAggregatedSessions(projectId);
+
+  if (isLoading) {
+    return (
+      <Stack align="center" p="sm">
+        <Loader size="sm" />
+      </Stack>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Text size="sm" c="red" p="xs">
+        Failed to load sessions
+      </Text>
+    );
+  }
+
+  if (sessions.length === 0) {
+    return (
+      <Text size="sm" c="dimmed" p="xs" ta="center">
+        No active Copilot sessions
+      </Text>
+    );
+  }
+
+  return (
+    <Stack gap="xs">
+      {sessions.map((s) => (
+        <SessionCard key={s.sessionId} session={s} onSelect={onSelectSession} />
+      ))}
+    </Stack>
+  );
+}
+
+// ── Terminal Section ───────────────────────────────────
+
+function TerminalSection({ project }: { project: DashboardProject }) {
+  const projectId = `${project.owner}/${project.repo}`;
+  const { daemon } = useDaemonForProject(projectId);
+
+  return (
+    <Tooltip label={daemon ? "Coming soon" : "Daemon offline"}>
+      <Button
+        variant="light"
+        size="xs"
+        fullWidth
+        disabled
+      >
+        Open Terminal
+      </Button>
+    </Tooltip>
+  );
+}
+
+// ── Attention Section ──────────────────────────────────
+
+function AttentionItemCard({ item }: { item: AttentionItem }) {
+  const dismiss = useDismissAttention();
+
+  return (
+    <Paper withBorder p="xs" radius="sm">
+      <Group gap="xs" wrap="nowrap" align="flex-start">
+        <ThemeIcon
+          size="xs"
+          radius="xl"
+          color={severityColor[item.severity]}
+          variant="filled"
+          mt={2}
+        >
+          <Box w={6} h={6} style={{ borderRadius: "50%" }} />
+        </ThemeIcon>
+        <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+          <Text size="sm" lineClamp={2}>
+            {item.message}
+          </Text>
+          <Group gap={4}>
+            <Badge size="xs" color={severityColor[item.severity]} variant="light">
+              {item.severity}
+            </Badge>
+            <Text size="xs" c="dimmed">
+              {item.project}
+            </Text>
+            <Text size="xs" c="dimmed">
+              {timeAgoIso(item.createdAt)}
+            </Text>
+          </Group>
+        </Stack>
+        <Tooltip label="Dismiss">
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            color="gray"
+            onClick={() => dismiss.mutate(item.id)}
+            loading={dismiss.isPending}
+          >
+            ✕
+          </Button>
+        </Tooltip>
+      </Group>
+    </Paper>
+  );
+}
+
+function AttentionSection() {
+  const { data, isLoading, isError } = useAttentionItems();
+  const items = data?.items ?? [];
+
+  if (isLoading) {
+    return (
+      <Stack align="center" p="sm">
+        <Loader size="sm" />
+      </Stack>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Text size="sm" c="red" p="xs">
+        Failed to load attention items
+      </Text>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <Text size="sm" c="dimmed" p="xs" ta="center">
+        All clear — no items need attention
+      </Text>
+    );
+  }
+
+  return (
+    <Stack gap="xs">
+      {items.map((item) => (
+        <AttentionItemCard key={item.id} item={item} />
+      ))}
+    </Stack>
+  );
+}
+
+// ── Attention Badge ────────────────────────────────────
+
+function AttentionBadge() {
+  const { data } = useAttentionCount();
+  if (!data || data.total === 0) return null;
+  return (
+    <Badge size="sm" color="red" variant="filled" ml={4}>
+      {data.total}
+    </Badge>
+  );
+}
+
+// ── Main Panel ─────────────────────────────────────────
+
+export function ConnectedProjectPanel() {
+  const { selectedProject } = useSelectedProject();
+  const [selectedSession, setSelectedSession] = useState<{
+    sessionId: string;
+    daemonId: string;
+  } | null>(null);
+
+  const handleSelectSession = (sessionId: string, daemonId: string) => {
+    setSelectedSession({ sessionId, daemonId });
+  };
+
+  const handleCloseConversation = () => {
+    setSelectedSession(null);
+  };
+
+  // When a session is selected, show the conversation viewer
+  if (selectedSession) {
+    return (
+      <Box style={{ height: "100%" }}>
+        <CopilotConversation
+          sessionId={selectedSession.sessionId}
+          daemonId={selectedSession.daemonId}
+          onClose={handleCloseConversation}
+        />
+      </Box>
+    );
+  }
+
+  if (!selectedProject) {
+    return (
+      <Stack gap={0} p="sm">
+        <Title order={4} mb="sm">
+          Connected Project
+        </Title>
+        <NoProjectSelected />
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack gap={0} p="sm">
+      <Title order={4} mb="sm">
+        Connected Project
+      </Title>
+
+      <Text size="sm" fw={600} mb="xs">
+        {selectedProject.owner}/{selectedProject.repo}
+      </Text>
+
+      <DaemonStatusSection project={selectedProject} />
+
+      <Divider
+        my="sm"
+        label="Copilot Sessions"
+        labelPosition="center"
+      />
+      <CopilotSessionsSection
+        project={selectedProject}
+        onSelectSession={handleSelectSession}
+      />
+
+      <Divider my="sm" label="Terminal" labelPosition="center" />
+      <TerminalSection project={selectedProject} />
+
+      <Divider my="sm" />
+
+      <Accordion
+        multiple
+        defaultValue={["attention"]}
+        variant="separated"
+        styles={{
+          content: { padding: "var(--mantine-spacing-xs)" },
+          control: { padding: "var(--mantine-spacing-xs)" },
+        }}
+      >
+        <Accordion.Item value="attention">
+          <Accordion.Control>
+            <Group gap={0}>
+              <Text size="sm" fw={600}>
+                🔔 Attention
+              </Text>
+              <AttentionBadge />
+            </Group>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <AttentionSection />
+          </Accordion.Panel>
+        </Accordion.Item>
+      </Accordion>
+    </Stack>
+  );
+}
