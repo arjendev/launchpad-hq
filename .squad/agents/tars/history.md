@@ -17,3 +17,15 @@
 - `plugin.ts` uses `fastify-plugin` (fp) to register as non-encapsulated plugin; decorates server with `githubToken` and `githubUser`
 - Error handling uses custom `GitHubAuthError` class with `code` field: `GH_NOT_FOUND`, `NOT_AUTHENTICATED`, `TOKEN_INVALID`
 - Server index catches `GitHubAuthError` at startup for clean console error messages (no stack traces for user-facing auth errors)
+
+### 2026-03-13: State Persistence Module Structure
+- State module lives in `src/server/state/` with 6 files: `types.ts`, `github-state-client.ts`, `local-cache.ts`, `state-manager.ts`, `plugin.ts`, `index.ts`
+- `GitHubStateClient` wraps GitHub REST Contents API for the user's `launchpad-state` repo (private, auto-created)
+- `LocalCache` stores JSON files + SHA companions under `~/.launchpad/cache/` for offline-first reads
+- `StateManager` implements `StateService` interface: read-through cache, write-through to GitHub API
+- Three state files: `config.json` (ProjectConfig — tracked repos), `preferences.json` (UserPreferences), `enrichment.json` (EnrichmentData — devcontainer status, session links)
+- `plugin.ts` uses `fastify-plugin` with `dependencies: ["github-auth"]`; decorates server with `stateService`
+- Sync on startup pulls all three files from GitHub into cache; gracefully degrades to defaults if GitHub unreachable
+- Write path uses last-write-wins: reads current SHA from cache/remote before PUT
+- DI pattern via `StateManagerDeps` for testability — tests inject mock client/cache without vi.mock class issues
+- 23 unit tests: 12 for GitHubStateClient (mocked fetch), 11 for StateManager (injected mock deps)
