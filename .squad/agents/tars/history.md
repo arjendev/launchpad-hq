@@ -70,3 +70,15 @@ All three modules are now integrated into the server as Fastify plugins with cor
 
 Phase 1 unlocked Romilly's REST API (#7) and Brand's frontend (#8, #9) by providing foundational data access and persistence layers. All issues closed on GitHub.
 
+### 2026-03-13: Devcontainer Discovery & Monitoring Module
+- Container module lives in `src/server/containers/` with 5 files: `types.ts`, `discovery.ts`, `monitor.ts`, `plugin.ts`, `index.ts`
+- Discovery uses Docker CLI (`docker ps -a --filter label=devcontainer.local_folder` + `docker inspect`) — not `@devcontainers/cli` which would add a heavy dependency
+- `discoverContainers()` accepts a `DockerExecutor` interface for testability — production uses `child_process.execFile`, tests inject mocks
+- `ContainerMonitor` class: polls on configurable interval (default 10s), diffs against previous snapshot, broadcasts `ContainerStatusUpdate` only when changes detected
+- Changes tracked: new container (absent→running/stopped), removed container (running/stopped→absent), status change (running↔stopped)
+- Fastify plugin decorates server with `containers.latest()` and `containers.poll()`, registers `GET /api/devcontainers` route
+- Plugin depends on `websocket` — registered before route plugins in server index
+- Graceful degradation: Docker unavailable returns `{ dockerAvailable: false }`, inspect failures return error message, empty container list is a valid state
+- 17 unit tests: Docker availability, container discovery, port parsing, status mapping, monitor diffing, broadcast behavior, edge cases
+- **Key pattern**: Parallel agent work creates filesystem entanglement — other agents (attention, copilot) had uncommitted changes. Used `git checkout HEAD --` to restore clean base before applying only my changes.
+
