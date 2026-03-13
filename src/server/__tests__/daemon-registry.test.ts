@@ -90,10 +90,10 @@ describe("DaemonRegistry", () => {
   it("registers and retrieves a daemon", () => {
     const ws = createMockSocket();
     const info = makeDaemonInfo();
-    registry.register("d1", ws as never, info);
+    registry.register("test/repo1", ws as never, info);
 
     expect(registry.size).toBe(1);
-    const daemon = registry.getDaemon("d1");
+    const daemon = registry.getDaemon("test/repo1");
     expect(daemon).toBeDefined();
     expect(daemon!.info.projectName).toBe("Test Project");
     expect(daemon!.state).toBe("connected");
@@ -101,12 +101,12 @@ describe("DaemonRegistry", () => {
 
   it("unregisters a daemon and emits event", () => {
     const ws = createMockSocket();
-    registry.register("d1", ws as never, makeDaemonInfo());
+    registry.register("test/repo1", ws as never, makeDaemonInfo());
 
     const disconnected = vi.fn();
     registry.on("daemon:disconnected", disconnected);
 
-    const summary = registry.unregister("d1");
+    const summary = registry.unregister("test/repo1");
     expect(summary).toBeDefined();
     expect(summary!.state).toBe("disconnected");
     expect(registry.size).toBe(0);
@@ -120,7 +120,7 @@ describe("DaemonRegistry", () => {
   it("getAllDaemons returns summaries", () => {
     const ws1 = createMockSocket();
     const ws2 = createMockSocket();
-    registry.register("d1", ws1 as never, makeDaemonInfo({ projectId: "p1", projectName: "P1" }));
+    registry.register("test/repo1", ws1 as never, makeDaemonInfo({ projectId: "p1", projectName: "P1" }));
     registry.register("d2", ws2 as never, makeDaemonInfo({ projectId: "p2", projectName: "P2" }));
 
     const all = registry.getAllDaemons();
@@ -135,15 +135,15 @@ describe("DaemonRegistry", () => {
     registry.on("daemon:connected", connected);
 
     const ws = createMockSocket();
-    registry.register("d1", ws as never, makeDaemonInfo());
+    registry.register("test/repo1", ws as never, makeDaemonInfo());
 
     expect(connected).toHaveBeenCalledOnce();
-    expect(connected.mock.calls[0][0].daemonId).toBe("d1");
+    expect(connected.mock.calls[0][0].daemonId).toBe("test/repo1");
   });
 
   it("sendToDaemon sends to the correct socket", () => {
     const ws = createMockSocket();
-    registry.register("d1", ws as never, makeDaemonInfo());
+    registry.register("test/repo1", ws as never, makeDaemonInfo());
 
     const message: HqToDaemonMessage = {
       type: "request-status",
@@ -151,7 +151,7 @@ describe("DaemonRegistry", () => {
       payload: { projectId: "proj-1" },
     };
 
-    expect(registry.sendToDaemon("d1", message)).toBe(true);
+    expect(registry.sendToDaemon("test/repo1", message)).toBe(true);
     expect(ws.sent).toHaveLength(1);
     expect(JSON.parse(ws.sent[0]).type).toBe("request-status");
   });
@@ -168,7 +168,7 @@ describe("DaemonRegistry", () => {
   it("broadcastToDaemons sends to all connected", () => {
     const ws1 = createMockSocket();
     const ws2 = createMockSocket();
-    registry.register("d1", ws1 as never, makeDaemonInfo({ projectId: "p1" }));
+    registry.register("test/repo1", ws1 as never, makeDaemonInfo({ projectId: "p1" }));
     registry.register("d2", ws2 as never, makeDaemonInfo({ projectId: "p2" }));
 
     const msg: HqToDaemonMessage = {
@@ -184,31 +184,31 @@ describe("DaemonRegistry", () => {
 
   it("recordHeartbeat updates last heartbeat time", () => {
     const ws = createMockSocket();
-    registry.register("d1", ws as never, makeDaemonInfo());
-    const before = registry.getDaemon("d1")!.lastHeartbeat;
+    registry.register("test/repo1", ws as never, makeDaemonInfo());
+    const before = registry.getDaemon("test/repo1")!.lastHeartbeat;
 
-    registry.recordHeartbeat("d1");
-    const after = registry.getDaemon("d1")!.lastHeartbeat;
+    registry.recordHeartbeat("test/repo1");
+    const after = registry.getDaemon("test/repo1")!.lastHeartbeat;
 
     expect(after).toBeGreaterThanOrEqual(before);
   });
 
   it("checkHeartbeats removes timed-out daemons", () => {
     const ws = createMockSocket();
-    registry.register("d1", ws as never, makeDaemonInfo());
+    registry.register("test/repo1", ws as never, makeDaemonInfo());
 
     // Manually set lastHeartbeat to the past
-    const daemon = registry.getDaemon("d1")!;
+    const daemon = registry.getDaemon("test/repo1")!;
     daemon.lastHeartbeat = Date.now() - HEARTBEAT_TIMEOUT_MS - 1000;
 
     const timedOut = registry.checkHeartbeats();
-    expect(timedOut).toContain("d1");
+    expect(timedOut).toContain("test/repo1");
     expect(registry.size).toBe(0);
   });
 
   it("checkHeartbeats does not remove fresh daemons", () => {
     const ws = createMockSocket();
-    registry.register("d1", ws as never, makeDaemonInfo());
+    registry.register("test/repo1", ws as never, makeDaemonInfo());
 
     const timedOut = registry.checkHeartbeats();
     expect(timedOut).toHaveLength(0);
@@ -218,12 +218,12 @@ describe("DaemonRegistry", () => {
   it("handles re-registration (daemon reconnect)", () => {
     const ws1 = createMockSocket();
     const ws2 = createMockSocket();
-    registry.register("d1", ws1 as never, makeDaemonInfo());
-    registry.register("d1", ws2 as never, makeDaemonInfo());
+    registry.register("test/repo1", ws1 as never, makeDaemonInfo());
+    registry.register("test/repo1", ws2 as never, makeDaemonInfo());
 
     expect(registry.size).toBe(1);
     // New socket should be active
-    const daemon = registry.getDaemon("d1")!;
+    const daemon = registry.getDaemon("test/repo1")!;
     expect(daemon.ws).toBe(ws2);
   });
 });
@@ -616,7 +616,7 @@ describe("Daemon REST routes", () => {
 
   it("GET /api/daemons returns registered daemons", async () => {
     const ws = createMockSocket();
-    registry.register("d1", ws as never, makeDaemonInfo({ projectName: "Alpha" }));
+    registry.register("test/repo1", ws as never, makeDaemonInfo({ projectName: "Alpha" }));
 
     const res = await server.inject({ method: "GET", url: "/api/daemons" });
     expect(res.statusCode).toBe(200);
@@ -627,9 +627,9 @@ describe("Daemon REST routes", () => {
 
   it("GET /api/daemons/:id returns daemon detail", async () => {
     const ws = createMockSocket();
-    registry.register("d1", ws as never, makeDaemonInfo({ projectName: "Beta" }));
+    registry.register("test/repo1", ws as never, makeDaemonInfo({ projectName: "Beta" }));
 
-    const res = await server.inject({ method: "GET", url: "/api/daemons/d1" });
+    const res = await server.inject({ method: "GET", url: "/api/daemons/test/repo1" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.projectName).toBe("Beta");
@@ -637,18 +637,18 @@ describe("Daemon REST routes", () => {
   });
 
   it("GET /api/daemons/:id returns 404 for unknown", async () => {
-    const res = await server.inject({ method: "GET", url: "/api/daemons/ghost" });
+    const res = await server.inject({ method: "GET", url: "/api/daemons/test/ghost" });
     expect(res.statusCode).toBe(404);
     expect(res.json().error).toBe("not_found");
   });
 
   it("POST /api/daemons/:id/command sends to daemon", async () => {
     const ws = createMockSocket();
-    registry.register("d1", ws as never, makeDaemonInfo());
+    registry.register("test/repo1", ws as never, makeDaemonInfo());
 
     const res = await server.inject({
       method: "POST",
-      url: "/api/daemons/d1/command",
+      url: "/api/daemons/test/repo1/command",
       payload: { action: "restart" },
     });
     expect(res.statusCode).toBe(200);
@@ -660,7 +660,7 @@ describe("Daemon REST routes", () => {
   it("POST /api/daemons/:id/command returns 404 for unknown daemon", async () => {
     const res = await server.inject({
       method: "POST",
-      url: "/api/daemons/ghost/command",
+      url: "/api/daemons/test/ghost/command",
       payload: { action: "restart" },
     });
     expect(res.statusCode).toBe(404);
@@ -668,11 +668,11 @@ describe("Daemon REST routes", () => {
 
   it("POST /api/daemons/:id/command returns 400 for missing action", async () => {
     const ws = createMockSocket();
-    registry.register("d1", ws as never, makeDaemonInfo());
+    registry.register("test/repo1", ws as never, makeDaemonInfo());
 
     const res = await server.inject({
       method: "POST",
-      url: "/api/daemons/d1/command",
+      url: "/api/daemons/test/repo1/command",
       payload: {},
     });
     expect(res.statusCode).toBe(400);
@@ -681,11 +681,11 @@ describe("Daemon REST routes", () => {
   it("POST /api/daemons/:id/command returns 502 when daemon is disconnected", async () => {
     const ws = createMockSocket();
     ws.readyState = 3; // CLOSED
-    registry.register("d1", ws as never, makeDaemonInfo());
+    registry.register("test/repo1", ws as never, makeDaemonInfo());
 
     const res = await server.inject({
       method: "POST",
-      url: "/api/daemons/d1/command",
+      url: "/api/daemons/test/repo1/command",
       payload: { action: "stop" },
     });
     expect(res.statusCode).toBe(502);

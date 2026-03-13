@@ -1,6 +1,11 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { CommandAction } from "../../shared/protocol.js";
 
+/** Build daemon ID from route params */
+function did(params: { owner: string; repo: string }): string {
+  return `${params.owner}/${params.repo}`;
+}
+
 const daemonRoutes: FastifyPluginAsync = async (server) => {
   /** GET /api/daemons — list all connected daemons */
   server.get("/api/daemons", async (_request, reply) => {
@@ -8,9 +13,10 @@ const daemonRoutes: FastifyPluginAsync = async (server) => {
     return reply.send(daemons);
   });
 
-  /** GET /api/daemons/:id — get detailed daemon info */
-  server.get<{ Params: { id: string } }>("/api/daemons/:id", async (request, reply) => {
-    const daemon = server.daemonRegistry.getDaemon(request.params.id);
+  /** GET /api/daemons/:owner/:repo — get detailed daemon info */
+  server.get<{ Params: { owner: string; repo: string } }>("/api/daemons/:owner/:repo", async (request, reply) => {
+    const id = did(request.params);
+    const daemon = server.daemonRegistry.getDaemon(id);
     if (!daemon) {
       return reply.status(404).send({ error: "not_found", message: "Daemon not found" });
     }
@@ -29,12 +35,12 @@ const daemonRoutes: FastifyPluginAsync = async (server) => {
     });
   });
 
-  /** POST /api/daemons/:id/command — send command to a specific daemon */
+  /** POST /api/daemons/:owner/:repo/command — send command to a specific daemon */
   server.post<{
-    Params: { id: string };
+    Params: { owner: string; repo: string };
     Body: { action: CommandAction; args?: Record<string, unknown> };
-  }>("/api/daemons/:id/command", async (request, reply) => {
-    const { id } = request.params;
+  }>("/api/daemons/:owner/:repo/command", async (request, reply) => {
+    const id = did(request.params);
     const { action, args } = request.body ?? {};
 
     if (!action) {

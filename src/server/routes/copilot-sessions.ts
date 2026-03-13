@@ -150,12 +150,12 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
     },
   );
 
-  /** POST /api/daemons/:id/copilot/sessions — Create new session on a specific daemon */
+  /** POST /api/daemons/:owner/:repo/copilot/sessions — Create new session on a specific daemon */
   server.post<{
-    Params: { id: string };
+    Params: { owner: string; repo: string };
     Body: { model?: string };
-  }>("/api/daemons/:id/copilot/sessions", async (request, reply) => {
-    const { id } = request.params;
+  }>("/api/daemons/:owner/:repo/copilot/sessions", async (request, reply) => {
+    const id = `${request.params.owner}/${request.params.repo}`;
     const { model } = request.body ?? {};
 
     const daemon = server.daemonRegistry.getDaemon(id);
