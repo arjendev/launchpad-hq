@@ -3,6 +3,8 @@
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
   "remoteUser": "vscode",
   "containerUser": "vscode",
+  "runArgs": ["--network=launchpad-net", "--network-alias=launchpad-hq"],
+  "initializeCommand": "docker network inspect launchpad-net >/dev/null 2>&1 || docker network create launchpad-net",
   "mounts": [
     "source=copilot-cli-data,target=/home/vscode/.copilot,type=volume"
   ],
