@@ -20,6 +20,7 @@
 | Doyle | Tester | .squad/agents/doyle/charter.md | 🧪 Active |
 | Scribe | Session Logger | .squad/agents/scribe/charter.md | 📋 Active |
 | Ralph | Work Monitor | — | 🔄 Monitor |
+| Arjen | 👤 Human · Reviewer | — | 👤 Active |
 
 ## Project Context
 
