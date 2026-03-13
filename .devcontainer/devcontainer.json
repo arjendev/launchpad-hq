@@ -1,6 +1,6 @@
 {
   "name": "launchpad",
-  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
   "remoteUser": "vscode",
   "containerUser": "vscode",
   "runArgs": ["--network=launchpad-net", "--network-alias=launchpad-hq"],
@@ -9,20 +9,13 @@
     "source=copilot-cli-data,target=/home/vscode/.copilot,type=volume"
   ],
   "features": {
-    "ghcr.io/devcontainers/features/node:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers-extra/features/uv:1": {},
-    "ghcr.io/devcontainers/features/copilot-cli:1": {},
-    "ghcr.io/devcontainers/features/python:1": {
-      "version": "3.12"
-    }
+    "ghcr.io/devcontainers/features/copilot-cli:1": {}
   },
-  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.copilot && npm install && npm install -g @bradygaster/squad-cli && cd frontend && npm install && npx playwright install chromium --with-deps",
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.copilot && npm install && npx playwright install chromium --with-deps",
   "customizations": {
     "vscode": {
       "extensions": [
-        "ms-python.python",
-        "ms-python.vscode-pylance",
         "GitHub.copilot",
         "GitHub.copilot-chat"
       ]
