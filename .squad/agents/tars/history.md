@@ -163,3 +163,13 @@ Key achievements:
 - **Key files:** `src/daemon/copilot/sdk-adapter.ts`, `src/daemon/copilot/hq-tools.ts`, `src/daemon/copilot/manager.ts`, `scripts/patch-sdk.js`
 - **Tests:** 621 passing (rewrote sdk-adapter tests: availability=true, adapter state, safe-when-not-started checks; updated manager fallback tests for runtime fallback scenario)
 
+### 2026-03-14: Remove Daemon-Side Mock Copilot Adapter
+- **What:** Deleted `src/daemon/copilot/mock-adapter.ts` (233 lines) and its test file. SDK is now the only path — no mock, no fallback, no env var toggle.
+- **Manager changes:** Constructor accepts optional `adapter` (DI) defaulting to `SdkCopilotAdapter`. Removed `useMock` option, `LAUNCHPAD_COPILOT_MOCK` env check, `isSdkAvailable()` fallback. `start()` catches SDK failures gracefully — logs warning, returns early, daemon continues without copilot.
+- **SDK adapter:** Removed `isSdkAvailable()` export. Cleaned error messages (no more "use LAUNCHPAD_COPILOT_MOCK=true" suggestion). SDK import failure is now a start-time error, not a feature-detection gate.
+- **HQ tools:** Always use `getSdkDefineTool()` directly, removed `isSdkAvailable()` branching.
+- **Test strategy:** Manager tests use inline `TestCopilotAdapter` and `FailingCopilotAdapter` via DI — lightweight, no external mock file. Added tests for graceful SDK start failure.
+- **Other cleanups:** Removed `LAUNCHPAD_COPILOT_MOCK` from self-daemon spawner env, updated spawner test, cleaned server/index.ts comment.
+- **Key principle:** SDK is a regular dependency — always importable. Runtime failures (CLI not in PATH) handled gracefully. Daemon starts fine without copilot.
+- **Files changed:** 12 files (195 additions, 602 deletions). 603 tests passing.
+

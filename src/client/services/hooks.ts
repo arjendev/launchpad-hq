@@ -340,6 +340,29 @@ export function useSendPrompt() {
   });
 }
 
+/** Create a new Copilot session on a daemon. */
+export function useCreateSession() {
+  const qc = useQueryClient();
+  return useMutation<
+    { ok: boolean },
+    Error,
+    { owner: string; repo: string; model?: string }
+  >({
+    mutationFn: ({ owner, repo, model }) =>
+      fetchJson("/api/daemons/" +
+        encodeURIComponent(owner) + "/" +
+        encodeURIComponent(repo) + "/copilot/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(model ? { model } : {}),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["aggregated-sessions"] });
+      void qc.invalidateQueries({ queryKey: ["copilot-sessions"] });
+    },
+  });
+}
+
 /** Abort a Copilot session. */
 export function useAbortSession() {
   const qc = useQueryClient();
