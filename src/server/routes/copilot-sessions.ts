@@ -43,6 +43,24 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
     },
   );
 
+  /** GET /api/copilot/aggregated/sessions/:sessionId/tools — Tool invocation history */
+  server.get<{ Params: { sessionId: string } }>(
+    "/api/copilot/aggregated/sessions/:sessionId/tools",
+    async (request, reply) => {
+      const { sessionId } = request.params;
+      const session = server.copilotAggregator.getSession(sessionId);
+
+      if (!session) {
+        return reply
+          .status(404)
+          .send({ error: "not_found", message: "Session not found" });
+      }
+
+      const invocations = server.copilotAggregator.getToolInvocations(sessionId);
+      return reply.send({ sessionId, invocations, count: invocations.length });
+    },
+  );
+
   /** POST /api/copilot/aggregated/sessions/:sessionId/send — Send prompt to session */
   server.post<{
     Params: { sessionId: string };

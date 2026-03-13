@@ -293,4 +293,89 @@ describe('CopilotManager', () => {
       expect(copilotMessages).toHaveLength(0);
     });
   });
+
+  // -----------------------------------------------------------------------
+  // HQ tools and system message injection
+  // -----------------------------------------------------------------------
+
+  describe('HQ tools and system message injection', () => {
+    let managerWithProject: CopilotManager;
+
+    beforeEach(() => {
+      managerWithProject = new CopilotManager({
+        sendToHq,
+        useMock: true,
+        pollIntervalMs: 60_000,
+        projectId: 'test-project',
+        projectName: 'Test Project',
+      });
+    });
+
+    afterEach(async () => {
+      await managerWithProject.stop();
+    });
+
+    it('injects HQ tools when creating a session', async () => {
+      await managerWithProject.start();
+      sent = [];
+
+      await managerWithProject.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-hq-1' },
+      });
+
+      // Session should start successfully (tools injected without error)
+      const startEvent = sent.find(
+        (m) =>
+          m.type === 'copilot-sdk-session-event' &&
+          m.payload.event.type === 'session.start',
+      );
+      expect(startEvent).toBeDefined();
+      expect(startEvent!.payload.event.data.requestId).toBe('req-hq-1');
+    });
+
+    it('injects HQ tools when resuming a session', async () => {
+      await managerWithProject.start();
+      sent = [];
+
+      await managerWithProject.handleMessage({
+        type: 'copilot-resume-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-hq-2', sessionId: 'mock-session-001' },
+      });
+
+      const startEvent = sent.find(
+        (m) =>
+          m.type === 'copilot-sdk-session-event' &&
+          m.payload.event.type === 'session.start',
+      );
+      expect(startEvent).toBeDefined();
+      expect(startEvent!.payload.event.data.resumed).toBe(true);
+    });
+
+    it('sends tool invocation messages to HQ when tool handlers are called', async () => {
+      await managerWithProject.start();
+
+      // Create a session to get the tools injected
+      await managerWithProject.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-hq-3' },
+      });
+
+      sent = [];
+
+      // Simulate calling the HQ tools directly (as the copilot agent would)
+      // We use createHqTools to get tool handlers
+      const { createHqTools } = await import('../hq-tools.js');
+      const tools = createHqTools(sendToHq, 'test-project');
+
+      const progressTool = tools.find((t) => t.name === 'report_progress')!;
+      await progressTool.handler({ status: 'working', summary: 'Making progress' });
+
+      const invocationMsg = sent.find((m) => m.type === 'copilot-tool-invocation');
+      expect(invocationMsg).toBeDefined();
+    });
+  });
 });

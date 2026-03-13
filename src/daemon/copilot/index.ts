@@ -16,3 +16,5 @@ export { MockCopilotAdapter } from './mock-adapter.js';
 export { SdkCopilotAdapter } from './sdk-adapter.js';
 export { CopilotManager } from './manager.js';
 export type { CopilotManagerOptions, SendToHq } from './manager.js';
+export { createHqTools } from './hq-tools.js';
+export { buildSystemMessage } from './system-message.js';

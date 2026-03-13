@@ -217,6 +217,16 @@ export interface AttentionItemMessage extends BaseMessage<'attention-item'> {
   };
 }
 
+/** Tool names available to Copilot sessions for HQ communication */
+export type CopilotHqToolName = 'report_progress' | 'request_human_review' | 'report_blocker';
+
+export interface CopilotToolInvocationMessage extends BaseMessage<'copilot-tool-invocation'> {
+  sessionId: string;
+  projectId: string;
+  tool: CopilotHqToolName;
+  args: Record<string, unknown>;
+}
+
 // Daemon → HQ: batch session list (aggregator-facing, includes projectId)
 export interface CopilotSessionListMessage extends BaseMessage<'copilot-session-list'> {
   payload: {
@@ -257,6 +267,7 @@ export type DaemonToHqMessage =
   | CopilotSdkSessionEventMessage
   | CopilotSdkStateMessage
   | AttentionItemMessage
+  | CopilotToolInvocationMessage
   | AuthResponseMessage;
 
 // ---------------------------------------------------------------------------

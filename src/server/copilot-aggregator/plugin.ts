@@ -5,6 +5,7 @@ import type {
   CopilotSessionEvent,
   CopilotSdkState,
   CopilotMessage,
+  CopilotHqToolName,
 } from "../../shared/protocol.js";
 import { CopilotSessionAggregator } from "./aggregator.js";
 
@@ -47,6 +48,22 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
     aggregator.appendMessages(payload.sessionId, payload.messages);
   });
 
+  registry.on("copilot:tool-invocation" as never, (_daemonId: string, payload: {
+    sessionId: string;
+    projectId: string;
+    tool: CopilotHqToolName;
+    args: Record<string, unknown>;
+    timestamp: number;
+  }) => {
+    aggregator.handleToolInvocation(
+      payload.sessionId,
+      payload.projectId,
+      payload.tool,
+      payload.args,
+      payload.timestamp,
+    );
+  });
+
   // ── Broadcast aggregator events to browser clients ────
   aggregator.on("sessions-updated", (sessions) => {
     fastify.ws.broadcast("copilot", {
@@ -69,6 +86,25 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
       daemonId,
       state,
     });
+  });
+
+  aggregator.on("tool-invocation", (record) => {
+    fastify.ws.broadcast("copilot", {
+      type: "copilot:tool-invocation",
+      ...record,
+    });
+
+    // Emit attention events for review requests and blockers
+    if (record.tool === "request_human_review" || record.tool === "report_blocker") {
+      fastify.ws.broadcast("attention", {
+        type: "attention:copilot-tool",
+        tool: record.tool,
+        sessionId: record.sessionId,
+        projectId: record.projectId,
+        args: record.args,
+        timestamp: record.timestamp,
+      });
+    }
   });
 
   // ── Decorate ──────────────────────────────────────────

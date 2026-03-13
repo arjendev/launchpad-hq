@@ -202,6 +202,16 @@ export class DaemonWsHandler {
         this.registry.emit("copilot:sdk-state" as never, this.wsToDaemonId.get(ws), msg.payload);
         break;
 
+      case "copilot-tool-invocation":
+        this.registry.emit("copilot:tool-invocation" as never, this.wsToDaemonId.get(ws), {
+          sessionId: msg.sessionId,
+          projectId: msg.projectId,
+          tool: msg.tool,
+          args: msg.args,
+          timestamp: msg.timestamp,
+        });
+        break;
+
       case "copilot-conversation":
         this.registry.emit("copilot:conversation" as never, msg.payload.projectId, msg.payload);
         this.broadcast("copilot", {
