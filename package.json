@@ -7,7 +7,8 @@
     "launchpad-hq": "./dist/server/index.js"
   },
   "scripts": {
-    "dev": "concurrently -n server,client -c blue,green \"tsx watch src/server/index.ts\" \"vite\"",
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"vite\"",
+    "dev:server": "tsx watch --ignore 'node_modules' --ignore 'dist' --ignore '.squad' --ignore 'src/client' src/server/index.ts",
     "build": "npm run build:server && npm run build:client",
     "build:server": "tsc -p tsconfig.server.json",
     "build:client": "vite build",
