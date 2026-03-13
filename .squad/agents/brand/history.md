@@ -111,4 +111,15 @@ Decisions on WebSocket client architecture captured in decisions.md. Parallel fi
 - **npm script:** `"test:e2e": "playwright test"` added to package.json.
 - **Lesson:** Always run Playwright after frontend changes to catch real-browser issues that unit tests miss. The copilot sessions bug was invisible to vitest+jsdom but would crash in any real browser.
 
+### 2026-03-13: Light/dark theme toggle (Issue #25)
+- **ThemeContext** (`src/client/contexts/ThemeContext.tsx`) — thin wrapper around Mantine's `useMantineColorScheme()` and `useComputedColorScheme()` exposing `{ theme, toggleTheme, setTheme }`. Sets `data-theme` attribute on `<html>` in sync with Mantine's `data-mantine-color-scheme`.
+- **CSS custom properties** (`src/client/styles/theme.css`) — `--lp-bg`, `--lp-surface`, `--lp-text`, `--lp-text-secondary`, `--lp-border`, `--lp-accent`, `--lp-success`, `--lp-warning`, `--lp-error`, `--lp-kanban-*` variables keyed off `[data-mantine-color-scheme]` selectors. Dark = deep navy mission control; Light = clean whites.
+- **No-flash script** in `index.html` — inline `<script>` reads `mantine-color-scheme-value` from localStorage before React mounts and sets both `data-mantine-color-scheme` and `data-theme` attributes.
+- **ThemeToggle** (`src/client/components/ThemeToggle.tsx`) — `ActionIcon` with sun/moon icons from `@tabler/icons-react`, placed in DashboardLayout header next to ConnectionStatus.
+- **CSS transitions** — global 0.2s ease on `background-color`, `border-color`, `color`, `box-shadow` for smooth theme switching.
+- **DashboardLayout** borders updated from `var(--mantine-color-default-border)` to `var(--lp-border)` for theme-aware pane dividers.
+- **Test utils** updated to include `ThemeProvider` in the test wrapper.
+- **6 new tests**: ThemeContext (provides value, toggle, setTheme, data-theme attribute) + ThemeToggle (renders, toggles on click). All 280 unit + 5 e2e tests passing.
+- **Design decision**: Leveraged Mantine's built-in color scheme system rather than rolling a custom one. ThemeContext is a convenience wrapper — Mantine handles localStorage persistence and system preference detection (`defaultColorScheme="auto"`). This avoids duplicating logic and ensures all Mantine components adapt automatically.
+- **Selective git add**: Used targeted staging to avoid committing other agents' files (TARS attention system was in working tree).
 

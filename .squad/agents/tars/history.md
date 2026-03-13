@@ -90,3 +90,13 @@ Phase 1 unlocked Romilly's REST API (#7) and Brand's frontend (#8, #9) by provid
 
 TARS delivered devcontainer discovery via Docker CLI — a clean, lightweight alternative to the @devcontainers/cli package. The discovery module integrates with the WebSocket server for real-time status broadcasts. Decision captured in decisions.md.
 
+### 2026-03-13: Daemon ↔ HQ WebSocket Protocol Types (#36)
+- Protocol types live in `src/shared/protocol.ts` — 14 message types as discriminated unions on `type` field
+- Two direction unions: `DaemonToHqMessage` (8 types) and `HqToDaemonMessage` (6 types), combined into `WsMessage`
+- Auth flow: challenge/response/accept-reject pattern with nonce — `src/shared/auth.ts` has `generateDaemonToken()` (crypto.randomBytes(32).hex) and `validateDaemonToken()` (timingSafeEqual)
+- Protocol constants in `src/shared/constants.ts`: version string, heartbeat 15s, reconnect backoff 1s→30s, daemon WS path `/ws/daemon`
+- Barrel export via `src/shared/index.ts`
+- `tsconfig.server.json` updated: `rootDir` changed from `src/server` to `src` so server code can import from `src/shared/`
+- `vitest.config.ts` server project now includes `src/shared/**/*.test.ts`
+- 30 tests added (23 protocol + 7 auth), all passing alongside existing 200 tests (230 total)
+

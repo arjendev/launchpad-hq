@@ -113,4 +113,16 @@ Also fixed a Medium-priority bug: the cache plugin wasn't registered. Found duri
 Decision on attention system architecture captured in decisions.md.
 
 
+### 2026-03-13: HQ daemon registry (#34)
+- **Module:** `src/server/daemon-registry/` — registry, WS handler, Fastify plugin, barrel export.
+- **Registry:** `DaemonRegistry` extends EventEmitter. In-memory Map of `TrackedDaemon` (daemonId → ws + info + state + heartbeat). Methods: `register`, `unregister`, `getDaemon`, `getAllDaemons`, `sendToDaemon`, `broadcastToDaemons`, `recordHeartbeat`, `checkHeartbeats`. Emits `daemon:connected` and `daemon:disconnected`.
+- **Handler:** `DaemonWsHandler` manages auth handshake per connection. Flow: connect → auth-challenge (with nonce) → auth-response (token + nonce) → validate via `validateDaemonToken` from shared → auth-accept/reject → register → message routing. Pending connections tracked in Map<WebSocket, PendingConnection>.
+- **Message routing:** After auth, routes daemon messages by type: `register` → registry, `heartbeat` → recordHeartbeat, `status-update` → broadcast to "daemon" channel, `terminal-data` → broadcast to "terminal" channel, `copilot-session-update`/`copilot-conversation` → broadcast to "copilot" channel, `attention-item` → broadcast to "attention" channel.
+- **Plugin:** `daemonRegistryPlugin` wraps as Fastify plugin with `dependencies: ["websocket"]`. Creates separate `WebSocketServer({ noServer: true })` for `/ws/daemon` path. Decorates `server.daemonRegistry`. Registers lifecycle events for browser broadcast. Starts heartbeat monitor. Cleans up on close.
+- **REST:** `src/server/routes/daemons.ts` — `GET /api/daemons` (list), `GET /api/daemons/:id` (detail), `POST /api/daemons/:id/command` (send command with action + args). Error codes: 400 bad_request, 404 not_found, 502 send_failed.
+- **WS channels:** Added `"daemon"` and `"attention"` to `Channel` type and `VALID_CHANNELS` set in `ws/types.ts`.
+- **Critical fix:** Removed `socket.destroy()` from browser WS plugin for non-`/ws` upgrade paths — was killing daemon connections before they reached the daemon handler.
+- **Token lookup:** Currently returns `undefined` (TODO: wire to stateService once project tokens are persisted). Tests use a mock lookup.
+- **Tests:** 33 tests covering registry CRUD, EventEmitter events, sendTo/broadcast, heartbeat timeout, auth challenge/response (correct/wrong nonce/token), message routing (all types), disconnect handling, REST endpoints (200/400/404/502).
+- **Imports:** All protocol types from `src/shared/protocol.ts`, `validateDaemonToken` from `src/shared/auth.ts`, constants from `src/shared/constants.ts`. Zero local type duplication.
 
