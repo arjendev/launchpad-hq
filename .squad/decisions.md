@@ -22,20 +22,15 @@
 **What:** GitHub Issues are the source of truth for tasks. Launchpad caches and enriches them locally with devcontainer status, session links, and custom metadata.
 **Why:** GitHub-native workflow + custom enrichment. GraphQL API makes fetching 10+ repos fast (~500ms).
 
-### 2026-03-13: Projects — GitHub repos + optional devcontainers
-**By:** Arjen (via vision session)
-**What:** A "project" is a GitHub repo with optional devcontainer enrichment. Explicit control with easy discoverability from user's own repos or any git URL.
-**Why:** Repos are the base unit. Devcontainers are an enrichment layer for live status.
+### 2026-03-13: Projects — GitHub repos with runtime targets
+**By:** Arjen (via vision session) — *updated after daemon architecture pivot*
+**What:** A "project" is a GitHub repo with an explicit runtime target (WSL+devcontainer, WSL only, or local folder). Each project runs a daemon that reports state back to HQ. Explicit control with easy discoverability from user's own repos or any git URL.
+**Why:** Repos are the base unit. Daemons provide live status via WebSocket push. Runtime target determines where the daemon runs.
 
-### 2026-03-13: Devcontainers — Dev Container CLI
-**By:** Arjen (via vision session)
-**What:** Use @devcontainers/cli for discovery and management. Spec-compliant approach.
-**Why:** Standard tooling, works with existing devcontainer.json configs.
-
-### 2026-03-13: Copilot — SDK deep integration
-**By:** Arjen (via vision session)
-**What:** Use GitHub Copilot SDK to query active sessions, read conversation state, and inject prompts.
-**Why:** Deepest possible integration. Enables session introspection and steering from the dashboard.
+### 2026-03-13: Copilot — SDK deep integration via daemon
+**By:** Arjen (via vision session) — *updated: real SDK confirmed*
+**What:** Use `@github/copilot-sdk` (technical preview) via the daemon. Daemon spawns `CopilotClient({ cliPath: "copilot" })`, discovers sessions via `listSessions()`, streams events via `session.on()`, injects prompts via `session.send()`, and registers custom HQ-aware tools via `defineTool()`. HQ only aggregates — never talks to the SDK directly.
+**Why:** Deepest possible integration. Daemon is the SDK bridge; HQ is the dashboard. See also: "Daemon is the Copilot SDK bridge" and "Copilot SDK is real" decisions.
 
 ### 2026-03-13: Session attach — Full takeover via xterm.js
 **By:** Arjen (via vision session)
@@ -78,9 +73,9 @@
 **Why:** User request — dev server output must be visible in VS Code UI
 
 ### 2026-03-13: Technical — Work Decomposition & Phasing
-**By:** Cooper (Lead)
-**What:** Decomposed VISION.md into 28 concrete work items across 5 phases. Phase 0 (Foundation) contains 5 P0 items: scaffolding, server skeleton, client shell, auth, test infra. Phases 1–4 follow with 7+6+5+5 items respectively. Maximizes parallelism within phases, minimizes cross-agent blocking.
-**Why:** Clear scope, prioritization, and team lane assignments. Single-package structure from Phase 0. GitHub API (TARS) → REST endpoints (Romilly) clean boundary. WebSocket before push features. xterm split between Brand and Romilly.
+**By:** Cooper (Lead) — *updated after daemon architecture pivot*
+**What:** Original 28 items across 5 phases (Phase 0–4). Phase 0 (Foundation) and Phase 1 (Core Features) complete. After the daemon architecture pivot, the backlog was re-scoped: 10 original issues kept (some re-scoped), 8 new issues created (#29–#38). Current execution waves: **Wave 1** (done): WS protocol #36, theme #25, daemon core #30, daemon registry #34. **Wave 2**: project model #31, Copilot forwarding #29, self-registration #32, terminal relay #20, SDK integration #37, custom tools #38. **Wave 3**: Docker removal #33, xterm.js #19, conversation viewer #22, prompt injection #21. **Wave 4**: Dev Tunnels #23, attention badges #24, daemon health #35, error handling #26, e2e tests #27, API tests #28.
+**Why:** Clear scope, prioritization, and team lane assignments. Daemon architecture pivot changed the execution order significantly — environment introspection now flows through daemons, not Docker.
 
 ### 2026-03-13: Technical — Scaffolding Config (TypeScript, ESLint, Vite, Build)
 **By:** Cooper (Lead)
@@ -163,18 +158,6 @@
 **What:** The "Full Stack" compound launch profile now starts the Fastify server + launches Vite via `preLaunchTask`. Added `"preLaunchTask": "dev:client"` to the "Client (Debug)" configuration.
 **Why:** Ensures Vite dev server is running before Chrome opens at `localhost:5173`. "Full Stack" now launches Server (Debug) + Client (Debug) correctly.
 
-### 2026-03-13: Technical — Docker CLI over @devcontainers/cli for container discovery
-**By:** TARS (Platform Dev)
-**What:** Use Docker CLI (`docker ps`, `docker inspect`) with the `devcontainer.local_folder` label filter for devcontainer discovery, rather than the `@devcontainers/cli` npm package.
-**Why:** `@devcontainers/cli` is a heavy dependency (~50MB installed) designed for building/running containers, not just listing them. Docker CLI is always present when devcontainers are running. The `devcontainer.local_folder` label is set by VS Code's Dev Container extension — it's the canonical marker. `docker inspect` gives all metadata in a single call. DockerExecutor interface enables clean testing without Docker.
-**Impact:** The `@devcontainers/cli` package is NOT added to package.json. If future features need container lifecycle management, we may reconsider.
-
-### 2026-03-13: Technical — Copilot SDK Availability (March 2026)
-**By:** CASE (Copilot SDK Specialist)
-**What:** No official GitHub Copilot SDK is publicly available as of March 2026. Built adapter pattern with MockCopilotAdapter for frontend development instead.
-**Why:** Searched npm registry, GitHub repositories, and docs — no programmatic API for session introspection ships. The CopilotAdapter interface defines the contract; MockCopilotAdapter provides realistic simulated data.
-**Impact:** When the SDK ships, create SdkCopilotAdapter and wire it based on config/detection. No REST endpoints or types need changing. Risk: if SDK's data model differs radically, the adapter will need mapping logic.
-
 ### 2026-03-13: Technical — WebSocket Client Architecture
 **By:** Brand (Frontend Dev)
 **What:** WebSocket client uses a single `WebSocketManager` class instance shared via React context (`WebSocketProvider`). Two hooks: `useWebSocket()` for raw access and `useSubscription(channel)` for typed channel subscriptions. Manager handles auto-reconnect with exponential backoff, message queuing during disconnects, and channel re-subscription on reconnect.
@@ -247,3 +230,9 @@
 **What:** Defined foundational daemon ↔ HQ WebSocket protocol as TypeScript types in `src/shared/`. Every message has a literal `type` discriminant (switch/case narrowing works automatically). Two direction unions: `DaemonToHqMessage` (8 types), `HqToDaemonMessage` (6 types), combined into `WsMessage`. Auth flow: challenge/response pattern with nonce. Token is 32 random bytes hex-encoded, validated with `timingSafeEqual`. 14 message types total. `tsconfig.server.json` rootDir changed from `src/server` to `src` to support cross-directory imports.
 **Why:** Foundation for entire daemon architecture. Issues #30 and #34 directly depend on these types. Getting protocol contract right first prevents integration pain later.
 **Impact:** `src/shared/` is new shared code location. Any code consumed by both HQ and daemon lives here. `tsconfig.server.json` rootDir now `src/` (build output path `dist/server/index.js` remains stable). Vitest server project now includes `src/shared/` tests.
+
+### 2026-03-13: Architecture — Daemon responsibilities and Copilot SDK integration spec
+**By:** Arjen (via brainstorm session)
+**What:** Defined 10 daemon responsibilities mapped to the real `@github/copilot-sdk`: (1) SDK lifecycle manager — `CopilotClient({ cliPath: "copilot", autoRestart: true })`; (2) Session discovery — `listSessions()` on startup + periodic polling; (3) Session creation from HQ — `createSession({ model, tools, systemMessage })`; (4) Session resume from HQ — `resumeSession(id, { tools })`; (5) Full event firehose — `session.on()` streams ALL events to HQ (messages, reasoning, tools, lifecycle); (6) Prompt injection — `session.send({ prompt, attachments? })` + `session.abort()`; (7) Custom HQ-aware tools — `defineTool()` for `report_progress`, `request_human_review`, `report_blocker`; (8) System message injection — append mode with project context + tool instructions; (9) Project state — git status, branch info; (10) Terminal PTY — `node-pty` for manual access. HQ server receives full firehose and filters before forwarding to browser. Issues: #37 (SDK integration), #38 (custom tools).
+**Why:** Defines the complete daemon-SDK contract before implementation. All session management flows through the daemon; HQ only aggregates and relays. Custom tools make agents HQ-aware automatically.
+**Impact:** Protocol needs expansion with new message types for SDK state, session events, tool invocations, and session commands. VISION.md updated with "Daemon Responsibilities" section.
