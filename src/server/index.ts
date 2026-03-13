@@ -9,6 +9,7 @@ import { loadConfig } from "./config.js";
 import healthRoutes from "./routes/health.js";
 import githubAuth from "./github/plugin.js";
 import { GitHubAuthError } from "./github/auth.js";
+import websocket from "./ws/plugin.js";
 
 const config = loadConfig();
 
@@ -41,6 +42,10 @@ if (!config.isDev && existsSync(config.clientDistPath)) {
     return reply.sendFile("index.html");
   });
 }
+
+// --- WebSocket ---
+
+await server.register(websocket);
 
 // --- Routes ---
 
