@@ -30,6 +30,19 @@
 - DI pattern via `StateManagerDeps` for testability — tests inject mock client/cache without vi.mock class issues
 - 23 unit tests: 12 for GitHubStateClient (mocked fetch), 11 for StateManager (injected mock deps)
 
+### 2026-03-13: GitHub API Cache Layer
+- Cache module lives in `src/server/cache/` with 5 files: `types.ts`, `cache-manager.ts`, `plugin.ts`, `index.ts`, `__tests__/cache-manager.test.ts`
+- `CacheManager` is an in-memory TTL cache for GitHub API responses — separate from state's `LocalCache` (which handles state file persistence)
+- TTL is configurable per data type: issues/PRs default 60s, repo metadata/viewer repos 300s
+- LRU eviction when maxEntries (default 500) exceeded — access order tracked via array
+- `buildCacheKey()` creates deterministic keys from data type + sorted params
+- `getOrFetch()` implements cache-through pattern: check → miss → fetch → store → return
+- Disk persistence: optional JSON snapshot to `~/.launchpad/api-cache/` — saves on shutdown, loads on startup, skips expired entries
+- Invalidation: by key, by data type, by key prefix, or full clear
+- Stats: hits, misses, evictions, entry count, hit rate (0–1 ratio)
+- Fastify plugin registers as `api-cache`, decorates server with `cache`, adds `/api/cache/stats` (GET) and invalidation endpoints (DELETE)
+- 25 unit tests: TTL expiry, LRU eviction, cache-through, invalidation, disk round-trip, stats
+
 ### 2026-03-13: GitHub GraphQL Client Module
 - GraphQL client lives in `src/server/github/` with three new files: `graphql-types.ts`, `graphql.ts`, `graphql-plugin.ts`
 - Uses `graphql-request` library (GraphQLClient) — lightweight, typed, supports response middleware for header access
