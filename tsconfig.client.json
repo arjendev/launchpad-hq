@@ -7,5 +7,6 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vite/client"]
   },
-  "include": ["src/client/**/*.ts", "src/client/**/*.tsx"]
+  "include": ["src/client/**/*.ts", "src/client/**/*.tsx"],
+  "exclude": ["src/client/**/__tests__/**", "src/client/**/*.test.ts", "src/client/**/*.test.tsx", "src/client/**/*.spec.ts", "src/client/**/*.spec.tsx"]
 }
