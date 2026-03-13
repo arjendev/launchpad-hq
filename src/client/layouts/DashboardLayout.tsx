@@ -3,6 +3,7 @@ import { useMediaQuery } from "@mantine/hooks";
 import { ProjectList } from "../components/ProjectList";
 import { KanbanBoard } from "../components/KanbanBoard";
 import { SessionsPanel } from "../components/SessionsPanel";
+import { ConnectionStatus } from "../components/ConnectionStatus";
 
 export function DashboardLayout() {
   const isSmallScreen = useMediaQuery("(max-width: 768px)");
@@ -10,8 +11,9 @@ export function DashboardLayout() {
   return (
     <AppShell header={{ height: 50 }} padding={0}>
       <AppShell.Header>
-        <Group h="100%" px="md">
+        <Group h="100%" px="md" justify="space-between">
           <Title order={3}>🚀 launchpad-hq</Title>
+          <ConnectionStatus />
         </Group>
       </AppShell.Header>
 
