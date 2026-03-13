@@ -212,3 +212,38 @@
 **By:** Arjen (via Copilot)
 **What:** Brand must always run Playwright browser tests to verify frontend changes actually work in a real browser. Curl-based smoke tests are insufficient — they miss runtime errors like null reference crashes that only manifest after initial render.
 **Why:** User request — captured for team memory. Multiple runtime bugs (WebSocket Strict Mode crash, post-load error) were missed by unit tests and curl checks.
+
+### 2026-03-13: Theme System Architecture
+**By:** Brand (Frontend Dev)
+**Date:** 2026-03-13
+**Issue:** #25
+**What:** Wrapped Mantine's `useMantineColorScheme()` + `useComputedColorScheme()` with a thin `ThemeContext` that adds a `data-theme` attribute and a simpler `useTheme()` API. Custom CSS properties (`--lp-*`) defined in `src/client/styles/theme.css` keyed off Mantine's `[data-mantine-color-scheme]` selector. No-flash script in `index.html` reads localStorage before React hydrate.
+**Why:** Mantine already handles localStorage persistence, system preference detection, and automatic component retheming — no reason to duplicate. The `--lp-*` CSS variables give escape hatches for custom styling outside Mantine components. `data-theme` attribute enables CSS selectors independent of Mantine internals.
+**Impact:** All future components should use `--lp-*` variables for custom colors and Mantine color props for component-level theming. `useTheme()` hook is the public API — don't use Mantine hooks directly. Dark theme is the default (mission control aesthetic).
+
+### 2026-03-13T14:30:00Z: Copilot SDK is real — update integration approach
+**By:** Arjen (via SDK review)
+**What:** The GitHub Copilot SDK (`@github/copilot-sdk`) exists and is in technical preview. Provides: CopilotClient (JSON-RPC to CLI), listSessions(), resumeSession(), createSession(), session.send(), event streaming (assistant.message, tool.*, session.idle), session hooks (onPreToolUse, onPostToolUse, onUserPromptSubmitted), and custom tools. The daemon should use this SDK directly — connecting to the local Copilot CLI via `cliUrl` option. MockCopilotAdapter pattern is correct but interface must be expanded to match real SDK surface.
+**Why:** Foundational architectural decision — affects #21 (prompt injection), #22 (conversation viewer), #29 (Copilot forwarding), and daemon Copilot integration layer.
+**Impact:** When SDK becomes stable, update `src/daemon/copilot-adapter.ts` to use `CopilotClient` from `@github/copilot-sdk`. No changes to protocol or interface contracts needed.
+
+### 2026-03-13: Architecture — Daemon registry dual-WebSocket pattern
+**By:** Romilly (Backend Dev)
+**What:** HQ runs two WebSocket servers on separate upgrade paths: `/ws` for browser clients (existing), `/ws/daemon` for daemon connections (new). Both use `noServer: true` with separate upgrade handlers on the same HTTP server.
+**Why:** Clean separation of concerns. Browser clients use channel-based pub/sub (subscribe/unsubscribe). Daemon clients use auth handshake + typed protocol messages. Different lifecycles, different security models. Browser WS plugin modified to NOT `socket.destroy()` on unknown paths — lets daemon handler pick up `/ws/daemon` connections.
+**Impact:** Any future WebSocket paths (e.g. `/ws/admin`) should follow this pattern: separate WebSocketServer, separate upgrade handler, no socket.destroy() on non-matching paths. Token lookup in daemon-registry currently undefined — TODO: wire to stateService.getDaemonToken(projectId) once tokens persisted.
+
+### 2026-03-13: Architecture — CLI router and daemon module structure
+**By:** TARS (Platform Dev)
+**What:** Single CLI entry point (`src/cli.ts`) routes `--daemon` vs `--hq` mode. Daemon module in `src/daemon/` with config/client/state/index files. Package bin entry points to `dist/cli.js`. Config priority: env vars → config file → defaults.
+**Why:** Single package pattern (one npm install, two modes). Dynamic imports keep HQ deps out of daemon memory and vice versa. Config pattern matches 12-factor app for container deployments.
+**Impact:** `launchpad-hq --daemon` starts daemon; `launchpad-hq` starts HQ server. Environment variables: LAUNCHPAD_HQ_URL, LAUNCHPAD_DAEMON_TOKEN, LAUNCHPAD_PROJECT_ID, LAUNCHPAD_DAEMON_CONFIG.
+
+### 2026-03-13: Daemon ↔ HQ WebSocket Protocol Types
+**Date:** 2026-03-13
+**By:** TARS (Platform Dev)
+**Issue:** #36
+**Status:** Implemented
+**What:** Defined foundational daemon ↔ HQ WebSocket protocol as TypeScript types in `src/shared/`. Every message has a literal `type` discriminant (switch/case narrowing works automatically). Two direction unions: `DaemonToHqMessage` (8 types), `HqToDaemonMessage` (6 types), combined into `WsMessage`. Auth flow: challenge/response pattern with nonce. Token is 32 random bytes hex-encoded, validated with `timingSafeEqual`. 14 message types total. `tsconfig.server.json` rootDir changed from `src/server` to `src` to support cross-directory imports.
+**Why:** Foundation for entire daemon architecture. Issues #30 and #34 directly depend on these types. Getting protocol contract right first prevents integration pain later.
+**Impact:** `src/shared/` is new shared code location. Any code consumed by both HQ and daemon lives here. `tsconfig.server.json` rootDir now `src/` (build output path `dist/server/index.js` remains stable). Vitest server project now includes `src/shared/` tests.

@@ -113,6 +113,25 @@ Also fixed a Medium-priority bug: the cache plugin wasn't registered. Found duri
 Decision on attention system architecture captured in decisions.md.
 
 
+## Phase 2 Summary
+
+**Completed Issues:** #18 (1/5 Phase 2 items)
+**Total Tests Added (Phase 2):** 35 tests
+**Commits:** 2 (attention system, cache plugin wiring)
+
+Romilly delivered the attention system — a rule-based alerting layer that identifies high-priority issues, stale PRs, and other actionable items. The system is fully testable, configurable, and broadcasts updates via WebSocket in real-time.
+
+Key learnings:
+- Rule engine uses pure functions — testable without mocking
+- Manager uses in-memory LRU storage with SHA-256 deterministic IDs for stable deduplication across evaluation cycles
+- Dismissal state persists across re-evaluations
+- Graceful per-project failure via Promise.allSettled
+
+Also fixed a Medium-priority bug: the cache plugin wasn't registered. Found during integration testing and fixed immediately.
+
+Decision on attention system architecture captured in decisions.md.
+
+
 ### 2026-03-13: HQ daemon registry (#34)
 - **Module:** `src/server/daemon-registry/` — registry, WS handler, Fastify plugin, barrel export.
 - **Registry:** `DaemonRegistry` extends EventEmitter. In-memory Map of `TrackedDaemon` (daemonId → ws + info + state + heartbeat). Methods: `register`, `unregister`, `getDaemon`, `getAllDaemons`, `sendToDaemon`, `broadcastToDaemons`, `recordHeartbeat`, `checkHeartbeats`. Emits `daemon:connected` and `daemon:disconnected`.
@@ -125,4 +144,12 @@ Decision on attention system architecture captured in decisions.md.
 - **Token lookup:** Currently returns `undefined` (TODO: wire to stateService once project tokens are persisted). Tests use a mock lookup.
 - **Tests:** 33 tests covering registry CRUD, EventEmitter events, sendTo/broadcast, heartbeat timeout, auth challenge/response (correct/wrong nonce/token), message routing (all types), disconnect handling, REST endpoints (200/400/404/502).
 - **Imports:** All protocol types from `src/shared/protocol.ts`, `validateDaemonToken` from `src/shared/auth.ts`, constants from `src/shared/constants.ts`. Zero local type duplication.
+
+## Wave 1 Summary
+
+**Phase 1 + Phase 2 Complete:** All Wave 1 issues closed (#25, #30, #34, #36)
+**Total Tests Added (Wave 1):** TARS 131 tests, Brand 280 unit + 5 e2e, Romilly 117 tests = 533 total
+**Total Tests Passing:** 351 (integrated)
+
+Wave 1 delivered foundational daemon architecture, frontend UI, and backend data integration. All Phase 1 issues (#25, #30, #34, #36) closed on GitHub. Decisions finalized for hub-and-spoke model, shared protocol types, dual-WebSocket pattern, theme system, and Copilot SDK integration approach.
 

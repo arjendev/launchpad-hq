@@ -111,6 +111,39 @@ Decisions on WebSocket client architecture captured in decisions.md. Parallel fi
 - **npm script:** `"test:e2e": "playwright test"` added to package.json.
 - **Lesson:** Always run Playwright after frontend changes to catch real-browser issues that unit tests miss. The copilot sessions bug was invisible to vitest+jsdom but would crash in any real browser.
 
+## Phase 2 Summary
+
+**Completed Issues:** #16, #17 (2/5 Phase 2 items)
+**Total Tests Added (Phase 2):** 32 + 12 = 44 tests
+**Commits:** 2 (WebSocket client, live sessions panel)
+
+Brand delivered the complete client-side real-time layer:
+1. **WebSocket client hooks** — auto-reconnect, exponential backoff, message queuing, context provider with typed subscriptions
+2. **Live sessions panel** — three-accordion UI showing devcontainers, copilot sessions (with expandable conversation), and attention items. Real-time sync via WebSocket + TanStack Query.
+
+All components integrate with the server's WebSocket broadcast channels (devcontainer, copilot, attention). The REST + WebSocket merge pattern (initial fetch + cache patching on updates) is clean and testable.
+
+Decisions on WebSocket client architecture captured in decisions.md. Parallel filesystem entanglement issue resolved with selective `git add`.
+
+### 2026-03-13: Renamed src/client/api/ → src/client/services/ for clarity
+- The `api/` directory was renamed to `services/` to avoid confusion with server `/api` routes and proxy logic
+- Updated all imports across the client codebase
+- Vite proxy configuration stays unchanged (still routes `/api` to server)
+- No functional changes; cleaner mental model for code organization
+
+### 2026-03-13: Post-load runtime error fix — Copilot sessions API mismatch
+- **Bug:** `useCopilotSessions()` hook used `fetchJson<CopilotSessionSummary[]>("/api/copilot/sessions")`, treating the API response as a raw array. The server actually returns `{ sessions: [...], count: N, adapter: "mock" }`. At runtime this caused `sessions.map is not a function` because `query.data ?? []` resolved to the wrapper object, not the array.
+- **Fix:** Changed the `queryFn` to unwrap: `const res = await fetchJson<{ sessions: ..., count, adapter }>(...); return res.sessions;`
+- **Test fix:** Updated `SessionsPanel.test.tsx` fetch mock for `/api/copilot/sessions` to return the correct `{ sessions, count, adapter }` shape instead of raw array.
+- **Root cause:** Curl-based and unit test validation didn't catch this because tests mocked the wrong response shape and curl only checked HTTP status, not client-side consumption.
+
+### 2026-03-13: Playwright E2E testing setup
+- **@playwright/test** added as dev dependency with Chromium-only config for speed.
+- **playwright.config.ts** at project root: `webServer` array starts both backend (PORT=3000 tsx) and frontend (vite :5173), `reuseExistingServer: true` for dev workflow.
+- **tests/e2e/dashboard.spec.ts** — 5 smoke tests: no console errors on load, three-pane layout renders, no uncaught exceptions in 5s, API proxy works (/api/projects 200), WebSocket connects (ConnectionStatus shows "Live").
+- **npm script:** `"test:e2e": "playwright test"` added to package.json.
+- **Lesson:** Always run Playwright after frontend changes to catch real-browser issues that unit tests miss. The copilot sessions bug was invisible to vitest+jsdom but would crash in any real browser.
+
 ### 2026-03-13: Light/dark theme toggle (Issue #25)
 - **ThemeContext** (`src/client/contexts/ThemeContext.tsx`) — thin wrapper around Mantine's `useMantineColorScheme()` and `useComputedColorScheme()` exposing `{ theme, toggleTheme, setTheme }`. Sets `data-theme` attribute on `<html>` in sync with Mantine's `data-mantine-color-scheme`.
 - **CSS custom properties** (`src/client/styles/theme.css`) — `--lp-bg`, `--lp-surface`, `--lp-text`, `--lp-text-secondary`, `--lp-border`, `--lp-accent`, `--lp-success`, `--lp-warning`, `--lp-error`, `--lp-kanban-*` variables keyed off `[data-mantine-color-scheme]` selectors. Dark = deep navy mission control; Light = clean whites.
@@ -122,4 +155,12 @@ Decisions on WebSocket client architecture captured in decisions.md. Parallel fi
 - **6 new tests**: ThemeContext (provides value, toggle, setTheme, data-theme attribute) + ThemeToggle (renders, toggles on click). All 280 unit + 5 e2e tests passing.
 - **Design decision**: Leveraged Mantine's built-in color scheme system rather than rolling a custom one. ThemeContext is a convenience wrapper — Mantine handles localStorage persistence and system preference detection (`defaultColorScheme="auto"`). This avoids duplicating logic and ensures all Mantine components adapt automatically.
 - **Selective git add**: Used targeted staging to avoid committing other agents' files (TARS attention system was in working tree).
+
+## Wave 1 Summary
+
+**Phase 1 + Phase 2 Complete:** All Wave 1 issues closed (#25, #30, #34, #36)
+**Total Tests Added (Wave 1):** 280 unit + 5 e2e tests
+**Total Tests Passing:** 351 (integrated)
+
+Wave 1 delivered complete frontend foundation: three-pane dashboard with project list, kanban board, and live sessions panel. Real-time WebSocket integration with devcontainers, Copilot sessions, and attention items. Light/dark theme toggle with Mantine integration. All components tested with vitest + Playwright E2E.
 
