@@ -17,3 +17,12 @@
 - **Custom render:** `src/test-utils/client.tsx` exports a `render` function that wraps components in `MantineProvider` automatically — tests import `render` from there, `screen` from `@testing-library/react`.
 - **Server testing pattern:** Use `createTestServer()` + `server.register(plugin)` + `server.inject()` for route testing without starting a real HTTP listener.
 - **Coverage:** V8 provider, text + lcov reporters, excludes test files, test-utils, config files, node_modules, dist.
+
+### 2026-03-13: Phase 1 integration testing
+- **Test count:** 138 total (122 existing + 16 new integration tests). All pass.
+- **Integration test file:** `src/server/__tests__/integration.test.ts` — covers full CRUD lifecycle, GitHub data routes (overview, issues, dashboard), cache plugin routes, health endpoint, and cross-plugin co-registration.
+- **Bug found:** Cache plugin (`src/server/cache/plugin.ts`) is NOT registered in `src/server/index.ts`. The module exists and works but isn't wired in — `GET /api/cache/stats` returns 404 on live server. Filed in decisions inbox.
+- **Fix applied:** `tsconfig.client.json` was missing test exclusions (unlike server config), causing 11 typecheck errors. Added exclude patterns for `__tests__/`, `*.test.ts(x)`, `*.spec.ts(x)`.
+- **Client rename verified:** Brand's `src/client/api/` → `src/client/services/` rename is clean. No stale imports found.
+- **Live server testing:** All endpoints hit against real GitHub API confirmed working: auth, projects CRUD, overview, issues, dashboard, WebSocket. State persists to `launchpad-state` repo on startup.
+- **Pattern:** Integration tests use `buildFullServer()` helper that registers all Phase 1 plugins (cache, health, projects, github-data) with mock state and GraphQL services.
