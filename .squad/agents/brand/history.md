@@ -98,5 +98,17 @@ Decisions on WebSocket client architecture captured in decisions.md. Parallel fi
 - Vite proxy configuration stays unchanged (still routes `/api` to server)
 - No functional changes; cleaner mental model for code organization
 
+### 2026-03-13: Post-load runtime error fix — Copilot sessions API mismatch
+- **Bug:** `useCopilotSessions()` hook used `fetchJson<CopilotSessionSummary[]>("/api/copilot/sessions")`, treating the API response as a raw array. The server actually returns `{ sessions: [...], count: N, adapter: "mock" }`. At runtime this caused `sessions.map is not a function` because `query.data ?? []` resolved to the wrapper object, not the array.
+- **Fix:** Changed the `queryFn` to unwrap: `const res = await fetchJson<{ sessions: ..., count, adapter }>(...); return res.sessions;`
+- **Test fix:** Updated `SessionsPanel.test.tsx` fetch mock for `/api/copilot/sessions` to return the correct `{ sessions, count, adapter }` shape instead of raw array.
+- **Root cause:** Curl-based and unit test validation didn't catch this because tests mocked the wrong response shape and curl only checked HTTP status, not client-side consumption.
+
+### 2026-03-13: Playwright E2E testing setup
+- **@playwright/test** added as dev dependency with Chromium-only config for speed.
+- **playwright.config.ts** at project root: `webServer` array starts both backend (PORT=3000 tsx) and frontend (vite :5173), `reuseExistingServer: true` for dev workflow.
+- **tests/e2e/dashboard.spec.ts** — 5 smoke tests: no console errors on load, three-pane layout renders, no uncaught exceptions in 5s, API proxy works (/api/projects 200), WebSocket connects (ConnectionStatus shows "Live").
+- **npm script:** `"test:e2e": "playwright test"` added to package.json.
+- **Lesson:** Always run Playwright after frontend changes to catch real-browser issues that unit tests miss. The copilot sessions bug was invisible to vitest+jsdom but would crash in any real browser.
 
 

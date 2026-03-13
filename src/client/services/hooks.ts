@@ -154,7 +154,10 @@ export function useCopilotSessions(): {
   const qc = useQueryClient();
   const query = useQuery<CopilotSessionSummary[]>({
     queryKey: ["copilot-sessions"],
-    queryFn: () => fetchJson<CopilotSessionSummary[]>("/api/copilot/sessions"),
+    queryFn: async () => {
+      const res = await fetchJson<{ sessions: CopilotSessionSummary[]; count: number; adapter: string }>("/api/copilot/sessions");
+      return res.sessions;
+    },
     refetchInterval: 30_000,
   });
 
