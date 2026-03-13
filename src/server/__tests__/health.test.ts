@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createTestServer } from "../../test-utils/index.js";
+import { createTestServer } from "../../test-utils/server.js";
 import healthRoutes from "../routes/health.js";
 
 describe("Health endpoint", () => {
