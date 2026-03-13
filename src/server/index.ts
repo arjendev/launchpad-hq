@@ -8,7 +8,9 @@ import fastifyStatic from "@fastify/static";
 import { loadConfig } from "./config.js";
 import healthRoutes from "./routes/health.js";
 import projectRoutes from "./routes/projects.js";
+import githubDataRoutes from "./routes/github-data.js";
 import githubAuth from "./github/plugin.js";
+import githubGraphQLPlugin from "./github/graphql-plugin.js";
 import { GitHubAuthError } from "./github/auth.js";
 import statePlugin from "./state/plugin.js";
 import websocket from "./ws/plugin.js";
@@ -52,9 +54,11 @@ await server.register(websocket);
 // --- Routes ---
 
 await server.register(githubAuth);
+await server.register(githubGraphQLPlugin);
 await server.register(statePlugin);
 await server.register(healthRoutes);
 await server.register(projectRoutes);
+await server.register(githubDataRoutes);
 
 // --- Lifecycle ---
 
