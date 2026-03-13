@@ -50,7 +50,8 @@
     "postcss-simple-vars": "^7.0.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "ws": "^8.18.2"
+    "ws": "^8.18.2",
+    "node-pty": "^1.1.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
@@ -75,8 +76,5 @@
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "vitest": "^4.1.0"
-  },
-  "optionalDependencies": {
-    "node-pty": "^1.1.0"
   }
 }
