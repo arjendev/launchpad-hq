@@ -51,6 +51,8 @@ export interface CopilotMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
+  /** Where this message originated — omitted for normal VS Code messages */
+  source?: 'hq-injection';
 }
 
 // ---------------------------------------------------------------------------
