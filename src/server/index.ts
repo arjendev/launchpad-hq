@@ -13,6 +13,7 @@ import githubAuth from "./github/plugin.js";
 import githubGraphQLPlugin from "./github/graphql-plugin.js";
 import { GitHubAuthError } from "./github/auth.js";
 import statePlugin from "./state/plugin.js";
+import cachePlugin from "./cache/plugin.js";
 import websocket from "./ws/plugin.js";
 
 const config = loadConfig();
@@ -56,6 +57,7 @@ await server.register(websocket);
 await server.register(githubAuth);
 await server.register(githubGraphQLPlugin);
 await server.register(statePlugin);
+await server.register(cachePlugin);
 await server.register(healthRoutes);
 await server.register(projectRoutes);
 await server.register(githubDataRoutes);
