@@ -90,6 +90,7 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
   );
   const [spawning, setSpawning] = useState(!externalTerminalId);
   const [exited, setExited] = useState(false);
+  const exitedRef = useRef(false);
   const spawnedByUsRef = useRef(false);
 
   const { theme } = useTheme();
@@ -148,8 +149,8 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
   const handleExit = useCallback(
     (exitCode: number) => {
       setExited(true);
+      exitedRef.current = true;
       xtermRef.current?.write(`\r\n\x1b[90m[Session ended — exit code ${exitCode}]\x1b[0m\r\n`);
-      // Don't auto-close — let the user see the exit message
     },
     [],
   );
@@ -160,6 +161,13 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
     onData: activeTerminalId ? handleData : undefined,
     onExit: activeTerminalId ? handleExit : undefined,
   });
+
+  // Keep sendInput/sendResize in refs so the one-time xterm effect
+  // always calls the latest version (avoids stale-closure with empty terminalId).
+  const sendInputRef = useRef(sendInput);
+  const sendResizeRef = useRef(sendResize);
+  sendInputRef.current = sendInput;
+  sendResizeRef.current = sendResize;
 
   // ── Initialize xterm.js ─────────────────────────────
   useEffect(() => {
@@ -191,14 +199,14 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
     xtermRef.current = term;
     fitRef.current = fit;
 
-    // Forward user keystrokes to the daemon
+    // Forward user keystrokes to the daemon via ref (never stale)
     const dataDisposable = term.onData((data: string) => {
-      if (!exited) sendInput(data);
+      if (!exitedRef.current) sendInputRef.current(data);
     });
 
-    // Forward terminal resize events
+    // Forward terminal resize events via ref (never stale)
     const resizeDisposable = term.onResize(({ cols, rows }) => {
-      sendResize(cols, rows);
+      sendResizeRef.current(cols, rows);
     });
 
     return () => {
