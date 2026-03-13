@@ -112,3 +112,18 @@ TARS delivered devcontainer discovery via Docker CLI — a clean, lightweight al
 - Key ws library lesson: `ws.terminate()` on CONNECTING state emits 'error' via `process.nextTick` — must install no-op error handler before terminate to avoid uncaught exceptions
 - 38 tests (14 client, 11 config, 13 state), 351 total passing
 
+## Wave 1 Summary
+
+**Phase 1 + Phase 2 Complete:** All Wave 1 issues closed (#25, #30, #34, #36)
+**Total Tests Added (Wave 1):** 131 tests
+**Total Tests Passing:** 351 (integrated)
+
+Wave 1 delivered daemon foundation: WebSocket protocol types with discriminated unions, daemon core process with auto-reconnect, VISION.md architecture update, and supporting infrastructure. tsconfig and vitest updated for shared code module. All architectural decisions captured in decisions.md.
+
+Key achievements:
+- Protocol designed as pure types — implementation-agnostic, reusable across daemon and HQ
+- Daemon lifecycle: config → client → state → register with HQ with automatic auth challenge/response
+- Exponential backoff reconnect strategy prevents server hammering during outages
+- Proper ws.terminate() error handling on CONNECTING state
+- TypeScript path imports work correctly with updated tsconfig rootDir
+
