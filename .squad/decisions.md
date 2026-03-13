@@ -186,3 +186,29 @@
 **What:** Attention system at `src/server/attention/` uses a rule engine pattern with pure evaluation functions, an in-memory manager with configurable maxItems/LRU eviction, and periodic evaluation via `setInterval`. Rules are individually toggleable. WebSocket broadcasts on "attention" channel. Deterministic item IDs via SHA-256 hash for stable deduplication.
 **Why:** Pure rule functions are testable without mocking. In-memory storage is fast and sufficient for a personal tool. Deterministic IDs preserve dismissed state when items are re-evaluated. `Promise.allSettled` prevents one failing project from blocking others. Stubs for CI-failing and session-idle rules are ready.
 **Impact:** Attention badge in header shows count. Rule stubs await Checks API and Copilot SDK integration.
+
+### 2026-03-13T13:56:00Z: Architecture — Hub-and-spoke daemon architecture
+**By:** Arjen (via architecture discussion)
+**What:** Launchpad uses a hub-and-spoke model. launchpad-hq is the central dashboard (hub). Each project devcontainer runs a launchpad-daemon (spoke). Daemons initiate bidirectional WebSocket connections outbound to HQ. HQ never reaches into daemons. This preserves devcontainer isolation. Dev Tunnels will be added later for remote/Codespaces support. The current Docker-based discovery (#14) should be replaced or supplemented with daemon registration. This devcontainer runs BOTH HQ and its own daemon since it is also a project.
+**Why:** Architectural decision — defines how multi-project introspection works. Affects discovery, terminal relay, copilot session forwarding, and the entire Phase 3 scope.
+
+### 2026-03-13T14:10:00Z: Architecture — Project lifecycle model
+**By:** Arjen (via architecture discussion)
+**What:** When a project is added in HQ, the user specifies the runtime target: WSL+devcontainer, WSL only, or local folder. Each project has lifecycle states: initialized (yes/no), daemon status (online/offline), work state (working/awaiting/stopped). Daemons are started explicitly, not auto-spawned. The daemon runs in whatever environment the project lives in — not just devcontainers.
+**Why:** Defines the project model for the daemon architecture. Affects project CRUD, daemon management, and the entire dashboard UX.
+
+### 2026-03-13T14:23:00Z: Architecture — Daemon is the Copilot SDK bridge
+**By:** Arjen (via architecture clarification)
+**What:** The launchpad-daemon's primary interface with the local project is through the Copilot SDK. The Copilot SDK adapter (currently in src/server/copilot/) belongs in the daemon, not in HQ. The daemon discovers local Copilot sessions via the SDK, relays conversation state and session status to HQ, and executes HQ commands (prompt injection, session attach) locally via the SDK. HQ only aggregates — it never talks to the SDK directly. When the real Copilot SDK ships, only the daemon's adapter internals change.
+**Why:** Defines the daemon's core purpose and the correct location for Copilot SDK integration. Affects NEW-6 (Copilot forwarding) and #21 (prompt injection) scope.
+
+### 2026-03-13: Technical — Playwright E2E Testing Setup
+**By:** Brand (Frontend Dev)
+**What:** Playwright is now set up as the browser-level E2E testing tool. Configuration: only Chromium (fast, sufficient for dashboard), `webServer` config starts both backend and frontend automatically, `reuseExistingServer: true` so devs can use running servers, screenshots on failure, traces on failure, 30s timeout per test, tests live in `tests/e2e/`, run via `npm run test:e2e`.
+**Why:** Unit tests (vitest + jsdom) missed a real runtime error: the copilot sessions hook was consuming a wrapped API response as a raw array, causing `TypeError: sessions.map is not a function` in real browsers. Playwright catches these by running actual Chromium.
+**Impact:** All frontend PRs should run `npm run test:e2e` to validate browser behavior. New frontend features should include Playwright smoke tests. Chromium binary is cached in `~/.cache/ms-playwright/` (~110MB).
+
+### 2026-03-13T11:27:30Z: User directive — Playwright browser tests required
+**By:** Arjen (via Copilot)
+**What:** Brand must always run Playwright browser tests to verify frontend changes actually work in a real browser. Curl-based smoke tests are insufficient — they miss runtime errors like null reference crashes that only manifest after initial render.
+**Why:** User request — captured for team memory. Multiple runtime bugs (WebSocket Strict Mode crash, post-load error) were missed by unit tests and curl checks.
