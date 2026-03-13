@@ -192,3 +192,13 @@ Wave 1 delivered complete frontend foundation: three-pane dashboard with project
 - **No model selector:** Task mentioned optional selector. Skipped it to keep UI clean — default model is fine, selector can layer on later if needed.
 - **Files changed:** 3 files (hooks.ts, CopilotSessionsSection.tsx, ConnectedProjectPanel.tsx). 603 tests passing.
 - **Decision captured in:** `.squad/decisions/decisions.md` — "Create Session UI — Button-first, no model selector"
+
+### 2026-03-13: Session abort cache invalidation fix
+- **Bug:** Sessions removed via abort were not disappearing from the UI because cache invalidation only cleared one of two related query keys.
+- **Root cause:** `useAbortSession()` only invalidated `aggregated-sessions` query key, but some parts of the UI read from `copilot-sessions` query key (separate TanStack Query entry).
+- **Fix:** Updated `useAbortSession()` to invalidate both cache keys after abort: `aggregated-sessions` and `copilot-sessions`.
+- **Strategy:** Defensive caching — when in doubt about which cache keys a component might be using, invalidate all related keys. Better to re-fetch unnecessarily than leave stale data.
+- **Testing:** Updated `useAbortSession` tests to verify both cache keys are invalidated on abort.
+- **Integration:** Works seamlessly with Romilly's backend dual-path cleanup. Frontend cache invalidation (both keys) + backend removal (immediate + daemon safety net) = robust end-to-end abort workflow.
+- **Commit:** 1e7c8f7
+- **Decision captured in:** `.squad/decisions/decisions.md` — "Frontend — Session abort cache invalidation"

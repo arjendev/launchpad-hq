@@ -268,3 +268,73 @@
 **What:** Added always-visible "✕ End" button in CopilotConversation header. Calls abort endpoint + navigates back via `onClose()` on success. Styled `variant="subtle" color="red" size="compact-xs"` to indicate destructive action. Works for sessions in any state, not just active.
 **Why:** Users had no way to end idle sessions from the UI. Existing Abort button only appeared during active processing. New button provides clear exit path for all cases while keeping in-progress Abort button for its intended purpose (stop without leaving).
 **Impact:** File: `src/client/components/CopilotConversation.tsx`. Reuses `useAbortSession()` hook; no new logic.
+
+### 2026-03-13: Backend — Session abort cleanup strategy
+**Author:** Romilly  
+**Date:** 2026-03-13  
+**Status:** Implemented (Commit: c15a8fc)
+
+**Context**
+When a user clicks "End" on a Copilot session, the session was not removed from the UI because no cleanup occurred at the aggregator level.
+
+**Decision**
+Abort cleanup is dual-path and idempotent:
+
+1. **HQ (immediate):** The abort route removes the session from the aggregator immediately after sending the abort message to the daemon (best-effort). This means the UI updates instantly, even if the daemon is disconnected.
+
+2. **Daemon (safety net):** The daemon's `handleAbort` emits `session.ended` back to HQ. The aggregator handles `session.ended` by calling `removeSession`, which is a no-op if the session was already removed by the route.
+
+This means the abort route no longer returns 502 when the daemon is disconnected. The session is cleaned up regardless. The daemon abort message is best-effort.
+
+**Protocol change**
+Added `session.ended` to the `CopilotSessionEventType` union. All team members should be aware this event now flows through the event pipeline.
+
+**Impact**
+- Test coverage: 8 new integration tests covering abort cleanup paths
+- Total test count: 645 passing
+- Implementation files: aggregator.ts, abort.ts, daemon/index.ts, test files
+
+### 2026-03-13: Frontend — Session abort cache invalidation
+**Author:** Brand  
+**Date:** 2026-03-13  
+**Status:** Implemented (Commit: 1e7c8f7)
+
+**Context**
+Sessions removed via abort were not disappearing from the UI because cache invalidation only cleared one of two related query keys.
+
+**Decision**
+The `useAbortSession` hook now invalidates both cache keys after abort:
+- `aggregated-sessions` (primary sessions list)
+- `copilot-sessions` (Copilot-specific sessions list)
+
+This defensive caching strategy ensures no stale session data remains after user clicks "End", regardless of which hook or page accessed the session.
+
+**Integration with Backend**
+Works seamlessly with Romilly's dual-path abort handling:
+1. User clicks "End"
+2. Frontend calls `useAbortSession` which hits backend abort route
+3. Backend immediately removes session and sends abort to daemon
+4. Frontend invalidates both cache keys → UI reflects removal instantly
+5. Daemon sends `session.ended` event (safety net)
+
+**Impact**
+- Files modified: `src/client/hooks/use-abort-session.ts`
+- Cache strategy is now defensive against partial invalidation edge cases
+- Complements backend's dual-path strategy for robustness across all failure modes
+
+### 2026-03-13: Quality — Copilot session lifecycle test coverage
+**By:** Doyle (Quality Reviewer)
+**Date:** 2026-03-13
+**Status:** Implemented
+
+**What**
+Added 34 integration tests in `src/server/__tests__/copilot-session-lifecycle.test.ts` covering the complete Copilot session backend lifecycle: creation, status transitions, prompt injection, abort, projectId propagation, aggregated listing, and multi-daemon routing.
+
+**Why**
+The session lifecycle code spans daemon registry, copilot aggregator, and HTTP routes — three integration seams that can break independently. These tests guard the fixes made during Wave 2/3 (especially the projectId "unknown" regression) and validate the event-driven pipeline from daemon message to aggregator state to HTTP response.
+
+**Impact**
+- Total test count: 603 → 637 (34 new)
+- All existing tests continue to pass
+- Build clean, no type errors
+- Regression tests explicitly assert `projectId !== "unknown"` to prevent reintroduction of the bug
