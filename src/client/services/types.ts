@@ -124,6 +124,16 @@ export interface DaemonSummary {
   capabilities: string[];
 }
 
+// ── SDK re-exports — source of truth for Copilot event types ────
+
+import type { SessionEventType, SessionEvent } from '@github/copilot-sdk';
+
+/** SDK session event type names (re-exported for convenience) */
+export type CopilotSessionEventType = SessionEventType;
+
+/** SDK session event (re-exported for convenience) */
+export type CopilotSessionEvent = SessionEvent;
+
 // ── Aggregated Copilot session types (match server copilot-aggregator) ────
 
 export type AggregatedSessionStatus = "active" | "idle" | "error";
@@ -170,23 +180,7 @@ export interface SessionToolsResponse {
   count: number;
 }
 
-export type CopilotSessionEventType =
-  | "user.message"
-  | "assistant.message"
-  | "assistant.message.delta"
-  | "assistant.reasoning"
-  | "assistant.reasoning.delta"
-  | "tool.executionStart"
-  | "tool.executionComplete"
-  | "session.start"
-  | "session.idle"
-  | "session.error";
 
-export interface CopilotSessionEvent {
-  type: CopilotSessionEventType;
-  data: Record<string, unknown>;
-  timestamp: number;
-}
 
 /** Unified entry type for the conversation viewer */
 export type ConversationEntryType =
