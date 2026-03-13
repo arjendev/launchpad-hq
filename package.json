@@ -20,6 +20,7 @@
     "test:server": "vitest run --project server",
     "test:client": "vitest run --project client",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.client.json"
   },
   "keywords": [
@@ -52,6 +53,7 @@
     "xterm-addon-fit": "^0.8.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

@@ -116,7 +116,7 @@ function setupFetchMock(overrides?: {
         };
       }
       if (typeof url === "string" && url.includes("/api/copilot/sessions")) {
-        return { ok: true, json: async () => sessions };
+        return { ok: true, json: async () => ({ sessions, count: sessions.length, adapter: "mock" }) };
       }
       if (typeof url === "string" && url.includes("/api/attention/count")) {
         return { ok: true, json: async () => attentionCount };
