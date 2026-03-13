@@ -234,6 +234,26 @@ export class DaemonWebSocketClient extends EventEmitter<DaemonClientEvents> {
       case 'terminal-input':
         // Handled via 'message' event by higher-level code
         break;
+
+      case 'terminal-spawn':
+        // Handled via 'message' event by terminal handler
+        break;
+
+      case 'terminal-resize':
+        // Handled via 'message' event by terminal handler
+        break;
+
+      case 'terminal-kill':
+        // Handled via 'message' event by terminal handler
+        break;
+
+      case 'copilot-create-session':
+      case 'copilot-resume-session':
+      case 'copilot-send-prompt':
+      case 'copilot-abort-session':
+      case 'copilot-list-sessions':
+        // Handled via 'message' event by CopilotManager
+        break;
     }
   }
 

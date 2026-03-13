@@ -162,7 +162,17 @@ export class DaemonWsHandler {
         });
         break;
 
+      case "terminal-exit":
+        this.broadcast("terminal", {
+          type: "terminal:exit",
+          projectId: msg.payload.projectId,
+          terminalId: msg.payload.terminalId,
+          exitCode: msg.payload.exitCode,
+        });
+        break;
+
       case "copilot-session-update":
+        this.registry.emit("copilot:session-update" as never, msg.payload.projectId, msg.payload);
         this.broadcast("copilot", {
           type: "copilot:session-update",
           projectId: msg.payload.projectId,
@@ -170,7 +180,20 @@ export class DaemonWsHandler {
         });
         break;
 
+      case "copilot-sdk-session-list":
+        this.registry.emit("copilot:session-list" as never, msg.payload);
+        break;
+
+      case "copilot-sdk-session-event":
+        this.registry.emit("copilot:session-event" as never, msg.payload);
+        break;
+
+      case "copilot-sdk-state":
+        this.registry.emit("copilot:sdk-state" as never, msg.payload);
+        break;
+
       case "copilot-conversation":
+        this.registry.emit("copilot:conversation" as never, msg.payload.projectId, msg.payload);
         this.broadcast("copilot", {
           type: "copilot:conversation",
           projectId: msg.payload.projectId,

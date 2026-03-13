@@ -7,6 +7,7 @@ import type {
   HeartbeatMessage,
   StatusUpdateMessage,
   TerminalDataMessage,
+  TerminalExitMessage,
   CopilotSessionUpdateMessage,
   CopilotConversationMessage,
   AttentionItemMessage,
@@ -16,6 +17,9 @@ import type {
   AuthRejectMessage,
   CommandMessage,
   TerminalInputMessage,
+  TerminalSpawnMessage,
+  TerminalResizeMessage,
+  TerminalKillMessage,
   RequestStatusMessage,
   RuntimeTarget,
   WorkState,
@@ -93,6 +97,16 @@ describe('Protocol message types', () => {
       };
       expect(msg.type).toBe('terminal-data');
       expect(msg.payload.data).toBe('ls\n');
+    });
+
+    it('terminal-exit message has correct shape', () => {
+      const msg: TerminalExitMessage = {
+        type: 'terminal-exit',
+        timestamp: now,
+        payload: { projectId: 'proj-1', terminalId: 'term-1', exitCode: 0 },
+      };
+      expect(msg.type).toBe('terminal-exit');
+      expect(msg.payload.exitCode).toBe(0);
     });
 
     it('copilot-session-update message has correct shape', () => {
@@ -225,6 +239,47 @@ describe('Protocol message types', () => {
       expect(msg.payload.data).toBe('cd /app\n');
     });
 
+    it('terminal-spawn message has correct shape', () => {
+      const msg: TerminalSpawnMessage = {
+        type: 'terminal-spawn',
+        timestamp: now,
+        payload: { projectId: 'proj-1', terminalId: 'term-1', cols: 120, rows: 40 },
+      };
+      expect(msg.type).toBe('terminal-spawn');
+      expect(msg.payload.terminalId).toBe('term-1');
+      expect(msg.payload.cols).toBe(120);
+    });
+
+    it('terminal-spawn works without optional cols/rows', () => {
+      const msg: TerminalSpawnMessage = {
+        type: 'terminal-spawn',
+        timestamp: now,
+        payload: { projectId: 'proj-1', terminalId: 'term-2' },
+      };
+      expect(msg.payload.cols).toBeUndefined();
+      expect(msg.payload.rows).toBeUndefined();
+    });
+
+    it('terminal-resize message has correct shape', () => {
+      const msg: TerminalResizeMessage = {
+        type: 'terminal-resize',
+        timestamp: now,
+        payload: { projectId: 'proj-1', terminalId: 'term-1', cols: 200, rows: 50 },
+      };
+      expect(msg.type).toBe('terminal-resize');
+      expect(msg.payload.cols).toBe(200);
+    });
+
+    it('terminal-kill message has correct shape', () => {
+      const msg: TerminalKillMessage = {
+        type: 'terminal-kill',
+        timestamp: now,
+        payload: { projectId: 'proj-1', terminalId: 'term-1' },
+      };
+      expect(msg.type).toBe('terminal-kill');
+      expect(msg.payload.terminalId).toBe('term-1');
+    });
+
     it('request-status message has correct shape', () => {
       const msg: RequestStatusMessage = {
         type: 'request-status',
@@ -259,12 +314,13 @@ describe('Protocol message types', () => {
         'heartbeat',
         'status-update',
         'terminal-data',
+        'terminal-exit',
         'copilot-session-update',
         'copilot-conversation',
         'attention-item',
         'auth-response',
       ];
-      expect(types).toHaveLength(8);
+      expect(types).toHaveLength(9);
     });
 
     it('HqToDaemonMessage union contains all HQ message types', () => {
@@ -274,9 +330,12 @@ describe('Protocol message types', () => {
         'auth-reject',
         'command',
         'terminal-input',
+        'terminal-spawn',
+        'terminal-resize',
+        'terminal-kill',
         'request-status',
       ];
-      expect(types).toHaveLength(6);
+      expect(types).toHaveLength(9);
     });
   });
 
@@ -305,12 +364,13 @@ describe('Protocol message types', () => {
 
     it('MessageType covers all discriminants', () => {
       const allTypes: MessageType[] = [
-        'register', 'heartbeat', 'status-update', 'terminal-data',
+        'register', 'heartbeat', 'status-update', 'terminal-data', 'terminal-exit',
         'copilot-session-update', 'copilot-conversation', 'attention-item',
         'auth-response', 'auth-challenge', 'auth-accept', 'auth-reject',
-        'command', 'terminal-input', 'request-status',
+        'command', 'terminal-input', 'terminal-spawn', 'terminal-resize',
+        'terminal-kill', 'request-status',
       ];
-      expect(allTypes).toHaveLength(14);
+      expect(allTypes).toHaveLength(18);
     });
   });
 });

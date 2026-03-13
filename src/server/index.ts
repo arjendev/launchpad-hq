@@ -19,7 +19,11 @@ import daemonRegistryPlugin from "./daemon-registry/plugin.js";
 import containersPlugin from "./containers/plugin.js";
 import attentionPlugin from "./attention/plugin.js";
 import copilotPlugin from "./copilot/plugin.js";
+import copilotAggregatorPlugin from "./copilot-aggregator/plugin.js";
 import daemonRoutes from "./routes/daemons.js";
+import terminalRelayPlugin from "./terminal-relay/plugin.js";
+import terminalRoutes from "./routes/terminals.js";
+import copilotSessionRoutes from "./routes/copilot-sessions.js";
 
 const config = loadConfig();
 
@@ -61,6 +65,10 @@ await server.register(websocket);
 
 await server.register(daemonRegistryPlugin);
 
+// --- Terminal relay (depends on websocket + daemon-registry) ---
+
+await server.register(terminalRelayPlugin);
+
 // --- Container monitoring ---
 
 await server.register(containersPlugin);
@@ -68,6 +76,10 @@ await server.register(containersPlugin);
 // --- Copilot introspection (mock adapter until real SDK ships) ---
 
 await server.register(copilotPlugin);
+
+// --- Copilot aggregator (daemon-side session aggregation) ---
+
+await server.register(copilotAggregatorPlugin);
 
 // --- Routes ---
 
@@ -80,6 +92,8 @@ await server.register(projectRoutes);
 await server.register(githubDataRoutes);
 await server.register(attentionPlugin);
 await server.register(daemonRoutes);
+await server.register(terminalRoutes);
+await server.register(copilotSessionRoutes);
 
 // --- Lifecycle ---
 
