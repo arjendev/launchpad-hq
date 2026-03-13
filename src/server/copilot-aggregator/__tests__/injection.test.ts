@@ -246,7 +246,7 @@ describe("Copilot prompt injection pipeline", () => {
       expect(res.json().error).toBe("not_found");
     });
 
-    it("returns 502 when daemon is disconnected", async () => {
+    it("succeeds even when daemon is disconnected (cleans up aggregator)", async () => {
       const ws = createMockSocket();
       ws.readyState = 3; // CLOSED
       server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
@@ -264,8 +264,9 @@ describe("Copilot prompt injection pipeline", () => {
         url: "/api/copilot/aggregated/sessions/s1/abort",
       });
 
-      expect(res.statusCode).toBe(502);
-      expect(res.json().error).toBe("send_failed");
+      expect(res.statusCode).toBe(200);
+      expect(res.json().ok).toBe(true);
+      expect(server.copilotAggregator.getSession("s1")).toBeUndefined();
     });
   });
 
