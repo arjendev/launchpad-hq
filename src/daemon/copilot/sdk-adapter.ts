@@ -237,6 +237,11 @@ export class SdkCopilotAdapter implements CopilotAdapter {
     return new SdkCopilotSession(inner);
   }
 
+  async deleteSession(sessionId: string): Promise<void> {
+    if (!this.client) return;
+    await this.client.deleteSession(sessionId);
+  }
+
   onStateChange(handler: (state: CopilotSdkState) => void): () => void {
     this.stateHandlers.push(handler);
     return () => {

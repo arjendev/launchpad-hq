@@ -86,6 +86,9 @@ export interface CopilotAdapter {
     config?: Partial<SessionConfig>,
   ): Promise<CopilotSession>;
 
+  /** Delete a session from the SDK registry */
+  deleteSession(sessionId: string): Promise<void>;
+
   /** Subscribe to adapter state changes; returns unsubscribe */
   onStateChange(handler: (state: CopilotSdkState) => void): () => void;
 }

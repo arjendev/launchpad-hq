@@ -91,6 +91,8 @@ class TestCopilotAdapter implements CopilotAdapter {
     return session;
   }
 
+  async deleteSession(_sessionId: string): Promise<void> { /* no-op for test */ }
+
   onStateChange(handler: (state: CopilotSdkState) => void): () => void {
     this.stateHandlers.push(handler);
     return () => { this.stateHandlers = this.stateHandlers.filter((h) => h !== handler); };
