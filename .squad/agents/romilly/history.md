@@ -70,3 +70,15 @@ All three modules are integrated into the server with correct plugin registratio
 
 Romilly's work is the bridge between TARS' data access layer and Brand's frontend. All issues closed on GitHub.
 
+### 2026-03-13: Attention system — data model & server logic (#18)
+- **Module:** `src/server/attention/` — types, rules engine, manager, Fastify plugin, barrel export.
+- **Types:** `AttentionItem` (id, type, severity, project, message, timestamp, url, sourceId, dismissed). `AttentionType`: issue_stale, pr_needs_review, ci_failing, session_idle. `AttentionSeverity`: info, warning, critical.
+- **Rule engine:** `rules.ts` — pure functions: `evaluateStaleIssues` (configurable staleDays, escalates to critical at 2× threshold), `evaluatePrNeedsReview` (open non-draft PRs), `evaluateCiFailing` (stub — needs checks API), `evaluateSessionIdle` (stub — needs Copilot SDK #15). `evaluateRules()` orchestrates all enabled rules. `evaluateProjectAttention()` fetches data via GraphQL then evaluates.
+- **Manager:** `AttentionManager` class — in-memory Map store, configurable maxItems with LRU eviction (dismissed first). `list()` with filtering (severity, project, type, dismissed) and sorting (severity → date). `dismiss()`, `unreadCount()`, `unreadCountBySeverity()`.
+- **Evaluation loop:** `start()/stop()` — periodic `setInterval` that scans all tracked projects via `stateService.getConfig()`. Uses `Promise.allSettled` for graceful per-project failures. Preserves dismissed state across evaluations. Broadcasts new items via WebSocket.
+- **REST endpoints:** `GET /api/attention` (filterable list), `GET /api/attention/count` (unread count + by-severity breakdown), `POST /api/attention/:id/dismiss` (mark read, returns updated count).
+- **WebSocket:** Added `"attention"` to `Channel` union in `ws/types.ts`. Plugin broadcasts `{ type: "attention:new", items, unreadCount }` to attention channel subscribers.
+- **Plugin registration:** `attentionPlugin` registered in `index.ts` after state/graphql plugins. Uses `onReady` hook for lazy dependency wiring.
+- **Tests:** 35 tests in `src/server/__tests__/attention.test.ts` — rule evaluators (stale/fresh/closed issues, draft/open PRs, stubs), rule engine (enabled/disabled), deterministic IDs, manager (CRUD, filtering, sorting, dismissal, counts, maxItems, clear), REST endpoints (list, filter, count, dismiss, 404).
+- **Note:** Parallel filesystem entanglement struck again — attention files were captured in the copilot #15 commit. Had to commit the index.ts registration separately. See decisions.md entry on this pattern.
+
