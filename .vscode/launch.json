@@ -4,14 +4,10 @@
     {
       "name": "Server (Debug)",
       "type": "node",
-      "request": "launch",
-      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx",
-      "args": ["src/server/index.ts"],
-      "env": {
-        "NODE_ENV": "development"
-      },
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen",
+      "request": "attach",
+      "port": 9229,
+      "restart": true,
+      "preLaunchTask": "dev:server",
       "skipFiles": ["<node_internals>/**"]
     },
     {
