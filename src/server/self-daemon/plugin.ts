@@ -80,6 +80,18 @@ async function selfDaemonPlugin(
         });
         await fastify.stateService.saveConfig(stateConfig);
         fastify.log.info({ projectId }, "Self-daemon project auto-registered");
+      } else {
+        // Update the token in state so the ephemeral token matches
+        const project = stateConfig.projects.find(
+          (p) =>
+            p.owner.toLowerCase() === owner.toLowerCase() &&
+            p.repo.toLowerCase() === repo.toLowerCase(),
+        );
+        if (project && project.daemonToken !== token) {
+          project.daemonToken = token;
+          await fastify.stateService.saveConfig(stateConfig);
+          fastify.log.info({ projectId }, "Self-daemon token refreshed in state");
+        }
       }
     } catch (err) {
       fastify.log.warn(
