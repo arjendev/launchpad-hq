@@ -75,7 +75,7 @@ describe("Copilot session routes", () => {
       const body = res.json();
       expect(body.count).toBe(2);
       expect(body.sessions[0]).toHaveProperty("sessionId");
-      expect(body.sessions[0]).toHaveProperty("daemonId", "test/repo1");
+      expect(body.sessions[0]).not.toHaveProperty("daemonId");
     });
   });
 
@@ -354,6 +354,341 @@ describe("Copilot session routes", () => {
       });
 
       expect(res.statusCode).toBe(502);
+    });
+  });
+
+  // ── Client-facing session stripping ───────────────────
+
+  describe("session field stripping", () => {
+    it("GET sessions does not include daemonId or projectId", async () => {
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+      ]);
+
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions",
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.sessions[0]).not.toHaveProperty("daemonId");
+      expect(body.sessions[0]).not.toHaveProperty("projectId");
+      expect(body.sessions[0]).toHaveProperty("sessionId", "s1");
+    });
+
+    it("GET session detail does not include daemonId or projectId", async () => {
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+      ]);
+
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions/s1",
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body).not.toHaveProperty("daemonId");
+      expect(body).not.toHaveProperty("projectId");
+    });
+  });
+
+  // ── POST /api/copilot/aggregated/sessions/:sessionId/resume ──
+
+  describe("POST /api/copilot/aggregated/sessions/:sessionId/resume", () => {
+    it("sends resume message to daemon", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
+
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+      ]);
+
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/s1/resume",
+        payload: { config: { model: "gpt-4o" } },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().ok).toBe(true);
+
+      expect(ws.sent).toHaveLength(1);
+      const msg = JSON.parse(ws.sent[0]);
+      expect(msg.type).toBe("copilot-resume-session");
+      expect(msg.payload.sessionId).toBe("s1");
+      expect(msg.payload.config).toEqual({ model: "gpt-4o" });
+      expect(msg.payload.requestId).toBeDefined();
+    });
+
+    it("returns 404 for unknown session", async () => {
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/nonexistent/resume",
+        payload: {},
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  // ── POST /api/copilot/aggregated/sessions/:sessionId/set-model ──
+
+  describe("POST /api/copilot/aggregated/sessions/:sessionId/set-model", () => {
+    it("sends set-model message to daemon", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
+
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+      ]);
+
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/s1/set-model",
+        payload: { model: "gpt-4o" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().ok).toBe(true);
+
+      const msg = JSON.parse(ws.sent[0]);
+      expect(msg.type).toBe("copilot-set-model");
+      expect(msg.payload.model).toBe("gpt-4o");
+    });
+
+    it("returns 400 when model is missing", async () => {
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+      ]);
+
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/s1/set-model",
+        payload: {},
+      });
+
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
+  // ── POST /api/copilot/aggregated/sessions/:sessionId/mode ──
+
+  describe("POST /api/copilot/aggregated/sessions/:sessionId/mode", () => {
+    it("sends set-mode message to daemon", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
+
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+      ]);
+
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/s1/mode",
+        payload: { mode: "autopilot" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().ok).toBe(true);
+
+      const msg = JSON.parse(ws.sent[0]);
+      expect(msg.type).toBe("copilot-set-mode");
+      expect(msg.payload.mode).toBe("autopilot");
+    });
+
+    it("returns 400 when mode is missing", async () => {
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+      ]);
+
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/s1/mode",
+        payload: {},
+      });
+
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
+  // ── GET /api/copilot/aggregated/sessions/:sessionId/mode ──
+
+  describe("GET /api/copilot/aggregated/sessions/:sessionId/mode", () => {
+    it("sends get-mode to daemon and returns response", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
+
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+      ]);
+
+      // Simulate daemon response in background
+      const responsePromise = server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions/s1/mode",
+      });
+
+      // Wait briefly for the message to be sent
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Extract requestId from sent message and resolve
+      const msg = JSON.parse(ws.sent[0]);
+      expect(msg.type).toBe("copilot-get-mode");
+      server.copilotAggregator.resolveRequest(msg.payload.requestId, { mode: "interactive" });
+
+      const res = await responsePromise;
+      expect(res.statusCode).toBe(200);
+      expect(res.json().mode).toBe("interactive");
+    });
+
+    it("returns 404 for unknown session", async () => {
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions/nonexistent/mode",
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  // ── Plan routes ───────────────────────────────────────
+
+  describe("plan routes", () => {
+    it("POST plan sends update-plan to daemon", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
+
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+      ]);
+
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/s1/plan",
+        payload: { content: "Step 1: Do the thing" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const msg = JSON.parse(ws.sent[0]);
+      expect(msg.type).toBe("copilot-update-plan");
+      expect(msg.payload.content).toBe("Step 1: Do the thing");
+    });
+
+    it("DELETE plan sends delete-plan to daemon", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
+
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+      ]);
+
+      const res = await server.inject({
+        method: "DELETE",
+        url: "/api/copilot/aggregated/sessions/s1/plan",
+      });
+
+      expect(res.statusCode).toBe(200);
+      const msg = JSON.parse(ws.sent[0]);
+      expect(msg.type).toBe("copilot-delete-plan");
+      expect(msg.payload.sessionId).toBe("s1");
+    });
+
+    it("GET plan sends get-plan to daemon and returns response", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
+
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+      ]);
+
+      const responsePromise = server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions/s1/plan",
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const msg = JSON.parse(ws.sent[0]);
+      expect(msg.type).toBe("copilot-get-plan");
+      server.copilotAggregator.resolveRequest(msg.payload.requestId, {
+        plan: { exists: true, content: "My plan", path: "plan.md" },
+      });
+
+      const res = await responsePromise;
+      expect(res.statusCode).toBe(200);
+      expect(res.json().plan.content).toBe("My plan");
+    });
+  });
+
+  // ── POST /api/copilot/aggregated/sessions/:sessionId/disconnect ──
+
+  describe("POST /api/copilot/aggregated/sessions/:sessionId/disconnect", () => {
+    it("sends disconnect to daemon", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
+
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+      ]);
+
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/s1/disconnect",
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().ok).toBe(true);
+
+      const msg = JSON.parse(ws.sent[0]);
+      expect(msg.type).toBe("copilot-disconnect-session");
+      expect(msg.payload.sessionId).toBe("s1");
+    });
+
+    it("returns 404 for unknown session", async () => {
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/nonexistent/disconnect",
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  // ── GET /api/copilot/models ───────────────────────────
+
+  describe("GET /api/copilot/models", () => {
+    it("returns 503 when no daemons connected", async () => {
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/copilot/models",
+      });
+
+      expect(res.statusCode).toBe(503);
+    });
+
+    it("sends list-models to daemon and returns response", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
+
+      const responsePromise = server.inject({
+        method: "GET",
+        url: "/api/copilot/models",
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const msg = JSON.parse(ws.sent[0]);
+      expect(msg.type).toBe("copilot-list-models");
+      server.copilotAggregator.resolveRequest(msg.payload.requestId, {
+        models: [{ id: "gpt-4o", name: "GPT-4o" }],
+      });
+
+      const res = await responsePromise;
+      expect(res.statusCode).toBe(200);
+      expect(res.json().models).toHaveLength(1);
+      expect(res.json().models[0].id).toBe("gpt-4o");
     });
   });
 });

@@ -140,8 +140,6 @@ export type AggregatedSessionStatus = "active" | "idle" | "error";
 
 export interface AggregatedSession {
   sessionId: string;
-  daemonId: string;
-  projectId: string;
   cwd?: string;
   gitRoot?: string;
   repository?: string;
@@ -149,6 +147,8 @@ export interface AggregatedSession {
   summary?: string;
   status: AggregatedSessionStatus;
   model?: string;
+  title?: string;
+  mode?: string;
   startedAt: number;
   lastEvent?: { type: string; timestamp: number };
   updatedAt: number;

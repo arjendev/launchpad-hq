@@ -173,9 +173,9 @@ export function useAggregatedSessions(projectId?: string): {
 
   const sessions = useMemo(() => {
     const all = query.data?.sessions ?? [];
-    if (!projectId) return all;
-    return all.filter((s) => s.projectId === projectId);
-  }, [query.data, projectId]);
+    // projectId filtering removed — sessions no longer carry projectId
+    return all;
+  }, [query.data]);
 
   return {
     sessions,

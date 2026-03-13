@@ -4,6 +4,7 @@ import type {
   SessionEvent,
   SessionMetadata,
   ConnectionState,
+  ModelInfo,
 } from "@github/copilot-sdk";
 import type {
   CopilotMessage,
@@ -59,6 +60,22 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
       payload.args,
       payload.timestamp,
     );
+  });
+
+  // ── Request-response handlers (resolve pending REST requests) ──
+
+  registry.on("copilot:models-list" as never, (_daemonId: string, payload: { requestId?: string; models: ModelInfo[] }) => {
+    if (payload.requestId) {
+      aggregator.resolveRequest(payload.requestId, { models: payload.models });
+    }
+  });
+
+  registry.on("copilot:mode-response" as never, (_daemonId: string, payload: { requestId: string; sessionId: string; mode: string }) => {
+    aggregator.resolveRequest(payload.requestId, { mode: payload.mode });
+  });
+
+  registry.on("copilot:plan-response" as never, (_daemonId: string, payload: { requestId: string; sessionId: string; plan: { exists: boolean; content: string | null; path: string | null } }) => {
+    aggregator.resolveRequest(payload.requestId, { plan: payload.plan });
   });
 
   // ── Broadcast aggregator events to browser clients ────
