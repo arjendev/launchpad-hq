@@ -29,3 +29,14 @@
 - **@tabler/icons-react** added as dependency (used by KanbanBoard search input).
 - **@testing-library/user-event** added as dev dependency for interaction tests.
 - Test utils (`src/test-utils/client.tsx`) now wrap with `QueryClientProvider` + `ProjectProvider` for all client component tests.
+
+### 2026-03-13: Kanban board panel (Issue #9)
+- **KanbanBoard** (`src/client/components/KanbanBoard.tsx`) — read-only kanban view of GitHub issues with three columns: Todo, In Progress, Done.
+- **Column classification** logic: `classifyIssue()` — `CLOSED` → Done; `OPEN` + (assigned OR has "in-progress" label) → In Progress; remaining `OPEN` → Todo.
+- **useIssues hook** (`src/client/api/hooks.ts`) makes two parallel TanStack Query calls (open + closed issues) with 30s auto-refetch. Returns combined list + loading/error states.
+- **Issue cards** show: `#number`, title (with lineClamp), labels as colored Mantine `Badge` components, assignee avatars via `Avatar.Group` with tooltips (max 3 shown).
+- **Filter bar** at top: `TextInput` with search icon filters by title, issue number, or label name — all client-side via `useMemo`.
+- **States**: empty state ("Select a project from the sidebar") when no project, `KanbanSkeleton` with Mantine `Skeleton` components while loading, error state with message.
+- **Column headers** include issue count as a circular `Badge`.
+- **Responsive**: columns use `Flex wrap="wrap"` with `minWidth: 200px` so they stack on narrow screens.
+- **Parallel work pattern**: #8 and #9 ran simultaneously on the same filesystem. #8 committed the shared infrastructure (contexts, api hooks/types, providers) along with my KanbanBoard changes. Future parallel work should use separate git branches to avoid this entanglement.
