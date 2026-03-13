@@ -1,22 +1,85 @@
+#!/usr/bin/env node
+
+import { existsSync } from "node:fs";
 import Fastify from "fastify";
+import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 
-const server = Fastify({ logger: true });
+import { loadConfig } from "./config.js";
+import healthRoutes from "./routes/health.js";
+import githubAuth from "./github/plugin.js";
+import { GitHubAuthError } from "./github/auth.js";
 
-const PORT = Number(process.env.PORT) || 3000;
-const HOST = process.env.HOST || "0.0.0.0";
+const config = loadConfig();
 
-server.get("/api/health", async () => {
-  return { status: "ok", timestamp: new Date().toISOString() };
+const server = Fastify({
+  logger: {
+    level: config.isDev ? "info" : "warn",
+  },
 });
+
+// --- Plugins ---
+
+// CORS: allow Vite dev server origin in development
+if (config.isDev) {
+  await server.register(cors, {
+    origin: config.corsOrigin,
+    credentials: true,
+  });
+}
+
+// Static file serving: serve built client assets in production
+if (!config.isDev && existsSync(config.clientDistPath)) {
+  await server.register(fastifyStatic, {
+    root: config.clientDistPath,
+    prefix: "/",
+    wildcard: false,
+  });
+
+  // SPA fallback: serve index.html for non-API routes
+  server.setNotFoundHandler((_request, reply) => {
+    return reply.sendFile("index.html");
+  });
+}
+
+// --- Routes ---
+
+await server.register(githubAuth);
+await server.register(healthRoutes);
+
+// --- Lifecycle ---
 
 async function start() {
   try {
-    await server.listen({ port: PORT, host: HOST });
-    console.log(`🚀 launchpad-hq server running on http://${HOST}:${PORT}`);
+    await server.listen({ port: config.port, host: config.host });
+    console.log(
+      `🚀 launchpad-hq running on http://${config.host}:${config.port} (${config.isDev ? "dev" : "production"})`,
+    );
   } catch (err) {
+    if (err instanceof GitHubAuthError) {
+      console.error(`\n❌ ${err.message}\n`);
+      process.exit(1);
+    }
     server.log.error(err);
     process.exit(1);
   }
 }
+
+function shutdown(signal: string) {
+  console.log(`\n⏏ ${signal} received — shutting down…`);
+  server.close().then(
+    () => {
+      console.log("👋 Server closed cleanly.");
+      process.exit(0);
+    },
+    (err) => {
+      console.error("Error during shutdown:", err);
+      process.exit(1);
+    },
+  );
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 start();

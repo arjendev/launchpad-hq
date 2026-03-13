@@ -8,3 +8,11 @@
 ## Learnings
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
+
+### 2026-03-13: Client shell setup (Issue #3)
+- **Mantine v7** requires `postcss`, `postcss-preset-mantine`, and `postcss-simple-vars` — added `postcss.config.cjs` at project root.
+- `MantineProvider` wraps the app with `defaultColorScheme="auto"` for light/dark support.
+- **TanStack Router**: `router.tsx` defines a root route with `Outlet` and an index route at `/` rendering `DashboardLayout`.
+- **Three-pane layout** uses Mantine `AppShell` for the header + `Flex` for the panes. `ScrollArea` wraps each pane. Left=250px, Right=300px, Center=flex. On small screens (`max-width: 768px` via `useMediaQuery`), panes stack vertically.
+- Component structure: `layouts/DashboardLayout.tsx` orchestrates panes; `components/ProjectList.tsx`, `KanbanBoard.tsx`, `SessionsPanel.tsx` are leaf components with placeholder content.
+- Vite build root is `src/client` — postcss config must be at the project root for Vite to find it.
