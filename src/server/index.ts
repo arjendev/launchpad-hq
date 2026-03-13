@@ -15,6 +15,7 @@ import { GitHubAuthError } from "./github/auth.js";
 import statePlugin from "./state/plugin.js";
 import cachePlugin from "./cache/plugin.js";
 import websocket from "./ws/plugin.js";
+import containersPlugin from "./containers/plugin.js";
 
 const config = loadConfig();
 
@@ -51,6 +52,10 @@ if (!config.isDev && existsSync(config.clientDistPath)) {
 // --- WebSocket ---
 
 await server.register(websocket);
+
+// --- Container monitoring ---
+
+await server.register(containersPlugin);
 
 // --- Routes ---
 
