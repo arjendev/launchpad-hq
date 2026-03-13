@@ -358,3 +358,34 @@ Copilot sessions persisted in the SDK registry after users ended them. The `@git
 **Consequences**
 - Sessions are now properly cleaned up in both daemon-side SDK registry and server-side aggregator.
 - Tombstone set grows unboundedly per aggregator lifetime — acceptable since session IDs are small strings and daemons restart periodically. If needed later, a time-bounded eviction can be added.
+
+### 2026-03-14: Architecture — SDK Big-Bang Refactor: Delete Adapter Layer
+**By:** TARS (Implementation), Cooper (Audit)  
+**Status:** Implemented (Commit: 6c8f44c, f324c79)
+
+**Context**
+The Copilot integration had a three-layer architecture: `protocol.ts` (custom types) → `adapter.ts` (interface) → `sdk-adapter.ts` (SDK wrapper with event mapping) → `manager.ts`. This created unnecessary indirection — every SDK type was mapped to a custom type, every event was renamed, and testability required a full adapter mock.
+
+Cooper's SDK audit confirmed: the adapter adds no value. SDK types are stable, well-typed, and wire-safe. The mapping layer actively caused bugs (event name mismatches, timestamp format confusion).
+
+**Decision**
+Delete the adapter layer entirely. SDK types become wire types. Manager talks to `CopilotClient` directly.
+
+### What changed:
+1. **Deleted** `adapter.ts` and `sdk-adapter.ts` (and their tests)
+2. **Protocol:** SDK types re-exported as wire types. Removed 6 custom types, 3 dead message types. Added `AggregatedSession` for server-side enrichment.
+3. **Manager:** Creates `CopilotClient` directly (dynamic import for graceful degradation). DI via `client?: any` for testing.
+4. **Events:** Forwarded as-is — no mapping, no renaming. SDK event names used everywhere.
+5. **Status model:** Session status comes from events exclusively, not from metadata. `updateSessions()` defaults new sessions to 'idle'.
+
+### Trade-offs:
+- **Pro:** ~400 lines of mapping code deleted. One source of truth for types. Events flow unchanged.
+- **Pro:** Testable via simple duck-typed mocks — no interface to maintain.
+- **Con:** `client?: any` loses type safety at the DI boundary. Acceptable for test-only code path.
+- **Con:** Session status is eventually consistent (events arrive async). Tests must explicitly drive status via events.
+
+## Consequences
+- Client-side types in `src/client/services/types.ts` are now independent copies — they'll need updating when the client consumes SDK events directly.
+- Server-side mock adapter (`src/server/copilot/mock-adapter.ts`) is unaffected — it's for the server-side copilot plugin, not the daemon.
+- Future SDK version upgrades require only updating `@github/copilot-sdk` — no adapter mapping to maintain.
+- **Test count:** 639 passing (no regressions).
