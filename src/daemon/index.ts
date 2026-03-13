@@ -118,6 +118,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
 
   // --- Start connection ---
 
+  console.log(`🚀 Daemon starting (project=${config.projectId}, hq=${config.hqUrl})`);
   client.connect();
 
   // --- Shutdown ---

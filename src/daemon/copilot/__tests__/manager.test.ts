@@ -295,6 +295,60 @@ describe('CopilotManager', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Auto-fallback to mock when SDK is unavailable
+  // -----------------------------------------------------------------------
+
+  describe('auto-fallback to mock when SDK unavailable', () => {
+    it('falls back to mock adapter when useMock=false and SDK is not available', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const fallbackManager = new CopilotManager({
+        sendToHq,
+        useMock: false,
+        pollIntervalMs: 60_000,
+      });
+
+      // Should not throw — uses mock adapter internally
+      await fallbackManager.start();
+      expect(fallbackManager.adapterState).toBe('connected');
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('falling back to mock'),
+      );
+
+      await fallbackManager.stop();
+      warnSpy.mockRestore();
+    });
+
+    it('auto-fallback manager still handles commands', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const fallbackSent: DaemonToHqMessage[] = [];
+      const fallbackManager = new CopilotManager({
+        sendToHq: (msg) => fallbackSent.push(msg),
+        useMock: false,
+        pollIntervalMs: 60_000,
+      });
+
+      await fallbackManager.start();
+
+      await fallbackManager.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'fb-1' },
+      });
+
+      const startEvent = fallbackSent.find(
+        (m) =>
+          m.type === 'copilot-sdk-session-event' &&
+          m.payload.event.type === 'session.start',
+      );
+      expect(startEvent).toBeDefined();
+
+      await fallbackManager.stop();
+      vi.restoreAllMocks();
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // HQ tools and system message injection
   // -----------------------------------------------------------------------
 
