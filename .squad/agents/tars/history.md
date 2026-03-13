@@ -136,3 +136,11 @@ Key achievements:
 - **Key files:** `src/daemon/copilot/sdk-adapter.ts`, `src/daemon/copilot/manager.ts`, `src/cli.ts`, `src/daemon/index.ts`
 - **Tests:** 620 passing (3 new: `isSdkAvailable()`, auto-fallback constructor, auto-fallback commands)
 
+### 2026-03-14: Inherited from CASE — Copilot SDK Knowledge
+- **SDK status:** No official `@github/copilot-sdk` npm package exists as of March 2026
+- **Adapter pattern:** `CopilotAdapter` interface with `MockCopilotAdapter` for development. When the SDK ships, only the adapter implementation needs to change
+- **Module structure (daemon-side):** `src/daemon/copilot/` — `adapter.ts` (interface), `mock-adapter.ts`, `sdk-adapter.ts`, `manager.ts`, `hq-tools.ts`, `system-message.ts`, `index.ts`
+- **Server-side copilot aggregator:** `src/server/copilot-aggregator/` — aggregates sessions from all connected daemons
+- **Endpoints:** REST routes at `/api/copilot/sessions`, WebSocket broadcasts on `copilot` channel
+- **Key pattern:** Agents write their own unit tests; CASE wrote 18 tests for the copilot introspection layer
+
