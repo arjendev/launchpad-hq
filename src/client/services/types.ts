@@ -162,8 +162,14 @@ export interface PlanResponse {
   content: string;
 }
 
+export interface CopilotModel {
+  id: string;
+  name: string;
+  capabilities?: Record<string, unknown>;
+}
+
 export interface ModelsResponse {
-  models: string[];
+  models: CopilotModel[];
 }
 
 export interface AggregatedSessionMessage {
