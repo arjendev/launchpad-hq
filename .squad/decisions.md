@@ -338,3 +338,23 @@ The session lifecycle code spans daemon registry, copilot aggregator, and HTTP r
 - All existing tests continue to pass
 - Build clean, no type errors
 - Regression tests explicitly assert `projectId !== "unknown"` to prevent reintroduction of the bug
+
+### 2026-03-14: Daemon — Add deleteSession to Close SDK Lifecycle Gap
+**By:** TARS  
+**Status:** Implemented
+
+**Context**
+Copilot sessions persisted in the SDK registry after users ended them. The `@github/copilot-sdk` provides `client.deleteSession(sessionId)` but our adapter layer only called `session.abort()` and `session.disconnect()` — neither removes sessions from the SDK's internal registry.
+
+**Decision**
+1. **Thin adapter extension:** Added `deleteSession(sessionId): Promise<void>` to `CopilotAdapter` interface and `SdkCopilotAdapter`. Single SDK call, no extra logic.
+2. **Manager orchestration:** `handleAbort()` now calls `abort()` → `destroy()` → `adapter.deleteSession()`. The `session.ended` event fires unconditionally so HQ always gets the cleanup signal.
+3. **Aggregator tombstones:** `removeSession()` adds the sessionId to a `Set<string>`. `updateSessions()` skips tombstoned IDs, preventing resurrection from stale daemon polls that arrive after abort.
+
+**Alternatives Considered**
+- **Auto-delete in adapter's stop():** Would batch-delete but wouldn't handle individual session endings.
+- **TTL-based cleanup:** Too complex; deleteSession is the correct SDK API.
+
+**Consequences**
+- Sessions are now properly cleaned up in both daemon-side SDK registry and server-side aggregator.
+- Tombstone set grows unboundedly per aggregator lifetime — acceptable since session IDs are small strings and daemons restart periodically. If needed later, a time-bounded eviction can be added.
