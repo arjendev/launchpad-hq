@@ -117,12 +117,17 @@ export class CopilotSessionAggregator extends EventEmitter {
       session.updatedAt = Date.now();
 
       // Update session status based on lifecycle events
-      if (event.type === "session.idle") {
+      // "active" = currently processing a prompt; "idle" = ready for input
+      if (
+        event.type === "session.idle" ||
+        event.type === "session.start" ||
+        event.type === "assistant.message"
+      ) {
         session.status = "idle";
       } else if (event.type === "session.error") {
         session.status = "error";
       } else if (
-        event.type === "session.start" ||
+        event.type === "user.message" ||
         event.type === "assistant.message.delta" ||
         event.type === "tool.executionStart"
       ) {
@@ -135,8 +140,7 @@ export class CopilotSessionAggregator extends EventEmitter {
         sessionId,
         daemonId,
         projectId: daemonId,
-        status: "active",
-        startedAt: event.timestamp,
+        status: "idle",        startedAt: event.timestamp,
         lastEvent: { type: event.type, timestamp: event.timestamp },
         updatedAt: Date.now(),
       });

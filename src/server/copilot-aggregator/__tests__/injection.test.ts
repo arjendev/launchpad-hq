@@ -332,11 +332,11 @@ describe("Copilot prompt injection pipeline", () => {
   // ── Session status lifecycle ───────────────────────────
 
   describe("session status lifecycle", () => {
-    it("updates status to active on session.start events", () => {
+    it("updates status to idle on session.start events (session is ready for input)", () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
         {
           sessionId: "s1",
-          state: "idle",
+          state: "active",
           startedAt: 1000,
           lastActivityAt: 2000,
         },
@@ -349,7 +349,7 @@ describe("Copilot prompt injection pipeline", () => {
       });
 
       const session = server.copilotAggregator.getSession("s1");
-      expect(session?.status).toBe("active");
+      expect(session?.status).toBe("idle");
     });
 
     it("updates status to idle on session.idle events", () => {
