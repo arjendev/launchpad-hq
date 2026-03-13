@@ -113,11 +113,13 @@ When a daemon comes online, goes offline, or reports a state change, the dashboa
 
 ### Copilot Integration
 
-This is where it gets interesting. The **GitHub Copilot SDK** adapter lives in the daemon, not in HQ. The daemon discovers local Copilot sessions via the SDK, relays conversation state and session status to HQ in real time.
+This is where it gets interesting. The daemon uses **`@github/copilot-sdk`** (technical preview) to bridge Copilot and HQ. A `CopilotClient` connects to the Copilot CLI running locally, discovers sessions, creates new ones, and streams every event back to HQ as a full firehose. HQ filters before forwarding to the browser — the daemon sends everything, the server decides what the UI needs.
 
 You're reviewing your projects from the dashboard. You see a Copilot session that's been spinning on the wrong approach. You read the conversation, understand the context, inject a better prompt, and move on. HQ sends the command to the daemon, the daemon executes it locally via the SDK. Or you see a session that finished and left a question for you. You answer it from the dashboard without ever opening the repo.
 
-HQ only aggregates — it never talks to the SDK directly. When the real SDK ships, only the daemon's adapter internals change.
+Custom tools registered on each session make agents **HQ-aware** — they can report progress, request human review, and signal blockers without being explicitly told to. System message injection gives every agent context about the launchpad project automatically.
+
+HQ only aggregates — it never talks to the SDK directly. The daemon owns the SDK connection entirely.
 
 ### Session Takeover
 
@@ -126,6 +128,63 @@ When reading isn't enough, you take over. The daemon spawns a **PTY** locally (i
 No `docker exec` needed. The daemon is already there.
 
 This is the deepest level of introspection: you're not just observing the session, you're inside it.
+
+### Daemon Responsibilities
+
+The daemon is the workhorse. It owns the Copilot SDK connection, manages sessions, streams events, and gives HQ everything it needs to present a live picture of the project. Here's what it does:
+
+**1. SDK Lifecycle Manager**
+- Spawns `CopilotClient({ cliPath: "copilot" })` on daemon start
+- Manages client lifecycle — start, stop, error recovery with `autoRestart: true`
+- Reports SDK connection state to HQ: `disconnected → connecting → connected → error`
+- Requires Copilot CLI installed and in PATH
+
+**2. Session Discovery & Monitoring**
+- On startup: `client.listSessions()` → reports all existing sessions to HQ
+- Periodic polling picks up sessions created externally (e.g. from VS Code)
+- `client.getLastSessionId()` provides quick resume hints
+
+**3. Session Creation (from HQ)**
+- HQ sends "create session" → daemon calls `client.createSession({ model, tools, systemMessage })`
+- HQ can specify model, system message (append mode), and which custom tools to attach
+- Streaming always enabled for real-time relay
+
+**4. Session Resume/Attach (from HQ)**
+- HQ sends "resume session" → daemon calls `client.resumeSession(id, { tools })`
+- Reattaches event listeners for streaming to HQ
+
+**5. Full Event Firehose**
+- Every session gets `session.on()` listeners that stream ALL events to HQ:
+  - `assistant.message.delta` / `assistant.message` — conversation
+  - `assistant.reasoning.delta` / `assistant.reasoning` — thinking
+  - `tool.executionStart` / `tool.executionComplete` — tool activity
+  - `session.idle` / `session.error` / `session.start` — lifecycle
+- HQ server filters before forwarding to browser clients
+
+**6. Prompt Injection (from HQ)**
+- HQ sends prompt → daemon calls `session.send({ prompt, attachments? })`
+- Supports file attachments from the project directory
+- Supports `session.abort()` from HQ to cancel runaway operations
+
+**7. Custom HQ-Aware Tools**
+- Registered on session creation via `defineTool()`:
+  - `report_progress` — agent reports task status → relayed to HQ dashboard
+  - `request_human_review` — agent requests human attention → creates attention item in HQ
+  - `report_blocker` — agent signals it's blocked → HQ shows "needs attention" badge
+- Tool handlers send messages back to HQ via WebSocket
+
+**8. System Message Injection**
+- Daemon appends context to every session's system message (append mode, preserves guardrails):
+  *"You are working on project X in the launchpad-hq system. Use report_progress, request_human_review, and report_blocker tools to communicate with the human operator."*
+- Makes agents automatically HQ-aware without user prompting
+
+**9. Project State Reporter**
+- Git status: branch, uncommitted changes, ahead/behind
+- Periodically reports to HQ via `status-update` messages
+
+**10. Terminal PTY (separate from Copilot)**
+- Spawns local shell for manual access via `node-pty`
+- Relays I/O to HQ for remote terminal in browser (xterm.js)
 
 ### Phone Access
 
@@ -253,6 +312,7 @@ Daemon authentication is separate — HQ generates a shared secret token per pro
 | **ws** | WebSocket client — outbound connection to HQ |
 | **node-pty** | PTY spawning — terminal sessions inside the project environment |
 | **GitHub Copilot SDK** | Local session discovery, conversation state, prompt injection |
+| **@github/copilot-sdk** | Copilot CLI integration — session discovery, creation, events, prompt injection |
 
 ### Infrastructure
 
