@@ -1,5 +1,18 @@
 import { describe, it, expect, vi } from 'vitest';
-import { SdkCopilotAdapter, isSdkAvailable } from '../sdk-adapter.js';
+import { SdkCopilotAdapter, isSdkAvailable, getSdkDefineTool } from '../sdk-adapter.js';
+
+describe('isSdkAvailable()', () => {
+  it('returns true when SDK is installed', () => {
+    expect(isSdkAvailable()).toBe(true);
+  });
+});
+
+describe('getSdkDefineTool()', () => {
+  it('returns the defineTool function when SDK is available', () => {
+    const dt = getSdkDefineTool();
+    expect(typeof dt).toBe('function');
+  });
+});
 
 describe('SdkCopilotAdapter', () => {
   it('starts in disconnected state', () => {
@@ -7,34 +20,9 @@ describe('SdkCopilotAdapter', () => {
     expect(adapter.state).toBe('disconnected');
   });
 
-  it('start() throws because SDK is not installed', async () => {
-    const adapter = new SdkCopilotAdapter();
-    await expect(adapter.start()).rejects.toThrow('@github/copilot-sdk is not installed');
-  });
-
-  it('stop() throws because SDK is not installed', async () => {
-    const adapter = new SdkCopilotAdapter();
-    await expect(adapter.stop()).rejects.toThrow('@github/copilot-sdk is not installed');
-  });
-
-  it('listSessions() throws because SDK is not installed', async () => {
-    const adapter = new SdkCopilotAdapter();
-    await expect(adapter.listSessions()).rejects.toThrow('@github/copilot-sdk is not installed');
-  });
-
-  it('createSession() throws because SDK is not installed', async () => {
-    const adapter = new SdkCopilotAdapter();
-    await expect(adapter.createSession({})).rejects.toThrow('@github/copilot-sdk is not installed');
-  });
-
-  it('resumeSession() throws because SDK is not installed', async () => {
-    const adapter = new SdkCopilotAdapter();
-    await expect(adapter.resumeSession('s1')).rejects.toThrow('@github/copilot-sdk is not installed');
-  });
-
-  it('getLastSessionId() throws because SDK is not installed', async () => {
-    const adapter = new SdkCopilotAdapter();
-    await expect(adapter.getLastSessionId()).rejects.toThrow('@github/copilot-sdk is not installed');
+  it('accepts cwd option', () => {
+    const adapter = new SdkCopilotAdapter({ cwd: '/tmp/test' });
+    expect(adapter.state).toBe('disconnected');
   });
 
   it('onStateChange() works and can unsubscribe', () => {
@@ -42,13 +30,34 @@ describe('SdkCopilotAdapter', () => {
     const handler = vi.fn();
     const unsub = adapter.onStateChange(handler);
     unsub();
-    // No crash → pass
     expect(true).toBe(true);
   });
-});
 
-describe('isSdkAvailable()', () => {
-  it('returns false when SDK is not installed', () => {
-    expect(isSdkAvailable()).toBe(false);
+  it('listSessions() returns empty array when client not started', async () => {
+    const adapter = new SdkCopilotAdapter();
+    const sessions = await adapter.listSessions();
+    expect(sessions).toEqual([]);
+  });
+
+  it('getLastSessionId() returns null when client not started', async () => {
+    const adapter = new SdkCopilotAdapter();
+    const id = await adapter.getLastSessionId();
+    expect(id).toBeNull();
+  });
+
+  it('createSession() throws when client not started', async () => {
+    const adapter = new SdkCopilotAdapter();
+    await expect(adapter.createSession({})).rejects.toThrow('not started');
+  });
+
+  it('resumeSession() throws when client not started', async () => {
+    const adapter = new SdkCopilotAdapter();
+    await expect(adapter.resumeSession('s1')).rejects.toThrow('not started');
+  });
+
+  it('stop() is safe when never started', async () => {
+    const adapter = new SdkCopilotAdapter();
+    await adapter.stop();
+    expect(adapter.state).toBe('disconnected');
   });
 });

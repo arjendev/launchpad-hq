@@ -144,3 +144,12 @@ Key achievements:
 - **Endpoints:** REST routes at `/api/copilot/sessions`, WebSocket broadcasts on `copilot` channel
 - **Key pattern:** Agents write their own unit tests; CASE wrote 18 tests for the copilot introspection layer
 
+### 2026-03-14: PTY Spawn Environment Hardening for Backgrounded Daemons
+- **Root cause:** When daemon runs via `postStartCommand` (backgrounded, non-interactive), `process.env` is minimal — missing TERM, SHELL, HOME, PATH, LANG. PTY shell hangs because it can't initialize properly.
+- **Fix — buildShellEnv():** New exported function in `src/daemon/terminal/manager.ts` merges `process.env` with guaranteed defaults: `TERM=xterm-256color`, `COLORTERM=truecolor`, `SHELL` (detected from `/etc/passwd` or `/bin/bash`), `HOME`, `PATH` (with `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin` fallback), `LANG=en_US.UTF-8`
+- **Fix — Login shell:** Changed spawn args from `[]` to `['-l']` so bash/zsh source profile/bashrc — critical for backgrounded daemons that skip normal shell init
+- **Fix — Logging:** Added `[terminal]` prefixed console.log/error for spawn (shell + PID), exit (code), and spawn failures
+- **Pattern:** When daemon features depend on environment variables, never trust `process.env` raw — always build a merged env with sane defaults. This is the same graceful-degradation philosophy as `isSdkAvailable()`.
+- **Key files:** `src/daemon/terminal/manager.ts`
+- **Tests:** 620 passing (no new tests needed — existing terminal-manager tests cover the public API; `buildShellEnv` verified via inline tsx check)
+
