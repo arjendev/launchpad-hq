@@ -145,6 +145,22 @@ export class TerminalRelay {
     });
   }
 
+  /**
+   * Forward a resize event from a browser client to the daemon.
+   */
+  forwardResize(daemonId: string, terminalId: string, cols: number, rows: number): void {
+    this.sendToDaemon(daemonId, {
+      type: 'terminal-resize',
+      timestamp: Date.now(),
+      payload: {
+        projectId: daemonId,
+        sessionId: terminalId,
+        cols,
+        rows,
+      },
+    });
+  }
+
   /** Get browser client IDs joined to a terminal session. */
   getClients(daemonId: string, terminalId: string): string[] {
     const key = this.key(daemonId, terminalId);

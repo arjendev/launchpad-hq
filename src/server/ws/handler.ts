@@ -1,6 +1,21 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { ConnectionManager } from "./connections.js";
-import { VALID_CHANNELS, type ClientMessage, type Channel } from "./types.js";
+import type { TerminalRelay } from "../terminal-relay/relay.js";
+import {
+  VALID_CHANNELS,
+  type ClientMessage,
+  type Channel,
+  type TerminalInputMessage,
+  type TerminalJoinMessage,
+  type TerminalLeaveMessage,
+  type TerminalResizeMessage,
+} from "./types.js";
+
+export interface HandlerContext {
+  manager: ConnectionManager;
+  log: FastifyBaseLogger;
+  terminalRelay?: TerminalRelay;
+}
 
 /**
  * Parse and route an incoming WebSocket message for a given client.
@@ -10,6 +25,7 @@ export function handleMessage(
   raw: string,
   manager: ConnectionManager,
   log: FastifyBaseLogger,
+  terminalRelay?: TerminalRelay,
 ): void {
   let parsed: ClientMessage;
 
@@ -55,6 +71,42 @@ export function handleMessage(
       }
       manager.unsubscribe(clientId, channel);
       log.debug({ clientId, channel }, "client unsubscribed");
+      break;
+    }
+
+    // --- Terminal messages ---
+
+    case "terminal:join": {
+      const msg = parsed as TerminalJoinMessage;
+      if (terminalRelay) {
+        terminalRelay.join(clientId, msg.daemonId, msg.terminalId);
+        log.debug({ clientId, daemonId: msg.daemonId, terminalId: msg.terminalId }, "terminal:join");
+      }
+      break;
+    }
+
+    case "terminal:leave": {
+      const msg = parsed as TerminalLeaveMessage;
+      if (terminalRelay) {
+        terminalRelay.leave(clientId, msg.daemonId, msg.terminalId);
+        log.debug({ clientId, daemonId: msg.daemonId, terminalId: msg.terminalId }, "terminal:leave");
+      }
+      break;
+    }
+
+    case "terminal:input": {
+      const msg = parsed as TerminalInputMessage;
+      if (terminalRelay) {
+        terminalRelay.forwardToDaemon(msg.daemonId, msg.terminalId, msg.data);
+      }
+      break;
+    }
+
+    case "terminal:resize": {
+      const msg = parsed as TerminalResizeMessage;
+      if (terminalRelay) {
+        terminalRelay.forwardResize(msg.daemonId, msg.terminalId, msg.cols, msg.rows);
+      }
       break;
     }
 
