@@ -30,6 +30,7 @@ import type {
   DashboardProject,
 } from "../services/types.js";
 import { CopilotConversation } from "./CopilotConversation.js";
+import { TerminalOverlay } from "./TerminalOverlay.js";
 
 // ── Helpers ────────────────────────────────────────────
 
@@ -268,18 +269,30 @@ function CopilotSessionsSection({
 function TerminalSection({ project }: { project: DashboardProject }) {
   const projectId = `${project.owner}/${project.repo}`;
   const { daemon } = useDaemonForProject(projectId);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const isOnline = !!daemon;
 
   return (
-    <Tooltip label={daemon ? "Coming soon" : "Daemon offline"}>
-      <Button
-        variant="light"
-        size="xs"
-        fullWidth
-        disabled
-      >
-        Open Terminal
-      </Button>
-    </Tooltip>
+    <>
+      <Tooltip label={isOnline ? "Open a terminal in this project's environment" : "Daemon offline"}>
+        <Button
+          variant="light"
+          size="xs"
+          fullWidth
+          disabled={!isOnline}
+          onClick={() => setTerminalOpen(true)}
+        >
+          Open Terminal
+        </Button>
+      </Tooltip>
+      {isOnline && (
+        <TerminalOverlay
+          daemonId={daemon.daemonId}
+          isOpen={terminalOpen}
+          onClose={() => setTerminalOpen(false)}
+        />
+      )}
+    </>
   );
 }
 
