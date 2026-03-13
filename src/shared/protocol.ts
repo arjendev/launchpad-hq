@@ -53,6 +53,58 @@ export interface CopilotMessage {
   timestamp: number;
 }
 
+// ---------------------------------------------------------------------------
+// Copilot SDK integration types
+// ---------------------------------------------------------------------------
+
+/** Copilot SDK adapter connection state */
+export type CopilotSdkState = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+/** Session metadata from the Copilot SDK layer */
+export interface CopilotSdkSessionInfo {
+  sessionId: string;
+  cwd?: string;
+  gitRoot?: string;
+  repository?: string;
+  branch?: string;
+  summary?: string;
+}
+
+/** Event types emitted by the Copilot SDK session */
+export type CopilotSessionEventType =
+  | 'user.message'
+  | 'assistant.message'
+  | 'assistant.message.delta'
+  | 'assistant.reasoning'
+  | 'assistant.reasoning.delta'
+  | 'tool.executionStart'
+  | 'tool.executionComplete'
+  | 'session.start'
+  | 'session.idle'
+  | 'session.error';
+
+/** A single event from a Copilot SDK session */
+export interface CopilotSessionEvent {
+  type: CopilotSessionEventType;
+  data: Record<string, unknown>;
+  timestamp: number;
+}
+
+/** Tool definition (wire-safe — no handler) for session configuration */
+export interface ToolDefinitionWire {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+/** Session configuration sent over the wire */
+export interface SessionConfigWire {
+  model?: string;
+  systemMessage?: { mode: 'append' | 'replace'; content: string };
+  tools?: ToolDefinitionWire[];
+  streaming?: boolean;
+}
+
 /** Attention item surfaced by the daemon */
 export interface AttentionItem {
   id: string;
@@ -111,6 +163,14 @@ export interface TerminalDataMessage extends BaseMessage<'terminal-data'> {
   };
 }
 
+export interface TerminalExitMessage extends BaseMessage<'terminal-exit'> {
+  payload: {
+    projectId: string;
+    terminalId: string;
+    exitCode: number;
+  };
+}
+
 export interface CopilotSessionUpdateMessage extends BaseMessage<'copilot-session-update'> {
   payload: {
     projectId: string;
@@ -123,6 +183,30 @@ export interface CopilotConversationMessage extends BaseMessage<'copilot-convers
     projectId: string;
     sessionId: string;
     messages: CopilotMessage[];
+  };
+}
+
+// Daemon → HQ: batch SDK session list (sent on connect or periodically)
+export interface CopilotSdkSessionListMessage extends BaseMessage<'copilot-sdk-session-list'> {
+  payload: {
+    requestId: string;
+    sessions: CopilotSdkSessionInfo[];
+  };
+}
+
+// Daemon → HQ: individual SDK session event (firehose)
+export interface CopilotSdkSessionEventMessage extends BaseMessage<'copilot-sdk-session-event'> {
+  payload: {
+    sessionId: string;
+    event: CopilotSessionEvent;
+  };
+}
+
+// Daemon → HQ: SDK adapter connection state change
+export interface CopilotSdkStateMessage extends BaseMessage<'copilot-sdk-state'> {
+  payload: {
+    state: CopilotSdkState;
+    error?: string;
   };
 }
 
@@ -147,8 +231,12 @@ export type DaemonToHqMessage =
   | HeartbeatMessage
   | StatusUpdateMessage
   | TerminalDataMessage
+  | TerminalExitMessage
   | CopilotSessionUpdateMessage
   | CopilotConversationMessage
+  | CopilotSdkSessionListMessage
+  | CopilotSdkSessionEventMessage
+  | CopilotSdkStateMessage
   | AttentionItemMessage
   | AuthResponseMessage;
 
@@ -190,9 +278,69 @@ export interface TerminalInputMessage extends BaseMessage<'terminal-input'> {
   };
 }
 
+export interface TerminalSpawnMessage extends BaseMessage<'terminal-spawn'> {
+  payload: {
+    projectId: string;
+    terminalId: string;
+    cols?: number;
+    rows?: number;
+  };
+}
+
+export interface TerminalResizeMessage extends BaseMessage<'terminal-resize'> {
+  payload: {
+    projectId: string;
+    terminalId: string;
+    cols: number;
+    rows: number;
+  };
+}
+
+export interface TerminalKillMessage extends BaseMessage<'terminal-kill'> {
+  payload: {
+    projectId: string;
+    terminalId: string;
+  };
+}
+
 export interface RequestStatusMessage extends BaseMessage<'request-status'> {
   payload: {
     projectId: string;
+  };
+}
+
+export interface CopilotCreateSessionMessage extends BaseMessage<'copilot-create-session'> {
+  payload: {
+    requestId: string;
+    config?: SessionConfigWire;
+  };
+}
+
+export interface CopilotResumeSessionMessage extends BaseMessage<'copilot-resume-session'> {
+  payload: {
+    requestId: string;
+    sessionId: string;
+    config?: Partial<SessionConfigWire>;
+  };
+}
+
+export interface CopilotSendPromptMessage extends BaseMessage<'copilot-send-prompt'> {
+  payload: {
+    sessionId: string;
+    prompt: string;
+    attachments?: Array<{ type: string; path: string }>;
+  };
+}
+
+export interface CopilotAbortSessionMessage extends BaseMessage<'copilot-abort-session'> {
+  payload: {
+    sessionId: string;
+  };
+}
+
+export interface CopilotListSessionsMessage extends BaseMessage<'copilot-list-sessions'> {
+  payload: {
+    requestId: string;
   };
 }
 
@@ -202,7 +350,15 @@ export type HqToDaemonMessage =
   | AuthRejectMessage
   | CommandMessage
   | TerminalInputMessage
-  | RequestStatusMessage;
+  | TerminalSpawnMessage
+  | TerminalResizeMessage
+  | TerminalKillMessage
+  | RequestStatusMessage
+  | CopilotCreateSessionMessage
+  | CopilotResumeSessionMessage
+  | CopilotSendPromptMessage
+  | CopilotAbortSessionMessage
+  | CopilotListSessionsMessage;
 
 // ---------------------------------------------------------------------------
 // Combined union — every message that can travel over the wire

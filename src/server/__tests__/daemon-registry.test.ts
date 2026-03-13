@@ -454,6 +454,39 @@ describe("DaemonWsHandler", () => {
     }));
   });
 
+  it("routes terminal-exit to browser clients", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    // Auth + register
+    const challenge = JSON.parse(ws.sent[0]);
+    ws.simulateMessage(JSON.stringify({
+      type: "auth-response",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "register",
+      timestamp: Date.now(),
+      payload: makeDaemonInfo(),
+    }));
+
+    // Terminal exit
+    ws.simulateMessage(JSON.stringify({
+      type: "terminal-exit",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", terminalId: "t1", exitCode: 0 },
+    }));
+
+    expect(broadcast).toHaveBeenCalledWith("terminal", expect.objectContaining({
+      type: "terminal:exit",
+      projectId: "proj-1",
+      terminalId: "t1",
+      exitCode: 0,
+    }));
+  });
+
   it("routes copilot-session-update to browser clients", () => {
     const handler = createHandler();
     const ws = createMockSocket();

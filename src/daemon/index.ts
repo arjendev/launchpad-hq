@@ -10,10 +10,14 @@ import { PROTOCOL_VERSION } from '../shared/constants.js';
 import { loadDaemonConfig, type DaemonConfig } from './config.js';
 import { DaemonWebSocketClient } from './client.js';
 import { DaemonState } from './state.js';
+import { setupDaemonTerminal, DaemonTerminalManager } from './terminal/index.js';
+import { CopilotManager } from './copilot/index.js';
 
 export interface DaemonProcess {
   client: DaemonWebSocketClient;
   state: DaemonState;
+  terminalManager: DaemonTerminalManager;
+  copilot: CopilotManager;
   shutdown: () => void;
 }
 
@@ -79,6 +83,39 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     }
   });
 
+  // --- Terminal handler ---
+
+  const { manager: terminalManager, cleanup: terminalCleanup } = setupDaemonTerminal({
+    client,
+    projectId: config.projectId,
+  });
+
+  // Attempt to load node-pty (non-blocking — terminals won't work if unavailable)
+  terminalManager.init().then((available) => {
+    if (available) {
+      daemonInfo.capabilities.push('terminal');
+    }
+  });
+
+  // --- Copilot SDK integration ---
+
+  const copilot = new CopilotManager({
+    sendToHq: (msg) => client.send(msg),
+    useMock: process.env.LAUNCHPAD_COPILOT_MOCK === 'true',
+  });
+
+  client.on('message', (msg) => {
+    if (msg.type.startsWith('copilot-')) {
+      void copilot.handleMessage(msg);
+    }
+  });
+
+  client.on('authenticated', () => {
+    void copilot.start().catch((err) => {
+      console.error(`⚠ Copilot SDK start failed: ${err}`);
+    });
+  });
+
   // --- Start connection ---
 
   client.connect();
@@ -87,12 +124,14 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
 
   function shutdown(): void {
     console.log('\n⏏ Daemon shutting down…');
+    void copilot.stop().catch(() => {});
+    terminalCleanup();
     state.setOnline(false);
     client.disconnect();
     console.log('👋 Daemon stopped.');
   }
 
-  return { client, state, shutdown };
+  return { client, state, terminalManager, copilot, shutdown };
 }
 
 /** Detect the runtime environment */
