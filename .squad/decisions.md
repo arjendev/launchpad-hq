@@ -112,3 +112,53 @@
 - All meaningful changes require team consensus
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
+
+### 2026-03-13: Technical — graphql-request for GitHub GraphQL Client
+**By:** TARS (Platform Dev)
+**What:** Use `graphql-request` library for the GitHub GraphQL client, with batched alias queries for multi-repo fetches.
+**Why:** Lightweight (~5KB) compared to full Octokit (~200KB). Native TypeScript support, response middleware for header access (rate-limit tracking). GraphQL aliases enable batching N repo queries into 1 HTTP request — critical for the ~500ms multi-repo target.
+
+### 2026-03-13: Technical — State Persistence Architecture
+**By:** TARS (Platform Dev)
+**What:** State persistence uses a three-layer design: GitHubStateClient (thin REST API wrapper for `launchpad-state` repo), LocalCache (on-disk JSON cache at `~/.launchpad/cache/` with SHA tracking), StateManager (read-through cache, write-through to GitHub). Three state files: `config.json` (tracked repos), `preferences.json` (user prefs), `enrichment.json` (devcontainer status, session links).
+**Why:** Local cache gives sub-millisecond reads after first sync. SHA-tracked cache files enable conflict detection for future optimistic locking. Separate files avoid large-blob updates. DI pattern keeps the class testable.
+
+### 2026-03-13: Technical — Separate API Cache from State Cache
+**By:** TARS (Platform Dev)
+**What:** The GitHub API response cache (`src/server/cache/`) is a standalone module, completely separate from the state persistence `LocalCache`. API cache is TTL-based in-memory with LRU eviction; state cache manages durability with SHA tracking.
+**Why:** Different concerns: state cache is for persistence correctness; API cache is for performance. Merging them would conflate durability guarantees with performance caching. Disk paths: state `~/.launchpad/cache/`, API cache `~/.launchpad/api-cache/`.
+
+### 2026-03-13: Technical — WebSocket Server Architecture
+**By:** Romilly (Backend Dev)
+**What:** WebSocket server uses `ws` with `noServer: true` mode, handling HTTP upgrade on the `/ws` path. Registered as a Fastify plugin before route plugins. Connection tracking via `ConnectionManager` class with UUID-based client IDs and Set-based channel subscriptions. Three channels defined: `devcontainer`, `copilot`, `terminal`. JSON message protocol with `type` field routing. Heartbeat at 30s intervals.
+**Why:** `noServer` mode gives full control over upgrade handling — no path conflicts with Fastify's own routing. Plugin registration before routes ensures `server.ws.broadcast()` decorator is available to all downstream route plugins. Channel model matches the issue spec and keeps the subscription API simple.
+
+### 2026-03-13: Technical — Project CRUD API Design
+**By:** Romilly (Backend Dev)
+**What:** Project management REST API with 5 endpoints covering full CRUD + discovery. Routes registered as Fastify plugin at `/api/projects` and `/api/discover/repos`. POST verifies repo exists via GitHub REST API before persisting. Case-insensitive duplicate detection. DELETE removes both the project entry and any enrichment data. Discovery endpoint marks tracked repos.
+**Why:** Validation-first prevents data pollution. Better to fail on add than discover broken state later. Discovery endpoint saves frontend from cross-referencing two lists. State plugin now wired in correct dependency ordering: `github-auth` → `state` → routes.
+
+### 2026-03-13: Technical — REST API route structure for GitHub data
+**By:** Romilly (Backend Dev)
+**What:** GitHub data routes (issues, PRs, overview, dashboard) live in a separate `github-data.ts` file rather than being added to the existing `projects.ts`. All project-scoped routes require the project to be tracked via stateService before hitting the GraphQL API.
+**Why:** `projects.ts` owns CRUD for project tracking (state management). `github-data.ts` owns read-only GitHub data consumption (GraphQL queries). Clean separation of concerns. Dashboard endpoint uses `Promise.allSettled` so one failed repo doesn't take down the whole dashboard. Label/assignee filtering on issues is done client-side.
+
+### 2026-03-13: Technical — Dashboard endpoint for project list data
+**By:** Brand (Frontend Dev)
+**What:** The project list panel uses `GET /api/dashboard` instead of `GET /api/projects` to populate the left pane. This gives us issue/PR counts per project in a single API call rather than requiring N+1 requests.
+**Why:** `/api/projects` only returns `{owner, repo, addedAt}` — no counts or metadata. `/api/dashboard` returns `{owner, repo, openIssueCount, openPrCount, updatedAt, isArchived}` per project. Single request for the whole list vs. fan-out.
+
+### 2026-03-13: Technical — Kanban Column Classification Logic
+**By:** Brand (Frontend Dev)
+**What:** Issue-to-column mapping: `CLOSED` → Done; `OPEN` + assigned OR "in-progress" label → In Progress; remaining `OPEN` → Todo. Client-side classification (no server changes needed).
+**Why:** Matches GitHub-native workflow. Users can control column placement via assignees and labels. Read-only view keeps complexity low; drag-and-drop can be layered on later without changing the classification function.
+
+### 2026-03-13: Technical — Parallel Agent Filesystem Entanglement
+**By:** Brand (Frontend Dev)
+**What:** When two agents (#8 and #9) work in parallel on the same filesystem and branch, uncommitted changes intermingle. #8's commit included #9's KanbanBoard changes because both were staged in the same working tree.
+**Why:** This is a coordination risk. Future parallel work should consider separate feature branches that merge via PR, or at minimum, agents should coordinate commit timing to avoid capturing each other's work.
+
+### 2026-03-13: Technical — Full Stack launch profile — wire Vite preLaunchTask
+**By:** Brand (Frontend Dev)
+**What:** The "Full Stack" compound launch profile now starts the Fastify server + launches Vite via `preLaunchTask`. Added `"preLaunchTask": "dev:client"` to the "Client (Debug)" configuration.
+**Why:** Ensures Vite dev server is running before Chrome opens at `localhost:5173`. "Full Stack" now launches Server (Debug) + Client (Debug) correctly.
