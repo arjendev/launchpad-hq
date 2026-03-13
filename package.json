@@ -38,6 +38,8 @@
     "@tanstack/react-router": "^1.121.0",
     "fastify": "^5.3.3",
     "fastify-plugin": "^5.1.0",
+    "graphql": "^16.13.1",
+    "graphql-request": "^7.4.0",
     "postcss": "^8.5.8",
     "postcss-preset-mantine": "^1.18.0",
     "postcss-simple-vars": "^7.0.1",
