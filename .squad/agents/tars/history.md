@@ -173,3 +173,13 @@ Key achievements:
 - **Key principle:** SDK is a regular dependency — always importable. Runtime failures (CLI not in PATH) handled gracefully. Daemon starts fine without copilot.
 - **Files changed:** 12 files (195 additions, 602 deletions). 603 tests passing.
 
+### 2026-03-14: Close deleteSession Lifecycle Gap
+- **Root cause:** `@github/copilot-sdk` has `client.deleteSession(sessionId)` but our adapter never called it. `session.abort()` and `session.destroy()` don't remove sessions from the SDK's internal registry — they persist forever.
+- **Fix — Adapter interface:** Added `deleteSession(sessionId): Promise<void>` to `CopilotAdapter` interface. `SdkCopilotAdapter` delegates to `this.client.deleteSession()` (no-op when client is null).
+- **Fix — Manager handleAbort:** Now calls `abort()` → `destroy()` → `adapter.deleteSession()`. Also emits `session.ended` unconditionally (not just when session was in activeSessions), ensuring HQ always gets cleanup signal.
+- **Fix — Aggregator tombstones:** `CopilotSessionAggregator.removeSession()` adds sessionId to a `Set<string>` tombstone set. `updateSessions()` filters out tombstoned IDs before processing, preventing session resurrection from stale daemon polls.
+- **Diagnostic test:** 9-test suite in `sdk-adapter-lifecycle.test.ts` using `LifecycleTestAdapter` that faithfully models SDK behavior — proves abort/destroy leave sessions in registry while deleteSession removes them.
+- **Pattern:** Keep adapter layer thin — one SDK method, one adapter method. Complex lifecycle orchestration belongs in the manager.
+- **Key files:** `adapter.ts`, `sdk-adapter.ts`, `manager.ts`, `aggregator.ts`, `sdk-adapter-lifecycle.test.ts`, `manager.test.ts`
+- **Tests:** 654 passing (9 new lifecycle tests)
+
