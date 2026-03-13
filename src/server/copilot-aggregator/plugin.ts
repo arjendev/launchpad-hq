@@ -36,6 +36,12 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
 
   registry.on("copilot:session-event" as never, (daemonId: string, payload: { projectId: string; sessionId: string; event: SessionEvent }) => {
     aggregator.handleSessionEvent(daemonId, payload.sessionId, payload.event);
+
+    // If the event carries a requestId, resolve any pending request-response
+    const requestId = (payload.event as SessionEvent & { data?: Record<string, unknown> })?.data?.requestId;
+    if (requestId && typeof requestId === "string") {
+      aggregator.resolveRequest(requestId, { sessionId: payload.sessionId });
+    }
   });
 
   registry.on("copilot:sdk-state" as never, (daemonId: string, payload: { projectId: string; state: ConnectionState; error?: string }) => {

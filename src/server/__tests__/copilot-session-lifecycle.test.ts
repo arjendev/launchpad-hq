@@ -6,6 +6,7 @@ import {
 import websocket from "../ws/plugin.js";
 import daemonRegistryPlugin from "../daemon-registry/plugin.js";
 import copilotAggregatorPlugin from "../copilot-aggregator/plugin.js";
+import { CopilotSessionAggregator } from "../copilot-aggregator/aggregator.js";
 import copilotSessionRoutes from "../routes/copilot-sessions.js";
 
 // ---------------------------------------------------------------------------
@@ -82,38 +83,74 @@ describe("Copilot session lifecycle — integration", () => {
   // ══════════════════════════════════════════════════════════
 
   describe("session creation via daemon", () => {
-    it("sends copilot-create-session to daemon when POST to /api/daemons/:owner/:repo/copilot/sessions", async () => {
+    it("sends copilot-create-session and returns sessionId from daemon response", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
 
-      const res = await server.inject({
+      // Simulate daemon responding with session.start event after a short delay
+      const resPromise = server.inject({
         method: "POST",
         url: "/api/daemons/acme/widget/copilot/sessions",
         payload: {},
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.json().ok).toBe(true);
+      // Wait a tick so the route sends the message and starts waiting
+      await new Promise((r) => setTimeout(r, 10));
 
       expect(ws.sent).toHaveLength(1);
       const msg = JSON.parse(ws.sent[0]);
       expect(msg.type).toBe("copilot-create-session");
       expect(msg.payload.requestId).toBeDefined();
+
+      // Resolve the pending request as the plugin would when receiving a session event
+      server.copilotAggregator.resolveRequest(msg.payload.requestId, { sessionId: "new-sess-42" });
+
+      const res = await resPromise;
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, sessionId: "new-sess-42" });
     });
 
     it("forwards model config when specified", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
 
-      const res = await server.inject({
+      const resPromise = server.inject({
         method: "POST",
         url: "/api/daemons/acme/widget/copilot/sessions",
         payload: { model: "gpt-4o" },
       });
 
-      expect(res.statusCode).toBe(200);
+      await new Promise((r) => setTimeout(r, 10));
+
       const msg = JSON.parse(ws.sent[0]);
       expect(msg.payload.config).toEqual({ model: "gpt-4o" });
+
+      server.copilotAggregator.resolveRequest(msg.payload.requestId, { sessionId: "model-sess" });
+
+      const res = await resPromise;
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, sessionId: "model-sess" });
+    });
+
+    it("returns 504 when daemon does not respond in time", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
+
+      const origTimeout = CopilotSessionAggregator.REQUEST_TIMEOUT;
+      CopilotSessionAggregator.REQUEST_TIMEOUT = 50; // speed up for test
+      try {
+        const res = await server.inject({
+          method: "POST",
+          url: "/api/daemons/acme/widget/copilot/sessions",
+          payload: {},
+        });
+
+        // waitForResponse times out → 504
+        expect(res.statusCode).toBe(504);
+        expect(res.json().error).toBe("timeout");
+      } finally {
+        CopilotSessionAggregator.REQUEST_TIMEOUT = origTimeout;
+      }
     });
 
     it("returns 404 when daemon does not exist", async () => {
@@ -467,6 +504,28 @@ describe("Copilot session lifecycle — integration", () => {
       expect(session).toBeDefined();
       expect(session?.projectId).toBe("acme/widget");
       expect(session?.daemonId).toBe("acme/widget");
+    });
+
+    it("copilot:session-event with requestId resolves pending request", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
+
+      const requestId = "req-abc-123";
+      const waitPromise = server.copilotAggregator.waitForResponse<{ sessionId: string }>(requestId);
+
+      // Simulate daemon emitting session.start with requestId in event data
+      server.daemonRegistry.emit(
+        "copilot:session-event" as never,
+        "acme/widget",
+        {
+          projectId: "acme/widget",
+          sessionId: "new-sess-from-daemon",
+          event: { type: "session.start", data: { requestId }, timestamp: Date.now() },
+        },
+      );
+
+      const result = await waitPromise;
+      expect(result.sessionId).toBe("new-sess-from-daemon");
     });
   });
 
