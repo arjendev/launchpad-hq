@@ -194,11 +194,17 @@ export class DaemonWsHandler {
         break;
 
       case "copilot-sdk-session-list":
-        this.registry.emit("copilot:session-list" as never, this.wsToDaemonId.get(ws), msg.payload);
+        this.registry.emit("copilot:session-list" as never, this.wsToDaemonId.get(ws), {
+          ...msg.payload,
+          projectId: this.wsToDaemonId.get(ws),
+        });
         break;
 
       case "copilot-sdk-session-event":
-        this.registry.emit("copilot:session-event" as never, this.wsToDaemonId.get(ws), msg.payload);
+        this.registry.emit("copilot:session-event" as never, this.wsToDaemonId.get(ws), {
+          ...msg.payload,
+          projectId: this.wsToDaemonId.get(ws),
+        });
         break;
 
       case "copilot-sdk-state":

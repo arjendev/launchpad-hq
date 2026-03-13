@@ -28,6 +28,10 @@
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+- **SDK messages lack projectId:** Daemon `CopilotManager` sends `copilot-sdk-session-event` and `copilot-sdk-session-list` without `projectId` in the payload (unlike the non-SDK `copilot-session-*` messages which include it). The `DaemonWsHandler` must inject `projectId` from `wsToDaemonId` mapping when relaying SDK messages to the registry. Fixed in handler.ts by spreading `projectId: this.wsToDaemonId.get(ws)` into the payload.
+- **daemonId === projectId:** Throughout the codebase, `daemonId` is the `owner/repo` string and is interchangeable with `projectId`. The aggregator stub session creation previously used `"unknown"` as fallback — changed to use `daemonId` directly since they're the same value.
+- **Silent catch anti-pattern:** `CopilotManager.pollSessions` was swallowing errors silently. Added `console.warn` for visibility. Silent catches hide production issues — always log at minimum warn level.
+
 ### 2026-03-13: Phase 1 Summary
 
 **Completed Issues:** #7, #12, #13 (3/8 Phase 1 items)  

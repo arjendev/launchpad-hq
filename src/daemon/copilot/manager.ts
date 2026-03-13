@@ -312,8 +312,8 @@ export class CopilotManager {
         timestamp: Date.now(),
         payload: { requestId, sessions },
       });
-    } catch {
-      // Silently skip on poll failure
+    } catch (err) {
+      console.warn(`⚠ Session poll failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
