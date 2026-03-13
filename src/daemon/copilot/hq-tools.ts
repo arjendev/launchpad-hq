@@ -5,14 +5,12 @@
  * human operator at HQ — reporting progress, requesting review,
  * and signaling blockers.
  *
- * When the SDK is available, tools are defined via `defineTool()`
- * for proper SDK integration. Otherwise, falls back to our
- * `ToolDefinition` format.
+ * Uses the SDK's `defineTool()` for proper registration.
  */
 
 import type { DaemonToHqMessage, CopilotHqToolName } from '../../shared/protocol.js';
 import type { ToolDefinition } from './adapter.js';
-import { getSdkDefineTool, isSdkAvailable } from './sdk-adapter.js';
+import { getSdkDefineTool } from './sdk-adapter.js';
 
 export function createHqTools(
   sendToHq: (msg: DaemonToHqMessage) => void,
@@ -116,8 +114,8 @@ export function createHqTools(
     },
   ] as const;
 
-  // When SDK is available, wrap with defineTool for proper registration
-  const define = isSdkAvailable() ? getSdkDefineTool() : null;
+  // Use SDK's defineTool when available for proper registration
+  const define = getSdkDefineTool();
 
   if (define) {
     return toolSpecs.map((spec) =>

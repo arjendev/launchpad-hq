@@ -1,11 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { SdkCopilotAdapter, isSdkAvailable, getSdkDefineTool } from '../sdk-adapter.js';
-
-describe('isSdkAvailable()', () => {
-  it('returns true when SDK is installed', () => {
-    expect(isSdkAvailable()).toBe(true);
-  });
-});
+import { SdkCopilotAdapter, getSdkDefineTool } from '../sdk-adapter.js';
 
 describe('getSdkDefineTool()', () => {
   it('returns the defineTool function when SDK is available', () => {

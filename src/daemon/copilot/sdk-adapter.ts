@@ -2,8 +2,8 @@
  * Real Copilot SDK adapter.
  *
  * Maps @github/copilot-sdk to our CopilotAdapter interface.
- * If the package is not installed, `isSdkAvailable()` returns false
- * so the manager can fall back to the mock adapter.
+ * The SDK is a regular npm dependency — always available at import time.
+ * Runtime failures (e.g. Copilot CLI not in PATH) are handled by the manager.
  */
 
 import type {
@@ -16,7 +16,7 @@ import type {
 } from './adapter.js';
 
 // ---------------------------------------------------------------------------
-// SDK import (may fail if package is not installed)
+// SDK import
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,26 +25,19 @@ let SdkClientClass: any = null;
 let sdkApproveAll: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let sdkDefineTool: any = null;
-let sdkAvailable = false;
 
 try {
   const sdk = await import('@github/copilot-sdk');
   SdkClientClass = sdk.CopilotClient;
   sdkApproveAll = sdk.approveAll;
   sdkDefineTool = sdk.defineTool;
-  sdkAvailable = true;
 } catch {
-  sdkAvailable = false;
+  // SDK import failed — start() will throw a clear error
 }
 
 // ---------------------------------------------------------------------------
-// Public SDK availability check + re-exports
+// Public re-exports
 // ---------------------------------------------------------------------------
-
-/** Returns true when @github/copilot-sdk was successfully imported. */
-export function isSdkAvailable(): boolean {
-  return sdkAvailable;
-}
 
 /** Re-export the SDK's `defineTool` (or null when unavailable). */
 export function getSdkDefineTool(): typeof sdkDefineTool {
@@ -79,10 +72,10 @@ function mapSdkEvent(raw: any): CopilotSessionEvent {
 // ---------------------------------------------------------------------------
 
 function assertSdk(): void {
-  if (!sdkAvailable) {
+  if (!SdkClientClass) {
     throw new Error(
-      '@github/copilot-sdk is not installed. ' +
-        'Install it via `npm i @github/copilot-sdk` or use LAUNCHPAD_COPILOT_MOCK=true.',
+      '@github/copilot-sdk failed to load. ' +
+        'Ensure the package is installed via `npm i @github/copilot-sdk`.',
     );
   }
 }

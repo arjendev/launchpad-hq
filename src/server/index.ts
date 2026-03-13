@@ -71,7 +71,7 @@ await server.register(daemonRegistryPlugin);
 
 await server.register(terminalRelayPlugin);
 
-// --- Copilot introspection (mock adapter until real SDK ships) ---
+// --- Copilot introspection ---
 
 await server.register(copilotPlugin);
 

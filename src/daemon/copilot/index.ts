@@ -12,8 +12,7 @@ export type {
   CopilotSdkState,
 } from './adapter.js';
 
-export { MockCopilotAdapter } from './mock-adapter.js';
-export { SdkCopilotAdapter, isSdkAvailable, getSdkDefineTool } from './sdk-adapter.js';
+export { SdkCopilotAdapter, getSdkDefineTool } from './sdk-adapter.js';
 export type { SdkCopilotAdapterOptions } from './sdk-adapter.js';
 export { CopilotManager } from './manager.js';
 export type { CopilotManagerOptions, SendToHq } from './manager.js';
