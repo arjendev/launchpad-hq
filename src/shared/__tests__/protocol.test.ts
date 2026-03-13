@@ -10,6 +10,9 @@ import type {
   TerminalExitMessage,
   CopilotSessionUpdateMessage,
   CopilotConversationMessage,
+  CopilotSdkSessionListMessage,
+  CopilotSdkSessionEventMessage,
+  CopilotSdkStateMessage,
   AttentionItemMessage,
   AuthResponseMessage,
   AuthChallengeMessage,
@@ -21,6 +24,11 @@ import type {
   TerminalResizeMessage,
   TerminalKillMessage,
   RequestStatusMessage,
+  CopilotCreateSessionMessage,
+  CopilotResumeSessionMessage,
+  CopilotSendPromptMessage,
+  CopilotAbortSessionMessage,
+  CopilotListSessionsMessage,
   RuntimeTarget,
   WorkState,
   ProjectState,
@@ -317,10 +325,13 @@ describe('Protocol message types', () => {
         'terminal-exit',
         'copilot-session-update',
         'copilot-conversation',
+        'copilot-sdk-session-list',
+        'copilot-sdk-session-event',
+        'copilot-sdk-state',
         'attention-item',
         'auth-response',
       ];
-      expect(types).toHaveLength(9);
+      expect(types).toHaveLength(12);
     });
 
     it('HqToDaemonMessage union contains all HQ message types', () => {
@@ -334,8 +345,13 @@ describe('Protocol message types', () => {
         'terminal-resize',
         'terminal-kill',
         'request-status',
+        'copilot-create-session',
+        'copilot-resume-session',
+        'copilot-send-prompt',
+        'copilot-abort-session',
+        'copilot-list-sessions',
       ];
-      expect(types).toHaveLength(9);
+      expect(types).toHaveLength(14);
     });
   });
 
@@ -365,12 +381,16 @@ describe('Protocol message types', () => {
     it('MessageType covers all discriminants', () => {
       const allTypes: MessageType[] = [
         'register', 'heartbeat', 'status-update', 'terminal-data', 'terminal-exit',
-        'copilot-session-update', 'copilot-conversation', 'attention-item',
-        'auth-response', 'auth-challenge', 'auth-accept', 'auth-reject',
+        'copilot-session-update', 'copilot-conversation',
+        'copilot-sdk-session-list', 'copilot-sdk-session-event', 'copilot-sdk-state',
+        'attention-item', 'auth-response',
+        'auth-challenge', 'auth-accept', 'auth-reject',
         'command', 'terminal-input', 'terminal-spawn', 'terminal-resize',
         'terminal-kill', 'request-status',
+        'copilot-create-session', 'copilot-resume-session', 'copilot-send-prompt',
+        'copilot-abort-session', 'copilot-list-sessions',
       ];
-      expect(allTypes).toHaveLength(18);
+      expect(allTypes).toHaveLength(26);
     });
   });
 });

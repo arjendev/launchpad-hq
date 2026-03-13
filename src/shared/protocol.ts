@@ -217,6 +217,23 @@ export interface AttentionItemMessage extends BaseMessage<'attention-item'> {
   };
 }
 
+// Daemon → HQ: batch session list (aggregator-facing, includes projectId)
+export interface CopilotSessionListMessage extends BaseMessage<'copilot-session-list'> {
+  payload: {
+    projectId: string;
+    sessions: CopilotSessionInfo[];
+  };
+}
+
+// Daemon → HQ: individual session event with projectId (aggregator-facing)
+export interface CopilotSessionEventMessage extends BaseMessage<'copilot-session-event'> {
+  payload: {
+    projectId: string;
+    sessionId: string;
+    event: CopilotSessionEvent;
+  };
+}
+
 /** Auth response from daemon after receiving a challenge */
 export interface AuthResponseMessage extends BaseMessage<'auth-response'> {
   payload: {
@@ -233,6 +250,8 @@ export type DaemonToHqMessage =
   | TerminalDataMessage
   | TerminalExitMessage
   | CopilotSessionUpdateMessage
+  | CopilotSessionListMessage
+  | CopilotSessionEventMessage
   | CopilotConversationMessage
   | CopilotSdkSessionListMessage
   | CopilotSdkSessionEventMessage
