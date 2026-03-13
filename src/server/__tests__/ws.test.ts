@@ -62,11 +62,11 @@ describe("ConnectionManager", () => {
     const ws = createMockSocket();
     const id = manager.add(ws as never);
 
-    expect(manager.subscribe(id, "devcontainer")).toBe(true);
-    expect(manager.subscriptions(id).has("devcontainer")).toBe(true);
+    expect(manager.subscribe(id, "daemon")).toBe(true);
+    expect(manager.subscriptions(id).has("daemon")).toBe(true);
 
-    expect(manager.unsubscribe(id, "devcontainer")).toBe(true);
-    expect(manager.subscriptions(id).has("devcontainer")).toBe(false);
+    expect(manager.unsubscribe(id, "daemon")).toBe(true);
+    expect(manager.subscriptions(id).has("daemon")).toBe(false);
   });
 
   it("returns false for subscribe/unsubscribe on unknown client", () => {
@@ -188,9 +188,10 @@ describe("handleMessage", () => {
 
 describe("VALID_CHANNELS", () => {
   it("contains the expected channels", () => {
-    expect(VALID_CHANNELS.has("devcontainer")).toBe(true);
+    expect(VALID_CHANNELS.has("daemon")).toBe(true);
     expect(VALID_CHANNELS.has("copilot")).toBe(true);
     expect(VALID_CHANNELS.has("terminal")).toBe(true);
+    expect(VALID_CHANNELS.has("devcontainer")).toBe(false);
     expect(VALID_CHANNELS.has("unknown")).toBe(false);
   });
 });

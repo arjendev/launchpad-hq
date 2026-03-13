@@ -2,7 +2,7 @@ import { AppShell, Flex, ScrollArea, Title, Group } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { ProjectList } from "../components/ProjectList";
 import { KanbanBoard } from "../components/KanbanBoard";
-import { SessionsPanel } from "../components/SessionsPanel";
+import { ConnectedProjectPanel } from "../components/ConnectedProjectPanel";
 import { ConnectionStatus } from "../components/ConnectionStatus";
 import { ThemeToggle } from "../components/ThemeToggle";
 
@@ -47,7 +47,7 @@ export function DashboardLayout() {
             <KanbanBoard />
           </ScrollArea>
 
-          {/* Right pane — Sessions */}
+          {/* Right pane — Connected Project */}
           <ScrollArea
             style={{
               width: isSmallScreen ? "100%" : 300,
@@ -60,7 +60,7 @@ export function DashboardLayout() {
                 : undefined,
             }}
           >
-            <SessionsPanel />
+            <ConnectedProjectPanel />
           </ScrollArea>
         </Flex>
       </AppShell.Main>
