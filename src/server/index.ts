@@ -16,6 +16,8 @@ import statePlugin from "./state/plugin.js";
 import cachePlugin from "./cache/plugin.js";
 import websocket from "./ws/plugin.js";
 import containersPlugin from "./containers/plugin.js";
+import attentionPlugin from "./attention/plugin.js";
+import copilotPlugin from "./copilot/plugin.js";
 
 const config = loadConfig();
 
@@ -57,6 +59,10 @@ await server.register(websocket);
 
 await server.register(containersPlugin);
 
+// --- Copilot introspection (mock adapter until real SDK ships) ---
+
+await server.register(copilotPlugin);
+
 // --- Routes ---
 
 await server.register(githubAuth);
@@ -66,6 +72,7 @@ await server.register(cachePlugin);
 await server.register(healthRoutes);
 await server.register(projectRoutes);
 await server.register(githubDataRoutes);
+await server.register(attentionPlugin);
 
 // --- Lifecycle ---
 
