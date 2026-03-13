@@ -82,3 +82,35 @@ Romilly's work is the bridge between TARS' data access layer and Brand's fronten
 - **Tests:** 35 tests in `src/server/__tests__/attention.test.ts` — rule evaluators (stale/fresh/closed issues, draft/open PRs, stubs), rule engine (enabled/disabled), deterministic IDs, manager (CRUD, filtering, sorting, dismissal, counts, maxItems, clear), REST endpoints (list, filter, count, dismiss, 404).
 - **Note:** Parallel filesystem entanglement struck again — attention files were captured in the copilot #15 commit. Had to commit the index.ts registration separately. See decisions.md entry on this pattern.
 
+### 2026-03-13: Server watch mode & VS Code integration
+- Added `tsx --inspect-brk` launch profile "Server (Debug)" with sourceMap support
+- "Full Stack" compound profile now starts server + client correctly via preLaunchTask
+- Server reloads on file changes; breakpoints work during development
+- Improves dev loop compared to manual restarts
+
+### 2026-03-13: Wired cache plugin into server bootstrap
+- Cache module existed and tested but was never registered in `src/server/index.ts`
+- Added `import apiCachePlugin from "./cache/plugin.js"` and `await server.register(apiCachePlugin)` before routes
+- Dependency chain now: `github-auth` → `state` → `api-cache` → routes
+- Cache endpoints `/api/cache/stats` and cache invalidation now live on the server
+
+## Phase 2 Summary
+
+**Completed Issues:** #18 (1/5 Phase 2 items)
+**Total Tests Added (Phase 2):** 35 tests
+**Commits:** 2 (attention system, cache plugin wiring)
+
+Romilly delivered the attention system — a rule-based alerting layer that identifies high-priority issues, stale PRs, and other actionable items. The system is fully testable, configurable, and broadcasts updates via WebSocket in real-time.
+
+Key learnings:
+- Rule engine uses pure functions — testable without mocking
+- Manager uses in-memory LRU storage with SHA-256 deterministic IDs for stable deduplication across evaluation cycles
+- Dismissal state persists across re-evaluations
+- Graceful per-project failure via Promise.allSettled
+
+Also fixed a Medium-priority bug: the cache plugin wasn't registered. Found during integration testing and fixed immediately.
+
+Decision on attention system architecture captured in decisions.md.
+
+
+

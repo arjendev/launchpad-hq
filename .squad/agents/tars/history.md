@@ -82,3 +82,11 @@ Phase 1 unlocked Romilly's REST API (#7) and Brand's frontend (#8, #9) by provid
 - 17 unit tests: Docker availability, container discovery, port parsing, status mapping, monitor diffing, broadcast behavior, edge cases
 - **Key pattern**: Parallel agent work creates filesystem entanglement — other agents (attention, copilot) had uncommitted changes. Used `git checkout HEAD --` to restore clean base before applying only my changes.
 
+## Phase 2 Summary
+
+**Completed Issues:** #14 (1/5 Phase 2 items)
+**Total Tests Added (Phase 2):** 17 tests
+**Commits:** 1 (devcontainer discovery)
+
+TARS delivered devcontainer discovery via Docker CLI — a clean, lightweight alternative to the @devcontainers/cli package. The discovery module integrates with the WebSocket server for real-time status broadcasts. Decision captured in decisions.md.
+
