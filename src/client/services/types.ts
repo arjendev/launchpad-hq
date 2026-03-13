@@ -96,3 +96,97 @@ export interface IssuesResponse {
   endCursor: string | null;
   totalFiltered: number;
 }
+
+// ── Devcontainer types (match server containers/types.ts) ────
+
+export type ContainerStatus = "running" | "stopped";
+
+export interface DevContainer {
+  containerId: string;
+  name: string;
+  status: ContainerStatus;
+  workspaceFolder: string;
+  repository?: string;
+  ports: string[];
+  image: string;
+  createdAt: string;
+}
+
+export interface DiscoveryResult {
+  containers: DevContainer[];
+  scannedAt: string;
+  dockerAvailable: boolean;
+  error?: string;
+}
+
+export interface ContainerStatusUpdate {
+  type: "container_status_update";
+  containers: DevContainer[];
+  changes: Array<{
+    containerId: string;
+    name: string;
+    previousStatus: ContainerStatus | "absent";
+    currentStatus: ContainerStatus | "absent";
+  }>;
+  scannedAt: string;
+}
+
+// ── Copilot session types (match server copilot/types.ts) ────
+
+export type ConversationRole = "user" | "assistant" | "system";
+
+export interface ConversationMessage {
+  id: string;
+  role: ConversationRole;
+  content: string;
+  timestamp: string;
+}
+
+export type SessionStatus = "active" | "idle" | "completed" | "error";
+
+export interface CopilotSession {
+  id: string;
+  status: SessionStatus;
+  startedAt: string;
+  repository: string | null;
+  currentTask: string | null;
+  conversationHistory: ConversationMessage[];
+  adapter: "mock" | "sdk";
+}
+
+export interface CopilotSessionSummary {
+  id: string;
+  status: SessionStatus;
+  startedAt: string;
+  repository: string | null;
+  currentTask: string | null;
+  messageCount: number;
+  adapter: "mock" | "sdk";
+}
+
+// ── Attention types (match server attention/types.ts) ────
+
+export type AttentionType =
+  | "issue_stale"
+  | "pr_needs_review"
+  | "ci_failing"
+  | "session_idle";
+
+export type AttentionSeverity = "info" | "warning" | "critical";
+
+export interface AttentionItem {
+  id: string;
+  type: AttentionType;
+  severity: AttentionSeverity;
+  project: string;
+  message: string;
+  createdAt: string;
+  url?: string;
+  sourceId?: string;
+  dismissed: boolean;
+}
+
+export interface AttentionCountResponse {
+  total: number;
+  bySeverity: Record<AttentionSeverity, number>;
+}
