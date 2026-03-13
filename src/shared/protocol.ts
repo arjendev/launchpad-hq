@@ -83,7 +83,8 @@ export type CopilotSessionEventType =
   | 'tool.executionComplete'
   | 'session.start'
   | 'session.idle'
-  | 'session.error';
+  | 'session.error'
+  | 'session.ended';
 
 /** A single event from a Copilot SDK session */
 export interface CopilotSessionEvent {

@@ -335,7 +335,7 @@ describe('CopilotManager', () => {
   // -----------------------------------------------------------------------
 
   describe('handleMessage: copilot-abort-session', () => {
-    it('aborts an active session without error', async () => {
+    it('aborts an active session and emits session.ended', async () => {
       await manager.start();
 
       await manager.handleMessage({
@@ -350,13 +350,60 @@ describe('CopilotManager', () => {
           m.payload.event.type === 'session.start',
       );
       const sessionId = startEvent!.payload.sessionId;
+      sent = [];
 
-      // Abort should not throw
       await manager.handleMessage({
         type: 'copilot-abort-session',
         timestamp: Date.now(),
         payload: { sessionId },
       });
+
+      const endedEvent = sent.find(
+        (m) =>
+          m.type === 'copilot-sdk-session-event' &&
+          m.payload.event.type === 'session.ended',
+      );
+      expect(endedEvent).toBeDefined();
+      expect(endedEvent!.payload.sessionId).toBe(sessionId);
+    });
+
+    it('removes session from activeSessions after abort', async () => {
+      await manager.start();
+
+      await manager.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-4b' },
+      });
+
+      const startEvent = sent.find(
+        (m) =>
+          m.type === 'copilot-sdk-session-event' &&
+          m.payload.event.type === 'session.start',
+      );
+      const sessionId = startEvent!.payload.sessionId;
+      sent = [];
+
+      await manager.handleMessage({
+        type: 'copilot-abort-session',
+        timestamp: Date.now(),
+        payload: { sessionId },
+      });
+
+      // Sending a prompt to the aborted session should yield an error
+      sent = [];
+      await manager.handleMessage({
+        type: 'copilot-send-prompt',
+        timestamp: Date.now(),
+        payload: { sessionId, prompt: 'Should fail' },
+      });
+
+      const errorEvent = sent.find(
+        (m) =>
+          m.type === 'copilot-sdk-session-event' &&
+          m.payload.event.type === 'session.error',
+      );
+      expect(errorEvent).toBeDefined();
     });
 
     it('silently ignores abort for unknown session', async () => {

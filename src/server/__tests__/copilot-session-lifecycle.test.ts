@@ -378,7 +378,7 @@ describe("Copilot session lifecycle — integration", () => {
       expect(res.json().error).toBe("not_found");
     });
 
-    it("returns 502 when daemon is disconnected", async () => {
+    it("succeeds even when daemon is disconnected (cleans up aggregator)", async () => {
       const ws = createMockSocket();
       ws.readyState = 3;
       server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
@@ -391,8 +391,9 @@ describe("Copilot session lifecycle — integration", () => {
         url: "/api/copilot/aggregated/sessions/s-dead/abort",
       });
 
-      expect(res.statusCode).toBe(502);
-      expect(res.json().error).toBe("send_failed");
+      expect(res.statusCode).toBe(200);
+      expect(res.json().ok).toBe(true);
+      expect(server.copilotAggregator.getSession("s-dead")).toBeUndefined();
     });
   });
 
@@ -686,6 +687,113 @@ describe("Copilot session lifecycle — integration", () => {
       expect(ws1.sent).toHaveLength(1);
       expect(JSON.parse(ws1.sent[0]).type).toBe("copilot-abort-session");
       expect(ws2.sent).toHaveLength(0);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // 9. Session removal
+  // ══════════════════════════════════════════════════════════
+
+  describe("session removal", () => {
+    it("removeSession deletes session, conversation history, and tool invocations", () => {
+      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
+        makeSessionInfo({ sessionId: "s-rm" }),
+      ]);
+      server.copilotAggregator.appendMessages("s-rm", [
+        { role: "user", content: "hello", timestamp: 1000 },
+      ]);
+
+      expect(server.copilotAggregator.getSession("s-rm")).toBeDefined();
+      expect(server.copilotAggregator.getMessages("s-rm")).toHaveLength(1);
+
+      server.copilotAggregator.removeSession("s-rm");
+
+      expect(server.copilotAggregator.getSession("s-rm")).toBeUndefined();
+      expect(server.copilotAggregator.getMessages("s-rm")).toHaveLength(0);
+      expect(server.copilotAggregator.getAllSessions()).toHaveLength(0);
+    });
+
+    it("removeSession emits sessions-updated", () => {
+      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
+        makeSessionInfo({ sessionId: "s-emit" }),
+      ]);
+
+      let emitted = false;
+      server.copilotAggregator.on("sessions-updated", () => { emitted = true; });
+
+      server.copilotAggregator.removeSession("s-emit");
+      expect(emitted).toBe(true);
+    });
+
+    it("removeSession is a no-op for unknown session (no event emitted)", () => {
+      let emitted = false;
+      server.copilotAggregator.on("sessions-updated", () => { emitted = true; });
+
+      server.copilotAggregator.removeSession("nonexistent");
+      expect(emitted).toBe(false);
+    });
+
+    it("session.ended event removes session from aggregator", () => {
+      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
+        makeSessionInfo({ sessionId: "s-ended" }),
+      ]);
+      expect(server.copilotAggregator.getSession("s-ended")).toBeDefined();
+
+      server.copilotAggregator.handleSessionEvent("acme/widget", "s-ended", {
+        type: "session.ended",
+        data: {},
+        timestamp: Date.now(),
+      });
+
+      expect(server.copilotAggregator.getSession("s-ended")).toBeUndefined();
+    });
+
+    it("session.ended for unknown session does not create a stub", () => {
+      server.copilotAggregator.handleSessionEvent("acme/widget", "ghost", {
+        type: "session.ended",
+        data: {},
+        timestamp: Date.now(),
+      });
+
+      expect(server.copilotAggregator.getSession("ghost")).toBeUndefined();
+    });
+
+    it("abort route removes session from aggregator", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
+      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
+        makeSessionInfo({ sessionId: "s-abort-rm", state: "active" }),
+      ]);
+
+      expect(server.copilotAggregator.getSession("s-abort-rm")).toBeDefined();
+
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/s-abort-rm/abort",
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().ok).toBe(true);
+      expect(server.copilotAggregator.getSession("s-abort-rm")).toBeUndefined();
+    });
+
+    it("abort route succeeds even when daemon is disconnected", async () => {
+      const ws = createMockSocket();
+      ws.readyState = 3; // CLOSED
+      server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
+      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
+        makeSessionInfo({ sessionId: "s-dead-abort", state: "active" }),
+      ]);
+
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/s-dead-abort/abort",
+      });
+
+      // Should succeed (200), NOT 502 — session is cleaned up regardless
+      expect(res.statusCode).toBe(200);
+      expect(res.json().ok).toBe(true);
+      expect(server.copilotAggregator.getSession("s-dead-abort")).toBeUndefined();
     });
   });
 });

@@ -132,7 +132,13 @@ export class CopilotSessionAggregator extends EventEmitter {
         event.type === "tool.executionStart"
       ) {
         session.status = "active";
+      } else if (event.type === "session.ended") {
+        this.removeSession(sessionId);
+        return; // session gone — skip further emit
       }
+    } else if (event.type === "session.ended") {
+      // No stub to create for a session that's ending
+      return;
     } else {
       // Create a stub session for events without a prior session-list
       // daemonId IS the projectId (owner/repo) — never fall back to "unknown"
@@ -219,6 +225,19 @@ export class CopilotSessionAggregator extends EventEmitter {
   /** Get tool invocation history for a session */
   getToolInvocations(sessionId: string): ToolInvocationRecord[] {
     return this.toolInvocations.get(sessionId) ?? [];
+  }
+
+  // ── Session removal ─────────────────────────────────────
+
+  /** Remove a single session and all associated data */
+  removeSession(sessionId: string): void {
+    const existed = this.sessions.delete(sessionId);
+    this.conversationHistory.delete(sessionId);
+    this.toolInvocations.delete(sessionId);
+
+    if (existed) {
+      this.emit("sessions-updated", this.getAllSessions());
+    }
   }
 
   // ── Daemon lifecycle ───────────────────────────────────

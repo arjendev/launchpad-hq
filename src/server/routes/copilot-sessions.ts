@@ -132,7 +132,8 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
           .send({ error: "not_found", message: "Session not found" });
       }
 
-      const sent = server.daemonRegistry.sendToDaemon(session.daemonId, {
+      // Best-effort: tell the daemon to abort
+      server.daemonRegistry.sendToDaemon(session.daemonId, {
         type: "copilot-abort-session",
         timestamp: Date.now(),
         payload: {
@@ -140,11 +141,8 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         },
       });
 
-      if (!sent) {
-        return reply
-          .status(502)
-          .send({ error: "send_failed", message: "Daemon not connected" });
-      }
+      // Always remove from aggregator so the UI updates immediately
+      server.copilotAggregator.removeSession(sessionId);
 
       return reply.send({ ok: true });
     },
