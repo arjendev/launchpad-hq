@@ -165,37 +165,33 @@ describe("ConnectedProjectPanel", () => {
     });
   });
 
-  it("shows aggregated copilot sessions for the project", async () => {
+  it("shows New Session and Resume buttons", async () => {
     setupFetchMock();
     mockSelectedProject = createMockProject();
     render(<ConnectedProjectPanel />);
 
     await waitFor(() => {
-      expect(screen.getByText("Session abc12345")).toBeInTheDocument();
+      expect(screen.getByText("➕ New Session")).toBeInTheDocument();
     });
-    expect(screen.getByText("Session def45678")).toBeInTheDocument();
+    expect(screen.getByText("▶️ Resume")).toBeInTheDocument();
   });
 
-  it("shows session summaries", async () => {
+  it("opens resume modal showing idle sessions", async () => {
     setupFetchMock();
     mockSelectedProject = createMockProject();
+    const user = userEvent.setup();
     render(<ConnectedProjectPanel />);
 
     await waitFor(() => {
-      expect(screen.getByText(/"Refactoring auth module"/)).toBeInTheDocument();
+      expect(screen.getByText("▶️ Resume")).toBeInTheDocument();
     });
-    expect(screen.getByText(/"Adding tests"/)).toBeInTheDocument();
-  });
 
-  it("shows empty state for copilot sessions", async () => {
-    setupFetchMock({ sessions: [] });
-    mockSelectedProject = createMockProject();
-    render(<ConnectedProjectPanel />);
+    await user.click(screen.getByText("▶️ Resume"));
 
     await waitFor(() => {
-      expect(
-        screen.getByText("No active Copilot sessions"),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Resume Session")).toBeInTheDocument();
+      // The idle session should appear in the modal
+      expect(screen.getByText("Adding tests")).toBeInTheDocument();
     });
   });
 
