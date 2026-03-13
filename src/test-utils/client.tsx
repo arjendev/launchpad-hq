@@ -4,13 +4,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach } from "vitest";
 import type { ReactNode } from "react";
 import { ProjectProvider } from "../client/contexts/ProjectContext.js";
+import { WebSocketProvider } from "../client/contexts/WebSocketContext.js";
 
 afterEach(() => {
   cleanup();
 });
 
 /**
- * Wrapper that provides Mantine, QueryClient, and ProjectContext for component tests.
+ * Wrapper that provides Mantine, QueryClient, WebSocket, and ProjectContext for component tests.
  */
 function TestProviders({ children }: { children: ReactNode }) {
   const queryClient = new QueryClient({
@@ -23,7 +24,9 @@ function TestProviders({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <MantineProvider defaultColorScheme="light">
-        <ProjectProvider>{children}</ProjectProvider>
+        <WebSocketProvider url="ws://localhost:0/ws">
+          <ProjectProvider>{children}</ProjectProvider>
+        </WebSocketProvider>
       </MantineProvider>
     </QueryClientProvider>
   );
