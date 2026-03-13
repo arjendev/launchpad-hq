@@ -2,7 +2,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { StateManager } from "../state-manager.js";
 import type { GitHubStateClient } from "../github-state-client.js";
 import type { LocalCache } from "../local-cache.js";
-import type { ProjectConfig, EnrichmentData, UserPreferences } from "../types.js";
+import type { ProjectConfig, ProjectEntry, EnrichmentData, UserPreferences } from "../types.js";
+
+/** Build a full ProjectEntry with sensible defaults. */
+function makeProject(overrides: Partial<ProjectEntry> & Pick<ProjectEntry, "owner" | "repo">): ProjectEntry {
+  return {
+    addedAt: "2026-01-01T00:00:00Z",
+    runtimeTarget: "local",
+    initialized: false,
+    daemonToken: "test-token-" + overrides.owner + "-" + overrides.repo,
+    workState: "stopped",
+    ...overrides,
+  };
+}
 
 function createMocks() {
   const client = {
@@ -89,7 +101,7 @@ describe("StateManager", () => {
 
       const stored: ProjectConfig = {
         version: 1,
-        projects: [{ owner: "acme", repo: "widget", addedAt: "2026-01-01T00:00:00Z" }],
+        projects: [makeProject({ owner: "acme", repo: "widget" })],
       };
       cache.read.mockResolvedValue({
         content: JSON.stringify(stored),
@@ -108,7 +120,7 @@ describe("StateManager", () => {
 
       const stored: ProjectConfig = {
         version: 1,
-        projects: [{ owner: "acme", repo: "api", addedAt: "2026-02-01T00:00:00Z" }],
+        projects: [makeProject({ owner: "acme", repo: "api", addedAt: "2026-02-01T00:00:00Z" })],
       };
       client.readFile.mockResolvedValue({
         sha: "remote-sha",
@@ -138,7 +150,7 @@ describe("StateManager", () => {
 
       const config: ProjectConfig = {
         version: 1,
-        projects: [{ owner: "acme", repo: "ui", addedAt: "2026-03-01T00:00:00Z" }],
+        projects: [makeProject({ owner: "acme", repo: "ui", addedAt: "2026-03-01T00:00:00Z" })],
       };
       await manager.saveConfig(config);
 
@@ -236,6 +248,77 @@ describe("StateManager", () => {
       ) as EnrichmentData;
       expect(written.updatedAt).not.toBe("old");
       expect(written.projects["acme/api"].devcontainerStatus).toBe("active");
+    });
+  });
+
+  // ---- getProjectByToken ----------------------------------------------------
+
+  describe("getProjectByToken()", () => {
+    it("returns the matching project", async () => {
+      const { manager, cache } = createMocks();
+
+      const stored: ProjectConfig = {
+        version: 1,
+        projects: [
+          makeProject({ owner: "acme", repo: "api", daemonToken: "token-aaa" }),
+          makeProject({ owner: "acme", repo: "ui", daemonToken: "token-bbb" }),
+        ],
+      };
+      cache.read.mockResolvedValue({
+        content: JSON.stringify(stored),
+        sha: "sha-1",
+      });
+
+      const result = await manager.getProjectByToken("token-bbb");
+
+      expect(result).toBeDefined();
+      expect(result!.owner).toBe("acme");
+      expect(result!.repo).toBe("ui");
+    });
+
+    it("returns undefined for unknown token", async () => {
+      const { manager } = createMocks();
+
+      const result = await manager.getProjectByToken("nonexistent");
+
+      expect(result).toBeUndefined();
+    });
+  });
+
+  // ---- updateProjectState ---------------------------------------------------
+
+  describe("updateProjectState()", () => {
+    it("applies partial updates and saves", async () => {
+      const { manager, cache, client } = createMocks();
+
+      const stored: ProjectConfig = {
+        version: 1,
+        projects: [makeProject({ owner: "acme", repo: "api" })],
+      };
+      cache.read.mockResolvedValue({
+        content: JSON.stringify(stored),
+        sha: "sha-1",
+      });
+
+      const result = await manager.updateProjectState("acme", "api", {
+        initialized: true,
+        workState: "working",
+      });
+
+      expect(result).toBeDefined();
+      expect(result!.initialized).toBe(true);
+      expect(result!.workState).toBe("working");
+      expect(client.writeFile).toHaveBeenCalled();
+    });
+
+    it("returns undefined for unknown project", async () => {
+      const { manager } = createMocks();
+
+      const result = await manager.updateProjectState("acme", "nope", {
+        initialized: true,
+      });
+
+      expect(result).toBeUndefined();
     });
   });
 });

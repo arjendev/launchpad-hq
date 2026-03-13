@@ -49,7 +49,7 @@ describe("ProjectList", () => {
         totalOpenIssues: 5,
         totalOpenPrs: 2,
         projects: [
-          { owner: "acme", repo: "widget", openIssueCount: 5, openPrCount: 2, updatedAt: "2026-01-01T00:00:00Z", isArchived: false },
+          { owner: "acme", repo: "widget", openIssueCount: 5, openPrCount: 2, updatedAt: "2026-01-01T00:00:00Z", isArchived: false, runtimeTarget: "local", daemonStatus: "offline", workState: "stopped" },
         ],
       }),
     });

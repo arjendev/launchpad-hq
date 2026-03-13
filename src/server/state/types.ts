@@ -1,8 +1,14 @@
+import type { RuntimeTarget, WorkState } from "../../shared/protocol.js";
+
 /** A tracked project (GitHub repo). */
 export interface ProjectEntry {
   owner: string;
   repo: string;
   addedAt: string; // ISO 8601
+  runtimeTarget: RuntimeTarget;
+  initialized: boolean;
+  daemonToken: string;
+  workState: WorkState;
 }
 
 /** Stored in config.json inside launchpad-state repo. */
@@ -50,6 +56,14 @@ export interface StateService {
   saveEnrichment(data: EnrichmentData): Promise<void>;
   /** Force-pull all state files from GitHub. */
   sync(): Promise<void>;
+  /** Find a project by its daemon auth token. */
+  getProjectByToken(token: string): Promise<ProjectEntry | undefined>;
+  /** Apply a partial update to a project entry (matched by owner/repo). */
+  updateProjectState(
+    owner: string,
+    repo: string,
+    updates: Partial<Pick<ProjectEntry, "initialized" | "workState">>,
+  ): Promise<ProjectEntry | undefined>;
 }
 
 // ---- defaults ---------------------------------------------------------------

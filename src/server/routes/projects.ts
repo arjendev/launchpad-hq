@@ -1,11 +1,14 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import type { ProjectEntry, ProjectConfig } from "../state/types.js";
+import type { RuntimeTarget, WorkState } from "../../shared/protocol.js";
+import { generateDaemonToken } from "../../shared/auth.js";
 
 // ---- Request / Response types -----------------------------------------------
 
 interface AddProjectBody {
   owner: string;
   repo: string;
+  runtimeTarget: RuntimeTarget;
 }
 
 interface ProjectParams {
@@ -21,10 +24,21 @@ interface UpdateProjectBody {
   };
 }
 
+/** Project as returned in list endpoints (no daemonToken for security). */
 interface ProjectResponse {
   owner: string;
   repo: string;
   addedAt: string;
+  runtimeTarget: RuntimeTarget;
+  initialized: boolean;
+  daemonStatus: "online" | "offline";
+  workState: WorkState;
+  lastSeen?: number;
+}
+
+/** Project detail — includes daemonToken (only on create and explicit detail). */
+interface ProjectDetailResponse extends ProjectResponse {
+  daemonToken: string;
 }
 
 interface ListProjectsResponse {
@@ -60,6 +74,16 @@ function validationError(reply: FastifyReply, message: string) {
   return reply.status(400).send({ error: "validation_error", message });
 }
 
+const VALID_RUNTIME_TARGETS: ReadonlySet<string> = new Set([
+  "wsl-devcontainer",
+  "wsl",
+  "local",
+]);
+
+function isValidRuntimeTarget(value: unknown): value is RuntimeTarget {
+  return typeof value === "string" && VALID_RUNTIME_TARGETS.has(value);
+}
+
 // ---- GitHub repo existence check --------------------------------------------
 
 async function repoExistsOnGitHub(
@@ -81,15 +105,52 @@ async function repoExistsOnGitHub(
   return response.ok;
 }
 
+// ---- Daemon status derivation -----------------------------------------------
+
+function deriveDaemonInfo(
+  fastify: { daemonRegistry: { getAllDaemons(): Array<{ projectId: string; state: string; lastHeartbeat: number }> } },
+  owner: string,
+  repo: string,
+): { daemonStatus: "online" | "offline"; lastSeen?: number } {
+  const projectId = `${owner}/${repo}`;
+  const daemons = fastify.daemonRegistry.getAllDaemons();
+  const daemon = daemons.find(
+    (d) => d.projectId.toLowerCase() === projectId.toLowerCase() && d.state === "connected",
+  );
+  if (daemon) {
+    return { daemonStatus: "online", lastSeen: daemon.lastHeartbeat };
+  }
+  return { daemonStatus: "offline" };
+}
+
+function toProjectResponse(
+  entry: ProjectEntry,
+  daemonInfo: { daemonStatus: "online" | "offline"; lastSeen?: number },
+): ProjectResponse {
+  return {
+    owner: entry.owner,
+    repo: entry.repo,
+    addedAt: entry.addedAt,
+    runtimeTarget: entry.runtimeTarget,
+    initialized: entry.initialized,
+    daemonStatus: daemonInfo.daemonStatus,
+    workState: entry.workState,
+    lastSeen: daemonInfo.lastSeen,
+  };
+}
+
 // ---- Route plugin -----------------------------------------------------------
 
 const projectRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/projects — list all tracked projects
   fastify.get("/api/projects", async (_request, _reply): Promise<ListProjectsResponse> => {
     const config = await fastify.stateService.getConfig();
+    const projects: ProjectResponse[] = config.projects.map((p) =>
+      toProjectResponse(p, deriveDaemonInfo(fastify, p.owner, p.repo)),
+    );
     return {
-      projects: config.projects,
-      count: config.projects.length,
+      projects,
+      count: projects.length,
     };
   });
 
@@ -99,6 +160,13 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
 
     if (!body || typeof body.owner !== "string" || typeof body.repo !== "string") {
       return validationError(reply, "Request body must include 'owner' and 'repo' as strings.");
+    }
+
+    if (!isValidRuntimeTarget(body.runtimeTarget)) {
+      return validationError(
+        reply,
+        "Request body must include 'runtimeTarget' as one of: 'wsl-devcontainer', 'wsl', 'local'.",
+      );
     }
 
     const owner = body.owner.trim();
@@ -133,16 +201,54 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     // Add to state
+    const daemonToken = generateDaemonToken();
     const entry: ProjectEntry = {
       owner,
       repo,
       addedAt: new Date().toISOString(),
+      runtimeTarget: body.runtimeTarget,
+      initialized: false,
+      daemonToken,
+      workState: "stopped",
     };
     config.projects.push(entry);
     await fastify.stateService.saveConfig(config);
 
-    return reply.status(201).send(entry);
+    // Return full detail including token (only shown once)
+    const daemonInfo = deriveDaemonInfo(fastify, owner, repo);
+    const response: ProjectDetailResponse = {
+      ...toProjectResponse(entry, daemonInfo),
+      daemonToken,
+    };
+    return reply.status(201).send(response);
   });
+
+  // GET /api/projects/:owner/:repo — get single project detail (includes daemonToken)
+  fastify.get<{ Params: ProjectParams }>(
+    "/api/projects/:owner/:repo",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+
+      const config = await fastify.stateService.getConfig();
+      const project = config.projects.find(
+        (p) => p.owner.toLowerCase() === owner.toLowerCase() && p.repo.toLowerCase() === repo.toLowerCase(),
+      );
+
+      if (!project) {
+        return reply.status(404).send({
+          error: "not_found",
+          message: `Project ${owner}/${repo} is not being tracked.`,
+        });
+      }
+
+      const daemonInfo = deriveDaemonInfo(fastify, project.owner, project.repo);
+      const response: ProjectDetailResponse = {
+        ...toProjectResponse(project, daemonInfo),
+        daemonToken: project.daemonToken,
+      };
+      return response;
+    },
+  );
 
   // DELETE /api/projects/:owner/:repo — remove a project from tracking
   fastify.delete<{ Params: ProjectParams }>(
