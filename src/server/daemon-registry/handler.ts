@@ -177,11 +177,11 @@ export class DaemonWsHandler {
         break;
 
       case "copilot-session-list":
-        this.registry.emit("copilot:session-list" as never, msg.payload.projectId, msg.payload);
+        this.registry.emit("copilot:session-list" as never, this.wsToDaemonId.get(ws), msg.payload);
         break;
 
       case "copilot-session-event":
-        this.registry.emit("copilot:session-event" as never, msg.payload.projectId, msg.payload);
+        this.registry.emit("copilot:session-event" as never, this.wsToDaemonId.get(ws), msg.payload);
         break;
 
       case "copilot-sdk-state":
