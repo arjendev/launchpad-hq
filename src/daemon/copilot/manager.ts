@@ -1,29 +1,51 @@
 /**
- * CopilotManager — orchestrates the Copilot SDK adapter within the daemon.
+ * CopilotManager — thin wrapper around @github/copilot-sdk.
  *
  * Responsibilities:
- *  • Creates the SDK adapter (or accepts an injected adapter for testing)
- *  • Forwards adapter state changes to HQ via `copilot-sdk-state`
+ *  • Creates CopilotClient directly (no adapter)
+ *  • Forwards SDK session events as-is to HQ — no mapping, no renaming
  *  • Handles incoming HQ commands (create/resume/send/abort/list)
- *  • Relays session events to HQ as `copilot-sdk-session-event`
- *  • Periodically polls `listSessions()` and sends to HQ
+ *  • Periodically polls listSessions() and sends SessionMetadata[] to HQ
  *  • Tracks active sessions for cleanup on shutdown
  */
 
-import type { DaemonToHqMessage, HqToDaemonMessage, SessionConfigWire } from '../../shared/protocol.js';
-import type { CopilotAdapter, CopilotSession, SessionConfig, ToolDefinition } from './adapter.js';
-import { SdkCopilotAdapter } from './sdk-adapter.js';
+import { randomUUID } from 'node:crypto';
+import type {
+  ConnectionState,
+  SessionEvent,
+  SessionMetadata,
+  Tool,
+} from '@github/copilot-sdk';
+import type {
+  DaemonToHqMessage,
+  HqToDaemonMessage,
+  SessionConfigWire,
+} from '../../shared/protocol.js';
 import { createHqTools } from './hq-tools.js';
 import { buildSystemMessage } from './system-message.js';
 
-export type SendToHq = (msg: DaemonToHqMessage) => void;
+// ---------------------------------------------------------------------------
+// SDK dynamic import — safe when package is not installed
+// ---------------------------------------------------------------------------
 
-/** Convert wire-safe config to adapter SessionConfig (tools have no handlers over the wire) */
-function toSessionConfig(wire?: SessionConfigWire): SessionConfig {
-  if (!wire) return {};
-  const { tools: _tools, ...rest } = wire;
-  return rest;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let CopilotClientClass: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sdkApproveAll: any = null;
+
+try {
+  const sdk = await import('@github/copilot-sdk');
+  CopilotClientClass = sdk.CopilotClient;
+  sdkApproveAll = sdk.approveAll;
+} catch {
+  // SDK import failed — start() will warn and skip copilot features
 }
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type SendToHq = (msg: DaemonToHqMessage) => void;
 
 export interface CopilotManagerOptions {
   /** Function to send messages to HQ over the daemon WebSocket */
@@ -32,25 +54,50 @@ export interface CopilotManagerOptions {
   projectId?: string;
   /** Human-readable project name */
   projectName?: string;
-  /** Override adapter for testing (defaults to SdkCopilotAdapter) */
-  adapter?: CopilotAdapter;
+  /** Working directory (defaults to process.cwd()) */
+  cwd?: string;
   /** Session-list poll interval in ms (default 30 000) */
   pollIntervalMs?: number;
+  /** Override client for testing (duck-typed CopilotClient) */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client?: any;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Create a minimal synthetic SessionEvent for daemon-originated notifications */
+function syntheticEvent(type: string, data: Record<string, unknown>): SessionEvent {
+  return {
+    id: randomUUID(),
+    timestamp: new Date().toISOString(),
+    parentId: null,
+    type,
+    data,
+  } as SessionEvent;
+}
+
+// ---------------------------------------------------------------------------
+// Manager
+// ---------------------------------------------------------------------------
+
 export class CopilotManager {
-  private adapter: CopilotAdapter;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private client: any = null;
   private sendToHq: SendToHq;
-  private activeSessions = new Map<string, CopilotSession>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private activeSessions = new Map<string, any>();
   private sessionUnsubscribers = new Map<string, () => void>();
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private pollIntervalMs: number;
-  private stateUnsub: (() => void) | null = null;
+  private lifecycleUnsub: (() => void) | null = null;
   private projectId: string;
   private projectName?: string;
-  private hqTools: ToolDefinition[];
+  private hqTools: Tool[];
+  private started = false;
 
   constructor(options: CopilotManagerOptions) {
     this.sendToHq = options.sendToHq;
@@ -60,24 +107,53 @@ export class CopilotManager {
 
     this.hqTools = createHqTools(this.sendToHq, this.projectId);
 
-    this.adapter = options.adapter ?? new SdkCopilotAdapter({ cwd: process.cwd() });
+    if (options.client) {
+      this.client = options.client;
+    } else if (CopilotClientClass) {
+      this.client = new CopilotClientClass({
+        cwd: options.cwd ?? process.cwd(),
+        autoRestart: true,
+        autoStart: false,
+        logLevel: 'warning',
+      });
+    }
   }
 
-  /** Start the adapter and begin polling sessions */
+  /** Start the SDK client and begin polling sessions */
   async start(): Promise<void> {
-    this.stateUnsub = this.adapter.onStateChange((state) => {
-      this.sendToHq({
-        type: 'copilot-sdk-state',
-        timestamp: Date.now(),
-        payload: { state },
-      });
-    });
+    if (!this.client) {
+      console.warn('⚠ Copilot SDK not available — copilot features disabled');
+      return;
+    }
+
+    // Wire client-level lifecycle events (session created/deleted/updated)
+    if (typeof this.client.on === 'function') {
+      this.lifecycleUnsub = this.client.on(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (event: any) => {
+          if (event.sessionId) {
+            this.sendToHq({
+              type: 'copilot-session-event',
+              timestamp: Date.now(),
+              payload: {
+                projectId: this.projectId,
+                sessionId: event.sessionId,
+                event: syntheticEvent(event.type, { sessionId: event.sessionId, metadata: event.metadata }),
+              },
+            });
+          }
+        },
+      );
+    }
+
+    this.sendConnectionState('connecting');
 
     try {
-      await this.adapter.start();
+      await this.client.start();
+      this.started = true;
+      this.sendConnectionState(this.client.getState());
     } catch (err) {
-      // SDK failed (e.g. Copilot CLI not in PATH) — copilot features unavailable
-      // but the daemon keeps running without copilot capability
+      this.sendConnectionState('error');
       console.warn(
         `⚠ Copilot SDK failed to start — copilot features unavailable: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -100,19 +176,30 @@ export class CopilotManager {
       this.pollTimer = null;
     }
 
-    // Destroy all tracked sessions
+    // Disconnect all tracked sessions
     for (const [id, session] of this.activeSessions) {
       const unsub = this.sessionUnsubscribers.get(id);
       if (unsub) unsub();
-      await session.destroy();
+      try {
+        await session.disconnect();
+      } catch {
+        // session may already be disconnected
+      }
     }
     this.activeSessions.clear();
     this.sessionUnsubscribers.clear();
 
-    this.stateUnsub?.();
-    this.stateUnsub = null;
+    this.lifecycleUnsub?.();
+    this.lifecycleUnsub = null;
 
-    await this.adapter.stop();
+    if (this.started && this.client) {
+      try {
+        await this.client.stop();
+      } catch {
+        await this.client.forceStop().catch(() => {});
+      }
+      this.started = false;
+    }
   }
 
   /** Handle an incoming HQ → Daemon message (copilot-* commands) */
@@ -152,9 +239,10 @@ export class CopilotManager {
     }
   }
 
-  /** Expose the current adapter state */
-  get adapterState() {
-    return this.adapter.state;
+  /** Expose the current SDK connection state */
+  get connectionState(): ConnectionState {
+    if (!this.client) return 'disconnected';
+    return this.client.getState() as ConnectionState;
   }
 
   // -----------------------------------------------------------------------
@@ -166,33 +254,29 @@ export class CopilotManager {
     config?: SessionConfigWire,
   ): Promise<void> {
     try {
-      const sessionConfig = this.injectHqConfig(toSessionConfig(config));
-      const session = await this.adapter.createSession(sessionConfig);
+      const sdkConfig = this.buildSdkConfig(config);
+      const session = await this.client.createSession(sdkConfig);
       this.trackSession(session);
 
+      // SDK will emit session.start via the event handler, but we also send
+      // a synthetic event so HQ can correlate the requestId
       this.sendToHq({
-        type: 'copilot-sdk-session-event',
+        type: 'copilot-session-event',
         timestamp: Date.now(),
         payload: {
+          projectId: this.projectId,
           sessionId: session.sessionId,
-          event: {
-            type: 'session.start',
-            data: { requestId },
-            timestamp: Date.now(),
-          },
+          event: syntheticEvent('session.start', { requestId, sessionId: session.sessionId }),
         },
       });
     } catch (err) {
       this.sendToHq({
-        type: 'copilot-sdk-session-event',
+        type: 'copilot-session-event',
         timestamp: Date.now(),
         payload: {
+          projectId: this.projectId,
           sessionId: 'unknown',
-          event: {
-            type: 'session.error',
-            data: { requestId, error: String(err) },
-            timestamp: Date.now(),
-          },
+          event: syntheticEvent('session.error', { requestId, message: String(err) }),
         },
       });
     }
@@ -204,33 +288,27 @@ export class CopilotManager {
     config?: Partial<SessionConfigWire>,
   ): Promise<void> {
     try {
-      const sessionConfig = this.injectHqConfig(toSessionConfig(config as SessionConfigWire | undefined));
-      const session = await this.adapter.resumeSession(sessionId, sessionConfig);
+      const sdkConfig = this.buildSdkConfig(config as SessionConfigWire | undefined);
+      const session = await this.client.resumeSession(sessionId, sdkConfig);
       this.trackSession(session);
 
       this.sendToHq({
-        type: 'copilot-sdk-session-event',
+        type: 'copilot-session-event',
         timestamp: Date.now(),
         payload: {
+          projectId: this.projectId,
           sessionId: session.sessionId,
-          event: {
-            type: 'session.start',
-            data: { requestId, resumed: true },
-            timestamp: Date.now(),
-          },
+          event: syntheticEvent('session.start', { requestId, resumed: true }),
         },
       });
     } catch (err) {
       this.sendToHq({
-        type: 'copilot-sdk-session-event',
+        type: 'copilot-session-event',
         timestamp: Date.now(),
         payload: {
+          projectId: this.projectId,
           sessionId,
-          event: {
-            type: 'session.error',
-            data: { requestId, error: String(err) },
-            timestamp: Date.now(),
-          },
+          event: syntheticEvent('session.error', { requestId, message: String(err) }),
         },
       });
     }
@@ -244,33 +322,28 @@ export class CopilotManager {
     const session = this.activeSessions.get(sessionId);
     if (!session) {
       this.sendToHq({
-        type: 'copilot-sdk-session-event',
+        type: 'copilot-session-event',
         timestamp: Date.now(),
         payload: {
+          projectId: this.projectId,
           sessionId,
-          event: {
-            type: 'session.error',
-            data: { error: `No active session: ${sessionId}` },
-            timestamp: Date.now(),
-          },
+          event: syntheticEvent('session.error', { message: `No active session: ${sessionId}` }),
         },
       });
       return;
     }
 
     try {
+      // Fire-and-forget: events stream back via session.on() handler
       await session.send({ prompt, attachments });
     } catch (err) {
       this.sendToHq({
-        type: 'copilot-sdk-session-event',
+        type: 'copilot-session-event',
         timestamp: Date.now(),
         payload: {
+          projectId: this.projectId,
           sessionId,
-          event: {
-            type: 'session.error',
-            data: { error: String(err) },
-            timestamp: Date.now(),
-          },
+          event: syntheticEvent('session.error', { message: String(err) }),
         },
       });
     }
@@ -280,31 +353,31 @@ export class CopilotManager {
     const session = this.activeSessions.get(sessionId);
     if (session) {
       await session.abort();
-      await session.destroy();
+      await session.disconnect();
 
-      // Unsubscribe from session events
       const unsub = this.sessionUnsubscribers.get(sessionId);
       if (unsub) unsub();
       this.sessionUnsubscribers.delete(sessionId);
-
-      // Remove from active sessions
       this.activeSessions.delete(sessionId);
     }
 
-    // Always try to delete from SDK registry (even if not in activeSessions)
-    await this.adapter.deleteSession(sessionId);
+    // Always try to delete from SDK registry
+    if (this.client && this.started) {
+      try {
+        await this.client.deleteSession(sessionId);
+      } catch {
+        // session may not exist in registry
+      }
+    }
 
-    // Notify HQ so aggregator can clean up if it hasn't already
+    // Notify HQ so aggregator can clean up
     this.sendToHq({
-      type: 'copilot-sdk-session-event',
+      type: 'copilot-session-event',
       timestamp: Date.now(),
       payload: {
+        projectId: this.projectId,
         sessionId,
-        event: {
-          type: 'session.ended',
-          data: {},
-          timestamp: Date.now(),
-        },
+        event: syntheticEvent('session.shutdown', { sessionId, reason: 'aborted' }),
       },
     });
   }
@@ -313,16 +386,19 @@ export class CopilotManager {
   // Internal helpers
   // -----------------------------------------------------------------------
 
-  private trackSession(session: CopilotSession): void {
+  /** Track a session and forward its events to HQ as-is */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private trackSession(session: any): void {
     this.activeSessions.set(session.sessionId, session);
 
-    const unsub = session.on((event) => {
+    const unsub = session.on((event: SessionEvent) => {
       this.sendToHq({
-        type: 'copilot-sdk-session-event',
+        type: 'copilot-session-event',
         timestamp: Date.now(),
         payload: {
+          projectId: this.projectId,
           sessionId: session.sessionId,
-          event,
+          event, // SDK event as-is — NO mapping!
         },
       });
     });
@@ -331,24 +407,37 @@ export class CopilotManager {
   }
 
   private async pollSessions(requestId: string): Promise<void> {
+    if (!this.client || !this.started) return;
     try {
-      const sessions = await this.adapter.listSessions();
+      const sessions: SessionMetadata[] = await this.client.listSessions();
       this.sendToHq({
-        type: 'copilot-sdk-session-list',
+        type: 'copilot-session-list',
         timestamp: Date.now(),
-        payload: { requestId, sessions },
+        payload: { projectId: this.projectId, requestId, sessions },
       });
     } catch (err) {
       console.warn(`⚠ Session poll failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  /** Merge HQ tools and system message into a session config */
-  private injectHqConfig(config: SessionConfig): SessionConfig {
+  private sendConnectionState(state: ConnectionState): void {
+    this.sendToHq({
+      type: 'copilot-sdk-state',
+      timestamp: Date.now(),
+      payload: { state },
+    });
+  }
+
+  /** Build a full SDK SessionConfig from a wire config + HQ injections */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private buildSdkConfig(wire?: SessionConfigWire): any {
+    const config = wire ?? {};
     return {
-      ...config,
-      tools: [...(config.tools ?? []), ...this.hqTools],
+      ...(config.model && { model: config.model }),
+      ...(config.streaming !== undefined && { streaming: config.streaming }),
       systemMessage: config.systemMessage ?? buildSystemMessage(this.projectId, this.projectName),
+      tools: [...this.hqTools],
+      onPermissionRequest: sdkApproveAll,
     };
   }
 }

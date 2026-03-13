@@ -1,9 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import fp from "fastify-plugin";
 import type {
-  CopilotSessionInfo,
-  CopilotSessionEvent,
-  CopilotSdkState,
+  SessionEvent,
+  SessionMetadata,
+  ConnectionState,
+} from "@github/copilot-sdk";
+import type {
   CopilotMessage,
   CopilotHqToolName,
 } from "../../shared/protocol.js";
@@ -26,21 +28,16 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
 
   // ── Daemon copilot message routing ────────────────────
   // Events emitted by DaemonWsHandler.routeMessage() with signature (daemonId, payload)
-  // Note: daemonId === projectId in this codebase (see handler register case)
 
-  registry.on("copilot:session-update" as never, (daemonId: string, payload: { projectId: string; session: CopilotSessionInfo }) => {
-    aggregator.updateSessions(daemonId, payload.projectId, [payload.session]);
-  });
-
-  registry.on("copilot:session-list" as never, (daemonId: string, payload: { projectId: string; sessions: CopilotSessionInfo[] }) => {
+  registry.on("copilot:session-list" as never, (daemonId: string, payload: { projectId: string; sessions: SessionMetadata[] }) => {
     aggregator.updateSessions(daemonId, payload.projectId, payload.sessions);
   });
 
-  registry.on("copilot:session-event" as never, (daemonId: string, payload: { projectId: string; sessionId: string; event: CopilotSessionEvent }) => {
+  registry.on("copilot:session-event" as never, (daemonId: string, payload: { projectId: string; sessionId: string; event: SessionEvent }) => {
     aggregator.handleSessionEvent(daemonId, payload.sessionId, payload.event);
   });
 
-  registry.on("copilot:sdk-state" as never, (daemonId: string, payload: { projectId: string; state: CopilotSdkState; error?: string }) => {
+  registry.on("copilot:sdk-state" as never, (daemonId: string, payload: { projectId: string; state: ConnectionState; error?: string }) => {
     aggregator.handleSdkStateChange(daemonId, payload.state, payload.error);
   });
 

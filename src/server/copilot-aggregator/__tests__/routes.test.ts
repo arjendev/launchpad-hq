@@ -62,8 +62,8 @@ describe("Copilot session routes", () => {
 
     it("returns aggregated sessions after update", async () => {
       server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
-        { sessionId: "s2", state: "idle", startedAt: 1000, lastActivityAt: 3000 },
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+        { sessionId: "s2", startTime: new Date(1000), modifiedTime: new Date(3000), isRemote: false },
       ]);
 
       const res = await server.inject({
@@ -84,7 +84,7 @@ describe("Copilot session routes", () => {
   describe("GET /api/copilot/aggregated/sessions/:sessionId", () => {
     it("returns session detail", async () => {
       server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", state: "active", model: "gpt-4", startedAt: 1000, lastActivityAt: 2000 },
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
       ]);
 
       const res = await server.inject({
@@ -95,7 +95,7 @@ describe("Copilot session routes", () => {
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.sessionId).toBe("s1");
-      expect(body.model).toBe("gpt-4");
+      expect(body.status).toBe("idle");
     });
 
     it("returns 404 for unknown session", async () => {
@@ -114,7 +114,7 @@ describe("Copilot session routes", () => {
   describe("GET /api/copilot/aggregated/sessions/:sessionId/messages", () => {
     it("returns message history for a session", async () => {
       server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
       ]);
       server.copilotAggregator.appendMessages("s1", [
         { role: "user", content: "hello", timestamp: 1000 },
@@ -153,7 +153,7 @@ describe("Copilot session routes", () => {
 
       // Seed session (must be idle to accept a new prompt)
       server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", state: "idle", startedAt: 1000, lastActivityAt: 2000 },
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
       ]);
 
       const res = await server.inject({
@@ -175,7 +175,7 @@ describe("Copilot session routes", () => {
 
     it("returns 400 when prompt is missing", async () => {
       server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", state: "idle", startedAt: 1000, lastActivityAt: 2000 },
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
       ]);
 
       const res = await server.inject({
@@ -205,7 +205,7 @@ describe("Copilot session routes", () => {
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
       server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", state: "idle", startedAt: 1000, lastActivityAt: 2000 },
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
       ]);
 
       const res = await server.inject({
@@ -226,7 +226,7 @@ describe("Copilot session routes", () => {
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
       server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
       ]);
 
       const res = await server.inject({
@@ -258,7 +258,7 @@ describe("Copilot session routes", () => {
   describe("GET /api/copilot/aggregated/sessions/:sessionId/tools", () => {
     it("returns tool invocation history for a session", async () => {
       server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
       ]);
       server.copilotAggregator.handleToolInvocation(
         "s1", "proj-1", "report_progress",
@@ -284,7 +284,7 @@ describe("Copilot session routes", () => {
 
     it("returns empty invocations for session with no tools used", async () => {
       server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
       ]);
 
       const res = await server.inject({

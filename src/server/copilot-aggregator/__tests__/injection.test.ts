@@ -67,9 +67,9 @@ describe("Copilot prompt injection pipeline", () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
         {
           sessionId: "s1",
-          state: "idle",
-          startedAt: 1000,
-          lastActivityAt: 2000,
+          startTime: new Date(1000),
+          modifiedTime: new Date(2000),
+          isRemote: false,
         },
       ]);
 
@@ -119,9 +119,9 @@ describe("Copilot prompt injection pipeline", () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
         {
           sessionId: "s1",
-          state: "idle",
-          startedAt: 1000,
-          lastActivityAt: 2000,
+          startTime: new Date(1000),
+          modifiedTime: new Date(2000),
+          isRemote: false,
         },
       ]);
 
@@ -139,9 +139,9 @@ describe("Copilot prompt injection pipeline", () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
         {
           sessionId: "s1",
-          state: "idle",
-          startedAt: 1000,
-          lastActivityAt: 2000,
+          startTime: new Date(1000),
+          modifiedTime: new Date(2000),
+          isRemote: false,
         },
       ]);
 
@@ -161,9 +161,9 @@ describe("Copilot prompt injection pipeline", () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
         {
           sessionId: "s1",
-          state: "idle",
-          startedAt: 1000,
-          lastActivityAt: 2000,
+          startTime: new Date(1000),
+          modifiedTime: new Date(2000),
+          isRemote: false,
         },
       ]);
 
@@ -183,11 +183,15 @@ describe("Copilot prompt injection pipeline", () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
         {
           sessionId: "s1",
-          state: "active",
-          startedAt: 1000,
-          lastActivityAt: 2000,
+          startTime: new Date(1000),
+          modifiedTime: new Date(2000),
+          isRemote: false,
         },
       ]);
+      // Drive session to active via event (status comes from events now)
+      server.copilotAggregator.handleSessionEvent("d1", "s1", {
+        type: "user.message", timestamp: new Date().toISOString(), data: {}, id: "e1", parentId: null,
+      } as never);
 
       const res = await server.inject({
         method: "POST",
@@ -212,9 +216,9 @@ describe("Copilot prompt injection pipeline", () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
         {
           sessionId: "s1",
-          state: "active",
-          startedAt: 1000,
-          lastActivityAt: 2000,
+          startTime: new Date(1000),
+          modifiedTime: new Date(2000),
+          isRemote: false,
         },
       ]);
 
@@ -253,9 +257,9 @@ describe("Copilot prompt injection pipeline", () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
         {
           sessionId: "s1",
-          state: "active",
-          startedAt: 1000,
-          lastActivityAt: 2000,
+          startTime: new Date(1000),
+          modifiedTime: new Date(2000),
+          isRemote: false,
         },
       ]);
 
@@ -279,9 +283,9 @@ describe("Copilot prompt injection pipeline", () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
         {
           sessionId: "s1",
-          state: "idle",
-          startedAt: 1000,
-          lastActivityAt: 2000,
+          startTime: new Date(1000),
+          modifiedTime: new Date(2000),
+          isRemote: false,
         },
       ]);
 
@@ -337,9 +341,9 @@ describe("Copilot prompt injection pipeline", () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
         {
           sessionId: "s1",
-          state: "active",
-          startedAt: 1000,
-          lastActivityAt: 2000,
+          startTime: new Date(1000),
+          modifiedTime: new Date(2000),
+          isRemote: false,
         },
       ]);
 
@@ -357,9 +361,9 @@ describe("Copilot prompt injection pipeline", () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
         {
           sessionId: "s1",
-          state: "active",
-          startedAt: 1000,
-          lastActivityAt: 2000,
+          startTime: new Date(1000),
+          modifiedTime: new Date(2000),
+          isRemote: false,
         },
       ]);
 
@@ -377,9 +381,9 @@ describe("Copilot prompt injection pipeline", () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
         {
           sessionId: "s1",
-          state: "active",
-          startedAt: 1000,
-          lastActivityAt: 2000,
+          startTime: new Date(1000),
+          modifiedTime: new Date(2000),
+          isRemote: false,
         },
       ]);
 
@@ -399,11 +403,16 @@ describe("Copilot prompt injection pipeline", () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
         {
           sessionId: "s1",
-          state: "active",
-          startedAt: 1000,
-          lastActivityAt: 2000,
+          startTime: new Date(1000),
+          modifiedTime: new Date(2000),
+          isRemote: false,
         },
       ]);
+
+      // Drive session to active via event
+      server.copilotAggregator.handleSessionEvent("d1", "s1", {
+        type: "user.message", timestamp: new Date().toISOString(), data: {}, id: "e1", parentId: null,
+      } as never);
 
       // Session is active — should be rejected
       const res1 = await server.inject({
@@ -417,8 +426,8 @@ describe("Copilot prompt injection pipeline", () => {
       server.copilotAggregator.handleSessionEvent("d1", "s1", {
         type: "session.idle",
         data: {},
-        timestamp: Date.now(),
-      });
+        timestamp: new Date().toISOString(),
+      } as never);
 
       // Now prompt should succeed
       const res2 = await server.inject({

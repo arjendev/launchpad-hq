@@ -1,16 +1,26 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { CopilotSessionAggregator } from "../aggregator.js";
-import type { CopilotSessionInfo, CopilotSessionEvent } from "../../../shared/protocol.js";
+import type { SessionMetadata, SessionEvent } from "@github/copilot-sdk";
+import type { AggregatedSession } from "../../../shared/protocol.js";
 
-function makeSessionInfo(overrides: Partial<CopilotSessionInfo> = {}): CopilotSessionInfo {
+function makeSessionMetadata(overrides: Partial<SessionMetadata> & { sessionId: string }): SessionMetadata {
   return {
-    sessionId: "sess-1",
-    state: "active",
-    model: "gpt-4",
-    startedAt: 1000,
-    lastActivityAt: 2000,
+    startTime: new Date(1000),
+    modifiedTime: new Date(2000),
+    isRemote: false,
     ...overrides,
-  };
+  } as SessionMetadata;
+}
+
+/** Create a minimal synthetic SessionEvent for testing */
+function mockEvent(type: string, data: Record<string, unknown> = {}): SessionEvent {
+  return {
+    id: 'evt-1',
+    timestamp: new Date().toISOString(),
+    parentId: null,
+    type,
+    data,
+  } as SessionEvent;
 }
 
 describe("CopilotSessionAggregator", () => {
@@ -25,8 +35,8 @@ describe("CopilotSessionAggregator", () => {
   describe("updateSessions", () => {
     it("adds sessions from a daemon", () => {
       aggregator.updateSessions("d1", "proj-1", [
-        makeSessionInfo({ sessionId: "s1" }),
-        makeSessionInfo({ sessionId: "s2" }),
+        makeSessionMetadata({ sessionId: "s1" }),
+        makeSessionMetadata({ sessionId: "s2" }),
       ]);
 
       expect(aggregator.size).toBe(2);
@@ -35,30 +45,26 @@ describe("CopilotSessionAggregator", () => {
       expect(aggregator.getSession("s1")!.projectId).toBe("proj-1");
     });
 
-    it("maps CopilotSessionState to AggregatedSession status", () => {
+    it("defaults status to idle for new sessions from metadata", () => {
       aggregator.updateSessions("d1", "proj-1", [
-        makeSessionInfo({ sessionId: "s1", state: "active" }),
-        makeSessionInfo({ sessionId: "s2", state: "idle" }),
-        makeSessionInfo({ sessionId: "s3", state: "ended" }),
+        makeSessionMetadata({ sessionId: "s1" }),
       ]);
 
-      expect(aggregator.getSession("s1")!.status).toBe("active");
-      expect(aggregator.getSession("s2")!.status).toBe("idle");
-      expect(aggregator.getSession("s3")!.status).toBe("idle"); // ended → idle
+      expect(aggregator.getSession("s1")!.status).toBe("idle");
     });
 
     it("updates existing session in place", () => {
       aggregator.updateSessions("d1", "proj-1", [
-        makeSessionInfo({ sessionId: "s1", state: "active" }),
+        makeSessionMetadata({ sessionId: "s1" }),
       ]);
 
       const before = aggregator.getSession("s1")!.updatedAt;
 
       aggregator.updateSessions("d1", "proj-1", [
-        makeSessionInfo({ sessionId: "s1", state: "idle" }),
+        makeSessionMetadata({ sessionId: "s1", summary: "Updated" }),
       ]);
 
-      expect(aggregator.getSession("s1")!.status).toBe("idle");
+      expect(aggregator.getSession("s1")!.summary).toBe("Updated");
       expect(aggregator.getSession("s1")!.updatedAt).toBeGreaterThanOrEqual(before);
     });
 
@@ -66,7 +72,7 @@ describe("CopilotSessionAggregator", () => {
       const handler = vi.fn();
       aggregator.on("sessions-updated", handler);
 
-      aggregator.updateSessions("d1", "proj-1", [makeSessionInfo()]);
+      aggregator.updateSessions("d1", "proj-1", [makeSessionMetadata({ sessionId: "sess-1" })]);
 
       expect(handler).toHaveBeenCalledOnce();
       expect(handler.mock.calls[0][0]).toHaveLength(1);
@@ -78,27 +84,20 @@ describe("CopilotSessionAggregator", () => {
   describe("handleSessionEvent", () => {
     it("updates lastEvent on an existing session", () => {
       aggregator.updateSessions("d1", "proj-1", [
-        makeSessionInfo({ sessionId: "s1" }),
+        makeSessionMetadata({ sessionId: "s1" }),
       ]);
 
-      const event: CopilotSessionEvent = {
-        type: "session.start",
-        timestamp: 5000,
-        data: {},
-      };
+      const event = mockEvent("session.start");
 
       aggregator.handleSessionEvent("d1", "s1", event);
 
       const session = aggregator.getSession("s1")!;
-      expect(session.lastEvent).toEqual({ type: "session.start", timestamp: 5000 });
+      expect(session.lastEvent).toBeDefined();
+      expect(session.lastEvent!.type).toBe("session.start");
     });
 
     it("creates a stub session for unknown session id", () => {
-      const event: CopilotSessionEvent = {
-        type: "session.start",
-        timestamp: 5000,
-        data: {},
-      };
+      const event = mockEvent("session.start");
 
       aggregator.handleSessionEvent("d1", "unknown-sess", event);
 
@@ -113,7 +112,7 @@ describe("CopilotSessionAggregator", () => {
       const handler = vi.fn();
       aggregator.on("session-event", handler);
 
-      const event: CopilotSessionEvent = { type: "session.error", timestamp: 9000, data: {} };
+      const event = mockEvent("session.error");
       aggregator.handleSessionEvent("d1", "s1", event);
 
       expect(handler).toHaveBeenCalledWith("s1", event);
@@ -175,11 +174,11 @@ describe("CopilotSessionAggregator", () => {
   describe("queries", () => {
     it("removes all sessions for a daemon", () => {
       aggregator.updateSessions("d1", "proj-1", [
-        makeSessionInfo({ sessionId: "s1" }),
-        makeSessionInfo({ sessionId: "s2" }),
+        makeSessionMetadata({ sessionId: "s1" }),
+        makeSessionMetadata({ sessionId: "s2" }),
       ]);
       aggregator.updateSessions("d2", "proj-2", [
-        makeSessionInfo({ sessionId: "s3" }),
+        makeSessionMetadata({ sessionId: "s3" }),
       ]);
 
       aggregator.removeDaemon("d1");
@@ -199,7 +198,7 @@ describe("CopilotSessionAggregator", () => {
 
     it("removes conversation history for daemon sessions", () => {
       aggregator.updateSessions("d1", "proj-1", [
-        makeSessionInfo({ sessionId: "s1" }),
+        makeSessionMetadata({ sessionId: "s1" }),
       ]);
       aggregator.appendMessages("s1", [
         { role: "user", content: "hi", timestamp: 1000 },
@@ -212,7 +211,7 @@ describe("CopilotSessionAggregator", () => {
 
     it("emits sessions-updated when sessions were removed", () => {
       aggregator.updateSessions("d1", "proj-1", [
-        makeSessionInfo({ sessionId: "s1" }),
+        makeSessionMetadata({ sessionId: "s1" }),
       ]);
 
       const handler = vi.fn();
@@ -239,11 +238,11 @@ describe("CopilotSessionAggregator", () => {
   describe("queries", () => {
     beforeEach(() => {
       aggregator.updateSessions("d1", "proj-1", [
-        makeSessionInfo({ sessionId: "s1" }),
-        makeSessionInfo({ sessionId: "s2" }),
+        makeSessionMetadata({ sessionId: "s1" }),
+        makeSessionMetadata({ sessionId: "s2" }),
       ]);
       aggregator.updateSessions("d2", "proj-2", [
-        makeSessionInfo({ sessionId: "s3" }),
+        makeSessionMetadata({ sessionId: "s3" }),
       ]);
     });
 
@@ -296,7 +295,7 @@ describe("CopilotSessionAggregator", () => {
 
     it("updates session status to 'error' for report_blocker", () => {
       aggregator.updateSessions("d1", "proj-1", [
-        makeSessionInfo({ sessionId: "s1", state: "active" }),
+        makeSessionMetadata({ sessionId: "s1" }),
       ]);
 
       aggregator.handleToolInvocation("s1", "proj-1", "report_blocker", { blocker: "Cannot compile" }, 5000);
@@ -306,7 +305,7 @@ describe("CopilotSessionAggregator", () => {
 
     it("updates session status to 'error' for report_progress with blocked status", () => {
       aggregator.updateSessions("d1", "proj-1", [
-        makeSessionInfo({ sessionId: "s1", state: "active" }),
+        makeSessionMetadata({ sessionId: "s1" }),
       ]);
 
       aggregator.handleToolInvocation("s1", "proj-1", "report_progress", { status: "blocked", summary: "Stuck" }, 5000);
@@ -316,7 +315,7 @@ describe("CopilotSessionAggregator", () => {
 
     it("updates session status to 'idle' for report_progress with completed status", () => {
       aggregator.updateSessions("d1", "proj-1", [
-        makeSessionInfo({ sessionId: "s1", state: "active" }),
+        makeSessionMetadata({ sessionId: "s1" }),
       ]);
 
       aggregator.handleToolInvocation("s1", "proj-1", "report_progress", { status: "completed", summary: "All done" }, 5000);
@@ -339,7 +338,7 @@ describe("CopilotSessionAggregator", () => {
 
     it("cleans up tool invocations when daemon is removed", () => {
       aggregator.updateSessions("d1", "proj-1", [
-        makeSessionInfo({ sessionId: "s1" }),
+        makeSessionMetadata({ sessionId: "s1" }),
       ]);
       aggregator.handleToolInvocation("s1", "proj-1", "report_progress", { status: "working", summary: "hi" }, 1000);
 

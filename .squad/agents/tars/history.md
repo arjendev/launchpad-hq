@@ -183,3 +183,14 @@ Key achievements:
 - **Key files:** `adapter.ts`, `sdk-adapter.ts`, `manager.ts`, `aggregator.ts`, `sdk-adapter-lifecycle.test.ts`, `manager.test.ts`
 - **Tests:** 654 passing (9 new lifecycle tests)
 
+### 2026-03-14: SDK Big-Bang Refactor — Delete Adapter, Use SDK Types Directly
+- **What:** Deleted the custom adapter abstraction (`adapter.ts`, `sdk-adapter.ts`). Manager now uses `CopilotClient` directly via dynamic import. SDK types (`SessionEvent`, `SessionMetadata`, `ConnectionState`) are the wire types — no mapping layer.
+- **Deleted files:** `src/daemon/copilot/adapter.ts` (CopilotAdapter interface), `src/daemon/copilot/sdk-adapter.ts` (SDK wrapper with event mapping), `src/daemon/copilot/__tests__/sdk-adapter.test.ts`
+- **Protocol changes:** Removed 6 custom types (`CopilotSessionState`, `CopilotSessionInfo`, `CopilotSdkState`, `CopilotSdkSessionInfo`, `CopilotSessionEventType`, `CopilotSessionEvent`). Added SDK re-exports + `AggregatedSession` type. Removed dead message types (`copilot-session-update`, `copilot-sdk-session-list`, `copilot-sdk-session-event`). Added `copilot-models-list` and `copilot-auth-status`.
+- **Manager rewrite:** Uses `CopilotClient` via `await import('@github/copilot-sdk')` with graceful degradation. DI via `client?: any` constructor option for testing. `syntheticEvent()` helper for daemon-originated notifications. `connectionState` getter (was `adapterState`). `session.send()` for fire-and-forget prompts.
+- **Event flow:** SDK events forwarded as-is to HQ — no mapping, no renaming. SDK event names used directly (`assistant.streaming_delta`, `tool.execution_start`, `session.shutdown`).
+- **Aggregator changes:** `updateSessions()` accepts `SessionMetadata[]` (no `state` field — defaults to `idle`). Status comes exclusively from session events. `toEpochMs()` helper handles SDK timestamp polymorphism (string/Date/number). Event name matching updated for SDK names.
+- **Test strategy:** Mock SDK client/session via duck-typing + DI (no vi.mock needed). `TestSdkSession.dispatch()` creates mock `SessionEvent` with `as SessionEvent` cast. Tests that previously relied on `state: "active"` from metadata now drive status via session events.
+- **Key insight:** Session status is now eventually consistent — comes from events, not metadata polls. Tests adapted accordingly.
+- **Files changed:** 18 files. 639 tests passing (was 654 — 15 removed with adapter tests, net rewrite).
+

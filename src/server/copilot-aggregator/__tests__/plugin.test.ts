@@ -31,17 +31,14 @@ describe("Copilot aggregator plugin", () => {
 
     const payload = {
       projectId: "proj-1",
-      session: {
-        sessionId: "s1",
-        state: "active" as const,
-        startedAt: 1000,
-        lastActivityAt: 2000,
-      },
+      sessions: [
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+      ],
     };
 
-    server.daemonRegistry.emit("copilot:session-update" as never, "d1", payload);
+    server.daemonRegistry.emit("copilot:session-list" as never, "d1", payload);
 
-    expect(updateSpy).toHaveBeenCalledWith("d1", "proj-1", [payload.session]);
+    expect(updateSpy).toHaveBeenCalledWith("d1", "proj-1", payload.sessions);
   });
 
   it("routes copilot:session-list events from registry to aggregator", () => {
@@ -50,8 +47,8 @@ describe("Copilot aggregator plugin", () => {
     const payload = {
       projectId: "proj-1",
       sessions: [
-        { sessionId: "s1", state: "active" as const, startedAt: 1000, lastActivityAt: 2000 },
-        { sessionId: "s2", state: "idle" as const, startedAt: 1000, lastActivityAt: 3000 },
+        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
+        { sessionId: "s2", startTime: new Date(1000), modifiedTime: new Date(3000), isRemote: false },
       ],
     };
 
@@ -105,7 +102,7 @@ describe("Copilot aggregator plugin", () => {
   it("cleans up sessions when daemon disconnects", () => {
     // Seed sessions for daemon d1
     server.copilotAggregator.updateSessions("d1", "proj-1", [
-      { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
+      { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
     ]);
 
     expect(server.copilotAggregator.size).toBe(1);
@@ -130,7 +127,7 @@ describe("Copilot aggregator plugin", () => {
     const broadcastSpy = vi.spyOn(server.ws, "broadcast");
 
     server.copilotAggregator.updateSessions("d1", "proj-1", [
-      { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
+      { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
     ]);
 
     expect(broadcastSpy).toHaveBeenCalledWith("copilot", expect.objectContaining({

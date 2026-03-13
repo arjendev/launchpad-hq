@@ -8,11 +8,12 @@ import type {
   StatusUpdateMessage,
   TerminalDataMessage,
   TerminalExitMessage,
-  CopilotSessionUpdateMessage,
   CopilotConversationMessage,
-  CopilotSdkSessionListMessage,
-  CopilotSdkSessionEventMessage,
+  CopilotSessionListMessage,
+  CopilotSessionEventMessage,
   CopilotSdkStateMessage,
+  CopilotModelsListMessage,
+  CopilotAuthStatusMessage,
   AttentionItemMessage,
   AuthResponseMessage,
   AuthChallengeMessage,
@@ -29,6 +30,7 @@ import type {
   CopilotSendPromptMessage,
   CopilotAbortSessionMessage,
   CopilotListSessionsMessage,
+  CopilotToolInvocationMessage,
   RuntimeTarget,
   WorkState,
   ProjectState,
@@ -117,23 +119,30 @@ describe('Protocol message types', () => {
       expect(msg.payload.exitCode).toBe(0);
     });
 
-    it('copilot-session-update message has correct shape', () => {
-      const msg: CopilotSessionUpdateMessage = {
-        type: 'copilot-session-update',
+    it('copilot-session-list message has correct shape', () => {
+      const msg: CopilotSessionListMessage = {
+        type: 'copilot-session-list',
         timestamp: now,
         payload: {
           projectId: 'proj-1',
-          session: {
-            sessionId: 'cs-1',
-            state: 'active',
-            model: 'gpt-4',
-            startedAt: now - 5000,
-            lastActivityAt: now,
-          },
+          requestId: 'req-1',
+          sessions: [],
         },
       };
-      expect(msg.type).toBe('copilot-session-update');
-      expect(msg.payload.session.state).toBe('active');
+      expect(msg.type).toBe('copilot-session-list');
+    });
+
+    it('copilot-session-event message has correct shape', () => {
+      const msg: CopilotSessionEventMessage = {
+        type: 'copilot-session-event',
+        timestamp: now,
+        payload: {
+          projectId: 'proj-1',
+          sessionId: 'cs-1',
+          event: { id: 'e1', timestamp: new Date().toISOString(), parentId: null, type: 'session.idle', data: {} } as never,
+        },
+      };
+      expect(msg.type).toBe('copilot-session-event');
     });
 
     it('copilot-conversation message has correct shape', () => {
@@ -323,15 +332,17 @@ describe('Protocol message types', () => {
         'status-update',
         'terminal-data',
         'terminal-exit',
-        'copilot-session-update',
+        'copilot-session-list',
+        'copilot-session-event',
         'copilot-conversation',
-        'copilot-sdk-session-list',
-        'copilot-sdk-session-event',
         'copilot-sdk-state',
+        'copilot-models-list',
+        'copilot-auth-status',
         'attention-item',
+        'copilot-tool-invocation',
         'auth-response',
       ];
-      expect(types).toHaveLength(12);
+      expect(types).toHaveLength(14);
     });
 
     it('HqToDaemonMessage union contains all HQ message types', () => {
@@ -381,8 +392,9 @@ describe('Protocol message types', () => {
     it('MessageType covers all discriminants', () => {
       const allTypes: MessageType[] = [
         'register', 'heartbeat', 'status-update', 'terminal-data', 'terminal-exit',
-        'copilot-session-update', 'copilot-conversation',
-        'copilot-sdk-session-list', 'copilot-sdk-session-event', 'copilot-sdk-state',
+        'copilot-session-list', 'copilot-session-event', 'copilot-conversation',
+        'copilot-sdk-state', 'copilot-models-list', 'copilot-auth-status',
+        'copilot-tool-invocation',
         'attention-item', 'auth-response',
         'auth-challenge', 'auth-accept', 'auth-reject',
         'command', 'terminal-input', 'terminal-spawn', 'terminal-resize',
@@ -390,7 +402,7 @@ describe('Protocol message types', () => {
         'copilot-create-session', 'copilot-resume-session', 'copilot-send-prompt',
         'copilot-abort-session', 'copilot-list-sessions',
       ];
-      expect(allTypes).toHaveLength(26);
+      expect(allTypes).toHaveLength(28);
     });
   });
 });
