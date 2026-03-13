@@ -347,7 +347,7 @@ export function useSendPrompt() {
 export function useCreateSession() {
   const qc = useQueryClient();
   return useMutation<
-    { ok: boolean },
+    { ok: boolean; sessionId: string },
     Error,
     { owner: string; repo: string; model?: string }
   >({

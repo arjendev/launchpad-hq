@@ -32,7 +32,6 @@ import type {
   AttentionSeverity,
   DashboardProject,
 } from "../services/types.js";
-import { CopilotConversation } from "./CopilotConversation.js";
 import { TerminalOverlay } from "./TerminalOverlay.js";
 
 // ── Helpers ────────────────────────────────────────────
@@ -230,8 +229,14 @@ function CopilotSessionsSection({
   const isOnline = !!daemon;
   const [resumeModalOpen, setResumeModalOpen] = useState(false);
 
-  const handleCreate = () => {
-    createSession.mutate({ owner: project.owner, repo: project.repo });
+  const handleCreate = async () => {
+    const result = await createSession.mutateAsync({
+      owner: project.owner,
+      repo: project.repo,
+    });
+    if (result.sessionId) {
+      onSelectSession?.(result.sessionId);
+    }
   };
 
   const handleResume = (sessionId: string) => {
@@ -417,31 +422,12 @@ function AttentionBadge() {
 
 // ── Main Panel ─────────────────────────────────────────
 
-export function ConnectedProjectPanel() {
+export function ConnectedProjectPanel({
+  onOpenConversation,
+}: {
+  onOpenConversation?: (sessionId: string) => void;
+}) {
   const { selectedProject } = useSelectedProject();
-  const [selectedSession, setSelectedSession] = useState<{
-    sessionId: string;
-  } | null>(null);
-
-  const handleSelectSession = (sessionId: string) => {
-    setSelectedSession({ sessionId });
-  };
-
-  const handleCloseConversation = () => {
-    setSelectedSession(null);
-  };
-
-  // When a session is selected, show the conversation viewer
-  if (selectedSession) {
-    return (
-      <Box style={{ height: "100%" }}>
-        <CopilotConversation
-          sessionId={selectedSession.sessionId}
-          onClose={handleCloseConversation}
-        />
-      </Box>
-    );
-  }
 
   if (!selectedProject) {
     return (
@@ -473,7 +459,7 @@ export function ConnectedProjectPanel() {
       />
       <CopilotSessionsSection
         project={selectedProject}
-        onSelectSession={handleSelectSession}
+        onSelectSession={onOpenConversation}
       />
 
       <Divider my="sm" label="Terminal" labelPosition="center" />
