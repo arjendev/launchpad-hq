@@ -7,8 +7,10 @@ import fastifyStatic from "@fastify/static";
 
 import { loadConfig } from "./config.js";
 import healthRoutes from "./routes/health.js";
+import projectRoutes from "./routes/projects.js";
 import githubAuth from "./github/plugin.js";
 import { GitHubAuthError } from "./github/auth.js";
+import statePlugin from "./state/plugin.js";
 import websocket from "./ws/plugin.js";
 
 const config = loadConfig();
@@ -50,7 +52,9 @@ await server.register(websocket);
 // --- Routes ---
 
 await server.register(githubAuth);
+await server.register(statePlugin);
 await server.register(healthRoutes);
+await server.register(projectRoutes);
 
 // --- Lifecycle ---
 
