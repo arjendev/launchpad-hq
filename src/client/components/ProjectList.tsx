@@ -12,10 +12,10 @@ import {
   Title,
   UnstyledButton,
 } from "@mantine/core";
-import { useDashboard, useRemoveProject } from "../api/hooks.js";
+import { useDashboard, useRemoveProject } from "../services/hooks.js";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { AddProjectDialog } from "./AddProjectDialog.js";
-import type { DashboardProject } from "../api/types.js";
+import type { DashboardProject } from "../services/types.js";
 
 function statusColor(project: DashboardProject): string {
   if (project.isArchived) return "gray";
