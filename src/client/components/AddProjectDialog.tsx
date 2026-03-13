@@ -8,7 +8,7 @@ import {
   Text,
   Alert,
 } from "@mantine/core";
-import { useAddProject } from "../api/hooks.js";
+import { useAddProject } from "../services/hooks.js";
 
 interface AddProjectDialogProps {
   opened: boolean;

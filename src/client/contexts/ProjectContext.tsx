@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback } from "react";
 import type { ReactNode } from "react";
-import type { DashboardProject } from "../api/types.js";
+import type { DashboardProject } from "../services/types.js";
 
 interface ProjectContextValue {
   selectedProject: DashboardProject | null;

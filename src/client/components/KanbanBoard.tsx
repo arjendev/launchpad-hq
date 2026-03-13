@@ -14,8 +14,8 @@ import {
 } from "@mantine/core";
 import { IconSearch } from "@tabler/icons-react";
 import { useSelectedProject } from "../contexts/ProjectContext";
-import { useIssues } from "../api/hooks";
-import type { GitHubIssue } from "../api/types";
+import { useIssues } from "../services/hooks";
+import type { GitHubIssue } from "../services/types";
 
 // ── Column classification ───────────────────────────────
 
