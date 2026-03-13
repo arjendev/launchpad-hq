@@ -18,6 +18,7 @@ import { useSelectedProject } from "../contexts/ProjectContext.js";
 import {
   useDaemonForProject,
   useAggregatedSessions,
+  useCreateSession,
   useAttentionItems,
   useAttentionCount,
   useDismissAttention,
@@ -230,33 +231,47 @@ function CopilotSessionsSection({
 }) {
   const projectId = `${project.owner}/${project.repo}`;
   const { sessions, isLoading, isError } = useAggregatedSessions(projectId);
+  const { daemon } = useDaemonForProject(projectId);
+  const createSession = useCreateSession();
+  const isOnline = !!daemon;
 
-  if (isLoading) {
-    return (
-      <Stack align="center" p="sm">
-        <Loader size="sm" />
-      </Stack>
-    );
-  }
-
-  if (isError) {
-    return (
-      <Text size="sm" c="red" p="xs">
-        Failed to load sessions
-      </Text>
-    );
-  }
-
-  if (sessions.length === 0) {
-    return (
-      <Text size="sm" c="dimmed" p="xs" ta="center">
-        No active Copilot sessions
-      </Text>
-    );
-  }
+  const handleCreate = () => {
+    createSession.mutate({ owner: project.owner, repo: project.repo });
+  };
 
   return (
     <Stack gap="xs">
+      <Tooltip label={isOnline ? "Start a new Copilot session" : "Daemon offline"}>
+        <Button
+          variant="light"
+          size="xs"
+          fullWidth
+          disabled={!isOnline}
+          loading={createSession.isPending}
+          onClick={handleCreate}
+        >
+          ➕ New Session
+        </Button>
+      </Tooltip>
+
+      {isLoading && (
+        <Stack align="center" p="sm">
+          <Loader size="sm" />
+        </Stack>
+      )}
+
+      {isError && (
+        <Text size="sm" c="red" p="xs">
+          Failed to load sessions
+        </Text>
+      )}
+
+      {!isLoading && !isError && sessions.length === 0 && (
+        <Text size="sm" c="dimmed" p="xs" ta="center">
+          No active Copilot sessions
+        </Text>
+      )}
+
       {sessions.map((s) => (
         <SessionCard key={s.sessionId} session={s} onSelect={onSelectSession} />
       ))}
