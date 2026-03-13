@@ -182,3 +182,13 @@ Decisions on WebSocket client architecture captured in decisions.md. Parallel fi
 
 Wave 1 delivered complete frontend foundation: three-pane dashboard with project list, kanban board, and live sessions panel. Real-time WebSocket integration with devcontainers, Copilot sessions, and attention items. Light/dark theme toggle with Mantine integration. All components tested with vitest + Playwright E2E.
 
+
+### 2026-03-14: Add Create Session UI — useCreateSession() hook & New Session button
+- **What:** Added `useCreateSession()` mutation hook and "New Session" button to create Copilot sessions from the UI.
+- **Hook details:** `useCreateSession(owner, repo)` calls `POST /api/daemons/:owner/:repo/copilot/sessions`, invalidates both `aggregated-sessions` and `copilot-sessions` query keys on success.
+- **UI placement:** Button lives in `CopilotSessionsSection` above the session cards list, not as a separate section.
+- **Daemon-gated:** Button disabled (greyed out) when daemon offline, matching existing Terminal button pattern. Tooltip explains why.
+- **Refactored early-return pattern:** Old `CopilotSessionsSection` used early returns that would hide the button. Restructured to always render button first, then conditionally show loading/error/empty/list states below.
+- **No model selector:** Task mentioned optional selector. Skipped it to keep UI clean — default model is fine, selector can layer on later if needed.
+- **Files changed:** 3 files (hooks.ts, CopilotSessionsSection.tsx, ConnectedProjectPanel.tsx). 603 tests passing.
+- **Decision captured in:** `.squad/decisions/decisions.md` — "Create Session UI — Button-first, no model selector"
