@@ -58,10 +58,6 @@ When triaging, the Lead should ask:
 
 **Process:** When an agent proposes an important decision, the coordinator presents it to Arjen for approval BEFORE spawning implementation work. Non-dependent work continues in parallel — Arjen's review does NOT block unrelated tasks.
 
-## Dev Server Directive
-
-**Never start dev servers (client or server) via bash commands** (`npm run dev`, `tsx watch`, `vite`). Always use the VS Code launch profiles in `.vscode/launch.json` so the user sees terminal output in VS Code's UI. Build commands (`npm run build`, `npm run typecheck`) and test commands (`npm test`) are still allowed in bash.
-
 ## Rules
 
 1. **Eager by default** — spawn all agents who could usefully start work, including anticipatory downstream work.
