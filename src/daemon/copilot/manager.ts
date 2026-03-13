@@ -72,7 +72,7 @@ export class CopilotManager {
       );
       this.adapter = new MockCopilotAdapter();
     } else {
-      this.adapter = new SdkCopilotAdapter();
+      this.adapter = new SdkCopilotAdapter({ cwd: process.cwd() });
     }
   }
 
@@ -86,7 +86,28 @@ export class CopilotManager {
       });
     });
 
-    await this.adapter.start();
+    try {
+      await this.adapter.start();
+    } catch (err) {
+      // SDK adapter failed (e.g., Copilot CLI not in PATH) — fall back to mock
+      if (this.adapter instanceof SdkCopilotAdapter) {
+        console.warn(
+          `⚠ Copilot SDK start failed — falling back to mock adapter: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        this.stateUnsub?.();
+        this.adapter = new MockCopilotAdapter();
+        this.stateUnsub = this.adapter.onStateChange((state) => {
+          this.sendToHq({
+            type: 'copilot-sdk-state',
+            timestamp: Date.now(),
+            payload: { state },
+          });
+        });
+        await this.adapter.start();
+      } else {
+        throw err;
+      }
+    }
 
     // Initial session list
     await this.pollSessions('initial');
