@@ -84,6 +84,22 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
           .send({ error: "not_found", message: "Session not found" });
       }
 
+      if (session.status === "active") {
+        return reply
+          .status(409)
+          .send({ error: "conflict", message: "Session is currently processing" });
+      }
+
+      // Record the injected prompt in conversation history
+      server.copilotAggregator.appendMessages(sessionId, [
+        {
+          role: "user",
+          content: prompt,
+          timestamp: Date.now(),
+          source: "hq-injection",
+        },
+      ]);
+
       const sent = server.daemonRegistry.sendToDaemon(session.daemonId, {
         type: "copilot-send-prompt",
         timestamp: Date.now(),

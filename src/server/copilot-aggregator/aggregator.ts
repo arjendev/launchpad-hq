@@ -115,6 +115,19 @@ export class CopilotSessionAggregator extends EventEmitter {
     if (session) {
       session.lastEvent = { type: event.type, timestamp: event.timestamp };
       session.updatedAt = Date.now();
+
+      // Update session status based on lifecycle events
+      if (event.type === "session.idle") {
+        session.status = "idle";
+      } else if (event.type === "session.error") {
+        session.status = "error";
+      } else if (
+        event.type === "session.start" ||
+        event.type === "assistant.message.delta" ||
+        event.type === "tool.executionStart"
+      ) {
+        session.status = "active";
+      }
     } else {
       // Create a stub session for events without a prior session-list
       this.sessions.set(sessionId, {

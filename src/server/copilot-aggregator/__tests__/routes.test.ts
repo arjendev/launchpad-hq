@@ -151,9 +151,9 @@ describe("Copilot session routes", () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
 
-      // Seed session
+      // Seed session (must be idle to accept a new prompt)
       server.copilotAggregator.updateSessions("d1", "proj-1", [
-        { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
+        { sessionId: "s1", state: "idle", startedAt: 1000, lastActivityAt: 2000 },
       ]);
 
       const res = await server.inject({
@@ -175,7 +175,7 @@ describe("Copilot session routes", () => {
 
     it("returns 400 when prompt is missing", async () => {
       server.copilotAggregator.updateSessions("d1", "proj-1", [
-        { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
+        { sessionId: "s1", state: "idle", startedAt: 1000, lastActivityAt: 2000 },
       ]);
 
       const res = await server.inject({
@@ -205,7 +205,7 @@ describe("Copilot session routes", () => {
       server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
 
       server.copilotAggregator.updateSessions("d1", "proj-1", [
-        { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
+        { sessionId: "s1", state: "idle", startedAt: 1000, lastActivityAt: 2000 },
       ]);
 
       const res = await server.inject({
