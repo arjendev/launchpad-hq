@@ -155,9 +155,9 @@ The daemon is the workhorse. It owns the Copilot SDK connection, manages session
 
 **5. Full Event Firehose**
 - Every session gets `session.on()` listeners that stream ALL events to HQ:
-  - `assistant.message.delta` / `assistant.message` — conversation
-  - `assistant.reasoning.delta` / `assistant.reasoning` — thinking
-  - `tool.executionStart` / `tool.executionComplete` — tool activity
+  - `assistant.message_delta` / `assistant.message` — conversation
+  - `assistant.reasoning_delta` / `assistant.reasoning` — thinking
+  - `tool.execution_start` / `tool.execution_complete` — tool activity
   - `session.idle` / `session.error` / `session.start` — lifecycle
 - HQ server filters before forwarding to browser clients
 

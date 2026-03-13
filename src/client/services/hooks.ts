@@ -425,7 +425,7 @@ export function useConversationEntries(sessionId: string | null): {
 
     if (wsEvent.type === "copilot:session-event" && wsEvent.event) {
       const event = wsEvent.event;
-      const ts = event.timestamp;
+      const ts = new Date(event.timestamp).getTime();
 
       switch (event.type) {
         case "user.message":
@@ -434,7 +434,7 @@ export function useConversationEntries(sessionId: string | null): {
             {
               id: `rt-user-${ts}`,
               type: "user",
-              content: (event.data.content as string) ?? "",
+              content: event.data.content ?? "",
               timestamp: ts,
             },
           ]);
@@ -442,8 +442,8 @@ export function useConversationEntries(sessionId: string | null): {
           void qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
           break;
 
-        case "assistant.message.delta": {
-          const delta = (event.data.content as string) ?? "";
+        case "assistant.message_delta": {
+          const delta = event.data.deltaContent ?? "";
           if (!streamingRef.current) {
             streamingRef.current = { id: `rt-stream-${ts}`, content: delta };
           } else {
@@ -468,41 +468,40 @@ export function useConversationEntries(sessionId: string | null): {
             {
               id: `rt-asst-${ts}`,
               type: "assistant",
-              content: (event.data.content as string) ?? "",
+              content: event.data.content ?? "",
               timestamp: ts,
             },
           ]);
           void qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
           break;
 
-        case "tool.executionStart":
+        case "tool.execution_start":
           setRealtimeEntries((prev) => [
             ...prev,
             {
               id: `rt-tool-${ts}`,
               type: "tool",
-              content: (event.data.description as string) ?? "",
-              toolName: (event.data.name as string) ?? "tool",
+              content: event.data.toolName,
+              toolName: event.data.toolName,
               toolStatus: "running",
               timestamp: ts,
             },
           ]);
           break;
 
-        case "tool.executionComplete":
+        case "tool.execution_complete":
           setRealtimeEntries((prev) => {
-            // Update matching running tool entry
-            const toolName = (event.data.name as string) ?? "tool";
+            // Find the last running tool entry (SDK doesn't provide toolName in completion)
             const idx = [...prev].reverse().findIndex(
-              (e) => e.type === "tool" && e.toolName === toolName && e.toolStatus === "running",
+              (e) => e.type === "tool" && e.toolStatus === "running",
             );
             if (idx >= 0) {
               const realIdx = prev.length - 1 - idx;
               const updated = [...prev];
               updated[realIdx] = {
                 ...updated[realIdx],
-                toolStatus: (event.data.error as string) ? "failed" : "completed",
-                content: (event.data.result as string) ?? updated[realIdx].content,
+                toolStatus: event.data.success ? "completed" : "failed",
+                content: event.data.result?.content ?? updated[realIdx].content,
               };
               return updated;
             }
@@ -511,9 +510,9 @@ export function useConversationEntries(sessionId: string | null): {
               {
                 id: `rt-toolcomplete-${ts}`,
                 type: "tool",
-                content: (event.data.result as string) ?? "",
-                toolName: (event.data.name as string) ?? "tool",
-                toolStatus: (event.data.error as string) ? "failed" : "completed",
+                content: event.data.result?.content ?? "",
+                toolName: "tool",
+                toolStatus: event.data.success ? "completed" : "failed",
                 timestamp: ts,
               },
             ];
@@ -538,7 +537,7 @@ export function useConversationEntries(sessionId: string | null): {
             {
               id: `rt-error-${ts}`,
               type: "error",
-              content: (event.data.message as string) ?? "Session error",
+              content: event.data.message ?? "Session error",
               timestamp: ts,
             },
           ]);
