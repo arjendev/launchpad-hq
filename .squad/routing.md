@@ -11,8 +11,8 @@ How to decide who handles what.
 | UI & dashboard | Brand | React components, Mantine layouts, three-pane dashboard, xterm.js frontend |
 | Fastify server & API | Romilly | Server setup, REST routes, WebSocket handlers, state persistence, build pipeline |
 | GitHub API & devcontainers | TARS | GraphQL queries, gh auth, @devcontainers/cli, Dev Tunnels, state repo ops |
-| Copilot SDK | CASE | Session introspection, prompt injection, session takeover bridge, SDK research |
-| Testing | Doyle | Write tests, find edge cases, verify fixes |
+| Copilot SDK & daemon | TARS | Session introspection, SDK adapter, daemon process, protocol, terminals |
+| Post-wave quality sweeps | Doyle | E2e tests, integration tests, regression checks |
 | Scope & priorities | Cooper | What to build next, trade-offs, decisions |
 | Async issue work (bugs, tests, small features) | @copilot 🤖 | Well-defined tasks matching capability profile |
 | Session logging | Scribe | Automatic — never needs routing |
@@ -26,7 +26,7 @@ How to decide who handles what.
 | `squad:brand` | UI, dashboard, component tasks | Brand |
 | `squad:romilly` | Backend server, API, state tasks | Romilly |
 | `squad:tars` | GitHub API, devcontainer, tunnel tasks | TARS |
-| `squad:case` | Copilot SDK, session introspection tasks | CASE |
+| `squad:tars` (sdk) | Copilot SDK, session introspection, daemon tasks | TARS |
 | `squad:doyle` | Testing, QA, quality tasks | Doyle |
 
 ### How Issue Assignment Works
