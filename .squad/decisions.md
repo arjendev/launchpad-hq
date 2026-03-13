@@ -67,6 +67,16 @@
 **What:** All squad members use claude-opus-4.6 except Scribe, who stays on claude-haiku-4.5.
 **Why:** User request — captured for team memory
 
+### 2026-03-13T09:30:00Z: User directive — Arjen as human reviewer
+**By:** Arjen (via Copilot)
+**What:** Arjen joins the team as a human reviewer. Any important decision that fundamentally changes direction must be reviewed by Arjen before proceeding. "Important" means costly to revert: data model changes, framework switches, persistence layer, API surface redesign, product direction pivots. Routine implementation choices (naming, file structure, minor refactors) do NOT require review.
+**Why:** User request — ensures human oversight on high-impact decisions
+
+### 2026-03-13T10:03:00Z: User directive — VS Code launch profiles for dev servers
+**By:** Arjen (via Copilot)
+**What:** Client (Vite) and server (Fastify) must always be started via VS Code launch profiles (.vscode/launch.json), never via raw CLI commands (npm run dev, tsx watch, vite). This ensures terminal output is visible in VS Code's integrated terminal UI. Build commands (npm run build, npm run typecheck) and test commands (npm test) are still allowed in bash.
+**Why:** User request — dev server output must be visible in VS Code UI
+
 ## Governance
 
 - All meaningful changes require team consensus
