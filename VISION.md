@@ -8,13 +8,14 @@
 
 You're running multiple projects. They live in different repos, different devcontainers, different Copilot sessions. Some are humming along. Some need your attention right now. Some have been quietly stuck for days. You wouldn't know unless you went looking — and you have too many places to look.
 
-**launchpad-hq** is the answer to that. One command, one dashboard, full visibility:
+**launchpad-hq** is the answer to that. A hub-and-spoke dashboard where the hub gives you full visibility and each project runs a lightweight daemon that reports back. One package, two modes:
 
 ```
-npx launchpad-hq
+npx launchpad-hq          # starts the dashboard (hub)
+launchpad --daemon         # starts a daemon in a project environment (spoke)
 ```
 
-It gives you a UI to see the state of each project and its connected running devcontainers with their respective CLI sessions. From a high-level overview — open tasks, in progress, done, things requiring your attention — all the way down to each individual project's kanban board. From that high-level overview to deep-level introspection of the devcontainer, Copilot sessions, and the ability to attach to ongoing sessions to steer progress.
+From a high-level overview — open tasks, in progress, done, things requiring your attention — all the way down to each individual project's kanban board. From that overview to deep-level introspection of the project environment, Copilot sessions, and the ability to attach to ongoing sessions to steer progress.
 
 That's the whole pitch. **High-level overview to deep-level introspection.** Everything in between is just making that real.
 
@@ -22,7 +23,7 @@ That's the whole pitch. **High-level overview to deep-level introspection.** Eve
 
 ## Progressive Depth
 
-The core design principle is progressive depth. You start zoomed out and drill in as far as you need to go. Each level reveals more detail, more control.
+The core design principle is progressive depth. You start zoomed out and drill in as far as you need to go. Each level reveals more detail, more control. The daemon is the bridge — it runs inside the project's environment and relays everything back to HQ.
 
 ```
   All Projects         →  "How's everything going?"
@@ -31,14 +32,15 @@ The core design principle is progressive depth. You start zoomed out and drill i
        │
   Kanban Board         →  "What's open, in progress, done?"
        │
-  Devcontainer         →  "Is the environment running? What's happening inside?"
-       │
+  Project Environment  →  "Is the daemon online? What's happening inside?"
+       │                    (daemon relays environment state to HQ)
   Copilot Session      →  "What has Copilot been working on? What's it stuck on?"
-       │
+       │                    (daemon discovers sessions via SDK locally)
   Session Takeover     →  "I'm taking the wheel."
+                            (daemon spawns PTY, HQ relays I/O to browser)
 ```
 
-You might check the dashboard from your phone on the train and see a yellow badge on a project. Later at your desk, you drill into that project's board, see a task is blocked, open the devcontainer session, read the Copilot conversation, inject a prompt to unstick it — or just attach to the terminal and fix it yourself.
+You might check the dashboard from your phone on the train and see a yellow badge on a project. Later at your desk, you drill into that project's board, see a task is blocked, open the environment session, read the Copilot conversation, inject a prompt to unstick it — or just attach to the terminal and fix it yourself.
 
 That's the product. A command and control center that goes as deep as you need it to.
 
@@ -53,7 +55,7 @@ The UI is a three-pane mission control layout. Everything visible at a glance.
 │              │                       │                  │
 │  Projects    │    Kanban Board       │  Live Sessions   │
 │              │                       │                  │
-│  ● repo-a    │  ┌────┐ ┌────┐ ┌────┐│  ▶ devcontainer  │
+│  ● repo-a    │  ┌────┐ ┌────┐ ┌────┐│  ▶ daemon online │
 │  ● repo-b    │  │TODO│ │ IP │ │DONE││  ▶ copilot chat  │
 │  ◉ repo-c    │  │    │ │    │ │    ││  ▶ terminal /bin  │
 │  ● repo-d    │  │ #12│ │ #8 │ │ #3 ││                  │
@@ -65,9 +67,9 @@ The UI is a three-pane mission control layout. Everything visible at a glance.
 
 **Left panel:** Your projects. Each one shows badge counts — red for things that need you now, yellow for things that changed, green for all-clear. One glance tells you where to focus.
 
-**Center panel:** The selected project's kanban board. Todo, in progress, done. GitHub Issues are the source of truth — launchpad reads them, caches them, enriches them with devcontainer and session context. Your issues stay GitHub-native; launchpad just gives you a better view.
+**Center panel:** The selected project's kanban board. Todo, in progress, done. GitHub Issues are the source of truth — launchpad reads them, caches them, enriches them with environment and session context. Your issues stay GitHub-native; launchpad just gives you a better view.
 
-**Right panel:** Live sessions for the selected project. Running devcontainers, active Copilot conversations, open terminals. This is where overview becomes introspection — you can read what's happening, and when you're ready, take over.
+**Right panel:** Live sessions for the selected project. Connected daemons, active Copilot conversations, open terminals. This is where overview becomes introspection — you can read what's happening, and when you're ready, take over.
 
 Light and dark themes, because you'll be staring at this.
 
@@ -79,29 +81,49 @@ Light and dark themes, because you'll be staring at this.
 
 A project is a GitHub repo. That's the base unit. You add them explicitly — pick from your own repos or paste any git URL. Launchpad doesn't guess; you tell it what you're tracking.
 
-If a project has a devcontainer, that's an enrichment layer. Launchpad discovers running devcontainers using the **Dev Container CLI** (`@devcontainers/cli`), spec-compliant. If there's a devcontainer.json, launchpad knows about it.
+When you add a project, you specify **how and where** it runs:
+
+| Runtime target | What it means |
+|---|---|
+| **WSL + devcontainer** | Project runs in a devcontainer inside WSL |
+| **WSL only** | Project runs directly in WSL, no container |
+| **Local folder** | Project runs on the host machine |
+
+Each project has lifecycle states that the dashboard tracks:
+
+| State | Values |
+|---|---|
+| **Initialized** | yes / no — has the project been set up? |
+| **Daemon** | online / offline — is the daemon connected to HQ? |
+| **Work state** | working / awaiting / stopped — what's the project doing? |
+
+HQ generates a shared secret token for each project's daemon. The daemon uses this token to authenticate when it connects.
 
 ### Tasks
 
-**GitHub Issues are the source of truth.** Launchpad fetches them via the GitHub GraphQL API — fast enough to pull issues across 10+ repos in a single request (~500ms). It caches them locally and enriches them with metadata: which devcontainer is running, which Copilot session is active, what needs attention.
+**GitHub Issues are the source of truth.** Launchpad fetches them via the GitHub GraphQL API — fast enough to pull issues across 10+ repos in a single request (~500ms). It caches them locally and enriches them with metadata: daemon status, active Copilot sessions, what needs attention.
 
 The kanban board is a view on top of this. Todo, in progress, done. The issues stay in GitHub where they belong. Launchpad is the lens, not the ledger.
 
-### Devcontainer Introspection
+### Environment Introspection
 
-Launchpad talks to your devcontainers through the **Dev Container CLI**. It discovers what's running on your machine, reads their configuration and status, and pipes that into the dashboard in real time.
+Launchpad knows about project environments because **daemons register with HQ** — that's how HQ discovers what's running. No polling Docker, no scanning containers. Each daemon connects outbound to HQ over WebSocket and reports its environment state.
 
-When a devcontainer starts, stops, or changes state, the dashboard knows. That status feeds into the attention badges — if a container you depend on goes down, you see red.
+When a daemon comes online, goes offline, or reports a state change, the dashboard knows instantly. That status feeds into the attention badges — if an environment you depend on goes down, you see red.
 
 ### Copilot Integration
 
-This is where it gets interesting. Using the **GitHub Copilot SDK**, launchpad can query active Copilot sessions, read conversation state, and inject prompts. Not just passively watching — actively steering.
+This is where it gets interesting. The **GitHub Copilot SDK** adapter lives in the daemon, not in HQ. The daemon discovers local Copilot sessions via the SDK, relays conversation state and session status to HQ in real time.
 
-You're reviewing your projects from the dashboard. You see a Copilot session that's been spinning on the wrong approach. You read the conversation, understand the context, inject a better prompt, and move on. Or you see a session that finished and left a question for you. You answer it from the dashboard without ever opening the repo.
+You're reviewing your projects from the dashboard. You see a Copilot session that's been spinning on the wrong approach. You read the conversation, understand the context, inject a better prompt, and move on. HQ sends the command to the daemon, the daemon executes it locally via the SDK. Or you see a session that finished and left a question for you. You answer it from the dashboard without ever opening the repo.
+
+HQ only aggregates — it never talks to the SDK directly. When the real SDK ships, only the daemon's adapter internals change.
 
 ### Session Takeover
 
-When reading isn't enough, you take over. **xterm.js** gives you a full terminal in the browser — attach to any session and operate as if you're sitting in front of it. Full bidirectional control, real keystrokes, real output.
+When reading isn't enough, you take over. The daemon spawns a **PTY** locally (it's already inside the project environment) and HQ relays terminal I/O between the browser and the daemon. **xterm.js** in the browser gives you a full terminal — attach to any session and operate as if you're sitting in front of it. Full bidirectional control, real keystrokes, real output.
+
+No `docker exec` needed. The daemon is already there.
 
 This is the deepest level of introspection: you're not just observing the session, you're inside it.
 
@@ -111,44 +133,67 @@ The same dashboard, from your phone. **Microsoft Dev Tunnels** bridges your loca
 
 Check badge counts on the bus. Review a kanban board over coffee. Spot a stuck session and inject a prompt from your couch.
 
+In the future, the same daemon model enables remote support — daemons on Codespaces or remote machines connect to HQ via a tunnel URL. Same architecture, longer wire.
+
 ---
 
 ## Architecture
 
-Everything runs locally on your machine. No cloud services to manage. No infrastructure to pay for.
+Hub-and-spoke. HQ is the hub. Daemons are the spokes. Daemons always connect outbound to HQ — HQ never reaches into them.
 
 ```
+                        ┌─────────────┐
+                        │   Browser   │
+                        └──────┬──────┘
+                               │ ws + HTTP
+                               ▼
 ┌──────────────────────────────────────────────────────────┐
-│                     Your Machine                         │
+│                    launchpad-hq (hub)                     │
 │                                                          │
 │   ┌─────────────┐         ┌───────────────────────────┐  │
 │   │   Fastify    │◄───────►│   React Dashboard         │  │
 │   │   Server     │  HTTP   │   (Vite + Mantine)        │  │
-│   │              │         └───────────────────────────┘  │
+│   │              │  + WS   └───────────────────────────┘  │
 │   │  ┌─────────┐ │                                       │
-│   │  │WebSocket│ │◄──── @devcontainers/cli (containers)  │
-│   │  │  (ws)   │ │◄──── GitHub Copilot SDK (sessions)    │
-│   │  │         │ │◄──── xterm.js streams (terminals)     │
+│   │  │WebSocket│ │◄──── daemon connections (spokes)      │
+│   │  │  (ws)   │ │◄──── xterm.js relay (terminal I/O)   │
 │   │  └─────────┘ │                                       │
 │   └──────┬───────┘                                       │
 │          │                                               │
 │          ├──── gh auth token (authentication)            │
 │          ├──── GitHub GraphQL API (issues, repos)        │
 │          └──── launchpad-state repo (persistence)        │
-│                                                          │
 └──────────┼───────────────────────────────────────────────┘
            │
-           ▼ (optional)
-      Dev Tunnels ───► Phone / Tablet / Anywhere
+     ┌─────┴──────────────────────────────┐
+     │              │                     │
+     ▼              ▼                     ▼
+┌──────────┐  ┌──────────┐         ┌──────────┐
+│ daemon   │  │ daemon   │   ···   │ daemon   │
+│ project-a│  │ project-b│         │ project-n│
+│          │  │          │         │          │
+│ Copilot  │  │ Copilot  │         │ Copilot  │
+│ SDK      │  │ SDK      │         │ SDK      │
+│ node-pty │  │ node-pty │         │ node-pty │
+└──────────┘  └──────────┘         └──────────┘
+  (WSL/DC)     (WSL only)          (local/remote)
 ```
 
-**Why local?** Your desktop has direct access to Docker, devcontainers, and Copilot processes. A local server means zero latency for introspection and full control without proxy layers. The dashboard connects to your running environment, not to a cloud replica of it.
+**Communication flow:**
+
+```
+Browser ←ws→ HQ Server ←ws→ Daemon(s)
+```
+
+The browser never talks to daemons directly. HQ is the single relay point. Daemons initiate all connections outbound — this preserves environment isolation (especially important for devcontainers).
+
+**Why this model?** HQ has no access to what's inside a devcontainer or remote environment. The daemon is already there — it can discover Copilot sessions, spawn terminals, read environment state. It pushes everything to HQ. HQ aggregates and presents. Clean separation.
 
 **Three data flows converge in the UI:**
 
 1. **GitHub API → polling** — TanStack Query fetches and caches issues, repo metadata, and state. Polling-based with smart cache invalidation.
-2. **Devcontainers → push** — The server monitors container state via Dev Container CLI and pushes changes to the client over WebSocket. Real-time.
-3. **Copilot SDK → push** — Session state and conversation data pushed to the client over WebSocket. Real-time.
+2. **Daemon state → push** — Daemons push environment status, Copilot session state, and terminal I/O to HQ over WebSocket. HQ relays to the browser. Real-time.
+3. **Commands → push (reverse)** — HQ pushes commands (inject prompt, attach terminal, restart) down to daemons. Daemons execute locally.
 
 Different refresh patterns — polling for GitHub data, push for live environment data — but they converge into one unified dashboard.
 
@@ -161,7 +206,7 @@ launchpad-hq (running locally)
     │
     └──► username/launchpad-state repo on GitHub (durability)
               │
-              ├── Project configuration
+              ├── Project configuration (incl. runtime targets)
               ├── Enrichment data
               └── Overarching issues that span repos
 ```
@@ -175,6 +220,8 @@ gh auth token  →  launchpad-hq reads the token  →  full GitHub API access
 ```
 
 If you've got the `gh` CLI installed and authenticated, you're done. No OAuth flows, no token management, no secrets files. Launchpad reads your existing token and uses it. If it can't find one, it tells you how to set up.
+
+Daemon authentication is separate — HQ generates a shared secret token per project. The daemon presents this token when connecting over WebSocket. No GitHub token needed on the daemon side.
 
 ---
 
@@ -191,14 +238,21 @@ If you've got the `gh` CLI installed and authenticated, you're done. No OAuth fl
 | **Mantine** | Component library — dashboard-ready, rich theming (light/dark) |
 | **xterm.js** | Terminal emulation — full session takeover in the browser |
 
-### Backend
+### Backend (HQ)
 
 | Technology | Purpose |
 |---|---|
 | **Fastify** | HTTP server — modern, fast, plugin-based |
-| **ws** | WebSocket — streams devcontainer and Copilot data to the UI |
-| **@devcontainers/cli** | Container discovery and management — spec-compliant |
-| **GitHub Copilot SDK** | Session introspection, conversation state, prompt injection |
+| **ws** | WebSocket — browser connections + daemon connections |
+| **GitHub Copilot SDK** | Session data aggregation (via daemon relay) |
+
+### Daemon
+
+| Technology | Purpose |
+|---|---|
+| **ws** | WebSocket client — outbound connection to HQ |
+| **node-pty** | PTY spawning — terminal sessions inside the project environment |
+| **GitHub Copilot SDK** | Local session discovery, conversation state, prompt injection |
 
 ### Infrastructure
 
@@ -213,7 +267,7 @@ If you've got the `gh` CLI installed and authenticated, you're done. No OAuth fl
 
 ## Package Structure
 
-Single package. One `npm install`. One `npx` command. No workspace hoisting, no linked packages.
+Single package. One `npm install`. One `npx` command. No workspace hoisting, no linked packages. CLI flags select the mode.
 
 ```
 launchpad-hq/
@@ -224,12 +278,21 @@ launchpad-hq/
 │   │   ├── routes/          # TanStack Router routes
 │   │   └── theme/           # Mantine theme config (light/dark)
 │   │
-│   └── server/              # Fastify backend
-│       ├── routes/          # REST API endpoints
-│       ├── ws/              # WebSocket handlers
-│       ├── github/          # GitHub API + GraphQL queries
-│       ├── containers/      # Dev Container CLI integration
-│       └── copilot/         # Copilot SDK integration
+│   ├── server/              # Fastify backend (HQ mode)
+│   │   ├── routes/          # REST API endpoints
+│   │   ├── ws/              # WebSocket handlers (browser + daemon)
+│   │   ├── github/          # GitHub API + GraphQL queries
+│   │   └── copilot/         # Copilot data aggregation (from daemons)
+│   │
+│   ├── daemon/              # Daemon mode
+│   │   ├── connection/      # WebSocket client → HQ
+│   │   ├── copilot/         # Copilot SDK adapter (local discovery)
+│   │   ├── terminal/        # PTY management (node-pty)
+│   │   └── env/             # Environment state reporting
+│   │
+│   └── shared/              # Shared types and protocols
+│       ├── protocol.ts      # WebSocket message types (HQ ↔ daemon)
+│       └── types.ts         # Shared domain types
 │
 ├── package.json             # Single package, npx-ready
 └── vite.config.ts
