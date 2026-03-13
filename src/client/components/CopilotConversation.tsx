@@ -309,6 +309,10 @@ export function CopilotConversation({
     abortSession.mutate(sessionId);
   }, [sessionId, abortSession]);
 
+  const handleEndSession = useCallback(() => {
+    abortSession.mutate(sessionId, { onSuccess: () => onClose?.() });
+  }, [sessionId, abortSession, onClose]);
+
   // ── Render ─────────────────────────────────────────
 
   return (
@@ -344,6 +348,16 @@ export function CopilotConversation({
             >
               {statusLabel[sessionStatus ?? "idle"] ?? sessionStatus}
             </Badge>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="red"
+              onClick={handleEndSession}
+              loading={abortSession.isPending}
+              data-testid="end-session-button"
+            >
+              ✕ End
+            </Button>
           </Group>
         </Group>
         {session?.repository && (
