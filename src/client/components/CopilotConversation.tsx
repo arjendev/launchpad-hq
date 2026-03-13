@@ -267,8 +267,8 @@ function SdkControlPanel({ sessionId }: { sessionId: string }) {
   const [planExpanded, setPlanExpanded] = useState(false);
 
   const modelOptions = (modelsData?.models ?? []).map((m) => ({
-    value: m,
-    label: m,
+    value: m.id,
+    label: m.name,
   }));
 
   return (

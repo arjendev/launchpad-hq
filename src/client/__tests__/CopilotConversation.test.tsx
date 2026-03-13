@@ -143,7 +143,7 @@ function setupFetchMock(overrides?: {
       if (urlStr.includes("/api/copilot/models")) {
         return {
           ok: true,
-          json: async () => ({ models: ["gpt-4o", "claude-sonnet"] }),
+          json: async () => ({ models: [{ id: "gpt-4o", name: "GPT-4o" }, { id: "claude-sonnet", name: "Claude Sonnet" }] }),
         };
       }
 
@@ -392,7 +392,7 @@ describe("CopilotConversation", () => {
         if (urlStr.includes("/api/copilot/models")) {
           return {
             ok: true,
-            json: async () => ({ models: ["gpt-4o", "claude-sonnet"] }),
+            json: async () => ({ models: [{ id: "gpt-4o", name: "GPT-4o" }, { id: "claude-sonnet", name: "Claude Sonnet" }] }),
           };
         }
 
