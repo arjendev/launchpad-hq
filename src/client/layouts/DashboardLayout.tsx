@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AppShell, Flex, ScrollArea, Title, Group } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { ProjectList } from "../components/ProjectList";
@@ -5,9 +6,11 @@ import { KanbanBoard } from "../components/KanbanBoard";
 import { ConnectedProjectPanel } from "../components/ConnectedProjectPanel";
 import { ConnectionStatus } from "../components/ConnectionStatus";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { FloatingConversation } from "../components/FloatingConversation";
 
 export function DashboardLayout() {
   const isSmallScreen = useMediaQuery("(max-width: 768px)");
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   return (
     <AppShell header={{ height: 50 }} padding={0}>
@@ -60,10 +63,18 @@ export function DashboardLayout() {
                 : undefined,
             }}
           >
-            <ConnectedProjectPanel />
+            <ConnectedProjectPanel onOpenConversation={setActiveSessionId} />
           </ScrollArea>
         </Flex>
       </AppShell.Main>
+
+      {/* Floating conversation overlay */}
+      {activeSessionId && (
+        <FloatingConversation
+          sessionId={activeSessionId}
+          onClose={() => setActiveSessionId(null)}
+        />
+      )}
     </AppShell>
   );
 }
