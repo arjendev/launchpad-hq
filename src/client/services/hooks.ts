@@ -373,6 +373,8 @@ export function useAbortSession() {
       }),
     onSuccess: (_data, sessionId) => {
       void qc.invalidateQueries({ queryKey: ["aggregated-session", sessionId] });
+      void qc.invalidateQueries({ queryKey: ["aggregated-sessions"] });
+      void qc.invalidateQueries({ queryKey: ["copilot-sessions"] });
     },
   });
 }
