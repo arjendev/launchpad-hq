@@ -14,8 +14,9 @@
 |------|------|---------|--------|
 | Cooper | Lead | .squad/agents/cooper/charter.md | 🏗️ Active |
 | Brand | Frontend Dev | .squad/agents/brand/charter.md | ⚛️ Active |
-| Romilly | Core Dev | .squad/agents/romilly/charter.md | 🔧 Active |
+| Romilly | Backend Dev | .squad/agents/romilly/charter.md | 🔧 Active |
 | TARS | Platform Dev | .squad/agents/tars/charter.md | ⚙️ Active |
+| CASE | Copilot SDK Specialist | .squad/agents/case/charter.md | 🤖 Active |
 | Doyle | Tester | .squad/agents/doyle/charter.md | 🧪 Active |
 | Scribe | Session Logger | .squad/agents/scribe/charter.md | 📋 Active |
 | Ralph | Work Monitor | — | 🔄 Monitor |

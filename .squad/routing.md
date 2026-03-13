@@ -8,10 +8,10 @@ How to decide who handles what.
 |-----------|----------|----------|
 | Architecture & scope | Cooper | Project structure, design decisions, trade-offs |
 | Code review | Cooper | Review PRs, check quality, approve merges |
-| UI & dashboard | Brand | React/terminal UI, components, layouts, styling |
-| CLI framework & commands | Romilly | Command parsing, project state, npx entry point |
-| GitHub API & Copilot SDK | TARS | API integration, SDK wiring, devcontainer connectivity |
-| Platform & infra | TARS | Devcontainer management, session management, external services |
+| UI & dashboard | Brand | React components, Mantine layouts, three-pane dashboard, xterm.js frontend |
+| Fastify server & API | Romilly | Server setup, REST routes, WebSocket handlers, state persistence, build pipeline |
+| GitHub API & devcontainers | TARS | GraphQL queries, gh auth, @devcontainers/cli, Dev Tunnels, state repo ops |
+| Copilot SDK | CASE | Session introspection, prompt injection, session takeover bridge, SDK research |
 | Testing | Doyle | Write tests, find edge cases, verify fixes |
 | Scope & priorities | Cooper | What to build next, trade-offs, decisions |
 | Async issue work (bugs, tests, small features) | @copilot 🤖 | Well-defined tasks matching capability profile |
@@ -24,8 +24,9 @@ How to decide who handles what.
 | `squad` | Triage: analyze issue, assign `squad:{member}` label | Cooper |
 | `squad:cooper` | Architecture, scope, review tasks | Cooper |
 | `squad:brand` | UI, dashboard, component tasks | Brand |
-| `squad:romilly` | CLI framework, core logic tasks | Romilly |
-| `squad:tars` | API integration, SDK, devcontainer tasks | TARS |
+| `squad:romilly` | Backend server, API, state tasks | Romilly |
+| `squad:tars` | GitHub API, devcontainer, tunnel tasks | TARS |
+| `squad:case` | Copilot SDK, session introspection tasks | CASE |
 | `squad:doyle` | Testing, QA, quality tasks | Doyle |
 
 ### How Issue Assignment Works
