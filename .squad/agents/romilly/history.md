@@ -211,3 +211,19 @@ Wave 1 delivered foundational daemon architecture, frontend UI, and backend data
 - **Key learning:** Abort cleanup needs to be idempotent — HQ removes immediately on user action, daemon emits `session.ended` as a safety net. Both paths converge on `removeSession` which is a no-op for already-removed sessions.
 - **Commit:** c15a8fc
 - **Decision captured in:** `.squad/decisions/decisions.md` — "Backend — Session abort cleanup strategy"
+
+### Session API Redesign
+
+**Scope:** Protocol types, aggregator, daemon handler, aggregator plugin, REST routes, client types.
+
+**Changes:**
+1. **Protocol (`src/shared/protocol.ts`):** Removed `daemonId`/`projectId` from `AggregatedSession`. Added 8 HqToDaemon messages (set-model, get/set-mode, get/update/delete-plan, disconnect-session, list-models) and 2 DaemonToHq responses (mode-response, plan-response). Added `requestId` to `CopilotModelsListMessage`.
+2. **Aggregator (`src/server/copilot-aggregator/aggregator.ts`):** Created `InternalAggregatedSession` extending `AggregatedSession` with `daemonId`/`projectId`. Added `toClientSession()` helper. `getSession()`/`getAllSessions()` return client-stripped types. `getInternalSession()` for server-side routing. Added `waitForResponse()`/`resolveRequest()` for request-response pattern with timeout.
+3. **Handler (`src/server/daemon-registry/handler.ts`):** Routes `copilot-models-list`, `copilot-mode-response`, `copilot-plan-response` to registry events.
+4. **Plugin (`src/server/copilot-aggregator/plugin.ts`):** Wires new registry events to `aggregator.resolveRequest()` for pending REST requests.
+5. **Routes (`src/server/routes/copilot-sessions.ts`):** Added `sendToDaemon()` helper. New routes: resume, set-model, get/set mode, get/post/delete plan, disconnect, list-models. Existing routes updated to use `getInternalSession()` for routing. Request-response routes (GET mode, GET plan, GET models) await daemon reply with 10s timeout.
+6. **Client:** Updated `AggregatedSession` in `services/types.ts` (removed `daemonId`/`projectId`, added `title`/`mode`). Removed `daemonId` prop from `CopilotConversation`. Simplified `ConnectedProjectPanel` callback signatures.
+
+**Tests:** 669 passing (17 new). Existing tests updated to use `getInternalSession()` for internal field assertions and verify client responses are stripped.
+
+**Pattern:** Request-response for GET routes uses `waitForResponse(requestId)` → daemon responds → `resolveRequest(requestId, data)`. Fire-and-forget for POST/DELETE operations returns `{ ok: true }` immediately.

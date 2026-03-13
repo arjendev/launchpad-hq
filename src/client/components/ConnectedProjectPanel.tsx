@@ -154,13 +154,13 @@ function SessionCard({
   onSelect,
 }: {
   session: AggregatedSession;
-  onSelect?: (sessionId: string, daemonId: string) => void;
+  onSelect?: (sessionId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
   const handleClick = () => {
     if (onSelect) {
-      onSelect(session.sessionId, session.daemonId);
+      onSelect(session.sessionId);
     } else {
       setExpanded((prev) => !prev);
     }
@@ -227,7 +227,7 @@ function CopilotSessionsSection({
   onSelectSession,
 }: {
   project: DashboardProject;
-  onSelectSession?: (sessionId: string, daemonId: string) => void;
+  onSelectSession?: (sessionId: string) => void;
 }) {
   const projectId = `${project.owner}/${project.repo}`;
   const { sessions, isLoading, isError } = useAggregatedSessions(projectId);
@@ -415,11 +415,10 @@ export function ConnectedProjectPanel() {
   const { selectedProject } = useSelectedProject();
   const [selectedSession, setSelectedSession] = useState<{
     sessionId: string;
-    daemonId: string;
   } | null>(null);
 
-  const handleSelectSession = (sessionId: string, daemonId: string) => {
-    setSelectedSession({ sessionId, daemonId });
+  const handleSelectSession = (sessionId: string) => {
+    setSelectedSession({ sessionId });
   };
 
   const handleCloseConversation = () => {
@@ -432,7 +431,6 @@ export function ConnectedProjectPanel() {
       <Box style={{ height: "100%" }}>
         <CopilotConversation
           sessionId={selectedSession.sessionId}
-          daemonId={selectedSession.daemonId}
           onClose={handleCloseConversation}
         />
       </Box>

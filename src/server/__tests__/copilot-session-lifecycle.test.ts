@@ -411,7 +411,7 @@ describe("Copilot session lifecycle — integration", () => {
         makeSessionInfo({ sessionId: "s-proj" }),
       ]);
 
-      const session = server.copilotAggregator.getSession("s-proj");
+      const session = server.copilotAggregator.getInternalSession("s-proj");
       expect(session?.projectId).toBe("acme/widget");
       expect(session?.projectId).not.toBe("unknown");
     });
@@ -424,7 +424,7 @@ describe("Copilot session lifecycle — integration", () => {
         timestamp: Date.now(),
       });
 
-      const session = server.copilotAggregator.getSession("s-stub");
+      const session = server.copilotAggregator.getInternalSession("s-stub");
       expect(session).toBeDefined();
       expect(session?.projectId).toBe("acme/widget");
       expect(session?.projectId).not.toBe("unknown");
@@ -443,8 +443,8 @@ describe("Copilot session lifecycle — integration", () => {
         makeSessionInfo({ sessionId: "sg-1" }),
       ]);
 
-      expect(server.copilotAggregator.getSession("sw-1")?.projectId).toBe("acme/widget");
-      expect(server.copilotAggregator.getSession("sg-1")?.projectId).toBe("acme/gizmo");
+      expect(server.copilotAggregator.getInternalSession("sw-1")?.projectId).toBe("acme/widget");
+      expect(server.copilotAggregator.getInternalSession("sg-1")?.projectId).toBe("acme/gizmo");
     });
 
     it("copilot:session-event emitted by registry propagates projectId through aggregator", () => {
@@ -463,7 +463,7 @@ describe("Copilot session lifecycle — integration", () => {
         },
       );
 
-      const session = server.copilotAggregator.getSession("s-evt");
+      const session = server.copilotAggregator.getInternalSession("s-evt");
       expect(session).toBeDefined();
       expect(session?.projectId).toBe("acme/widget");
       expect(session?.daemonId).toBe("acme/widget");
@@ -498,7 +498,7 @@ describe("Copilot session lifecycle — integration", () => {
       expect(ids).toEqual(["s1", "s2", "s3"]);
     });
 
-    it("sessions are correctly associated with their project", async () => {
+    it("sessions are correctly associated with their project internally", async () => {
       server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
         makeSessionInfo({ sessionId: "sw-1" }),
       ]);
@@ -515,8 +515,15 @@ describe("Copilot session lifecycle — integration", () => {
       const widgetSession = body.sessions.find((s: { sessionId: string }) => s.sessionId === "sw-1");
       const gizmoSession = body.sessions.find((s: { sessionId: string }) => s.sessionId === "sg-1");
 
-      expect(widgetSession.projectId).toBe("acme/widget");
-      expect(gizmoSession.projectId).toBe("acme/gizmo");
+      // Client-facing responses no longer include daemonId/projectId
+      expect(widgetSession).toBeDefined();
+      expect(widgetSession.projectId).toBeUndefined();
+      expect(gizmoSession).toBeDefined();
+      expect(gizmoSession.projectId).toBeUndefined();
+
+      // Internal routing still has them
+      expect(server.copilotAggregator.getInternalSession("sw-1")?.projectId).toBe("acme/widget");
+      expect(server.copilotAggregator.getInternalSession("sg-1")?.projectId).toBe("acme/gizmo");
     });
 
     it("GET /api/copilot/aggregated/sessions/:id returns single session detail", async () => {
@@ -532,7 +539,7 @@ describe("Copilot session lifecycle — integration", () => {
       expect(res.statusCode).toBe(200);
       const session = res.json();
       expect(session.sessionId).toBe("s-detail");
-      expect(session.projectId).toBe("acme/widget");
+      expect(session.projectId).toBeUndefined();
       expect(session.status).toBe("idle");
     });
 

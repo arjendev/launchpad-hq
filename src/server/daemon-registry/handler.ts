@@ -216,6 +216,18 @@ export class DaemonWsHandler {
         });
         break;
 
+      case "copilot-models-list":
+        this.registry.emit("copilot:models-list" as never, this.wsToDaemonId.get(ws), msg.payload);
+        break;
+
+      case "copilot-mode-response":
+        this.registry.emit("copilot:mode-response" as never, this.wsToDaemonId.get(ws), msg.payload);
+        break;
+
+      case "copilot-plan-response":
+        this.registry.emit("copilot:plan-response" as never, this.wsToDaemonId.get(ws), msg.payload);
+        break;
+
       case "auth-response":
         // Should not arrive after auth; ignore
         break;

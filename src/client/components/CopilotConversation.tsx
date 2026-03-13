@@ -24,7 +24,6 @@ import type { ConversationEntry } from "../services/types.js";
 
 export interface CopilotConversationProps {
   sessionId: string;
-  daemonId: string;
   onClose?: () => void;
 }
 
@@ -246,7 +245,6 @@ const ConversationMessage = memo(function ConversationMessage({
 
 export function CopilotConversation({
   sessionId,
-  daemonId,
   onClose,
 }: CopilotConversationProps) {
   const { data: session } = useAggregatedSession(sessionId);

@@ -194,3 +194,22 @@ Key achievements:
 - **Key insight:** Session status is now eventually consistent — comes from events, not metadata polls. Tests adapted accordingly.
 - **Files changed:** 18 files. 639 tests passing (was 654 — 15 removed with adapter tests, net rewrite).
 
+
+### 2026-03-14: SDK Session Control Operations Wired in Manager
+- Added 9 new handlers to `CopilotManager.handleMessage()`: setModel, getMode, setMode, getPlan, updatePlan, deletePlan, disconnect, listModels, deleteSession
+- All implementations verified against actual SDK type definitions in `node_modules/@github/copilot-sdk/dist/`:
+  - `session.setModel(model: string)` — direct method on CopilotSession
+  - `session.rpc.mode.get()` / `.set({ mode })` — returns `{ mode: "interactive" | "plan" | "autopilot" }`
+  - `session.rpc.plan.read()` / `.update({ content })` / `.delete()` — plan CRUD via session RPC
+  - `session.disconnect()` — releases in-memory resources, preserves session data on disk
+  - `client.listModels()` — returns `ModelInfo[]` (cached after first call in SDK)
+- Request-response pattern: getMode and getPlan send response messages back with `requestId` for correlation
+- Fire-and-forget pattern: setModel, setMode, updatePlan, deletePlan just execute the SDK call (errors sent as session.error events)
+- Added `sendSessionError()` private helper to reduce error-reporting boilerplate
+- Protocol types added to `src/shared/protocol.ts` with `// TODO: Romilly adding these` markers for parallel work
+- `CopilotModelsListMessage` payload extended with `requestId` for correlation
+- New D→HQ types: `CopilotModeResponseMessage`, `CopilotPlanResponseMessage`
+- New HQ→D types: `CopilotSetModelMessage`, `CopilotGetModeMessage`, `CopilotSetModeMessage`, `CopilotGetPlanMessage`, `CopilotUpdatePlanMessage`, `CopilotDeletePlanMessage`, `CopilotDisconnectSessionMessage`, `CopilotListModelsMessage`, `CopilotDeleteSessionMessage`
+- 16 new tests added to manager.test.ts (32 total). TestSdkSession mock extended with `rpc` object mirroring SDK's `createSessionRpc()` shape, plus `setModel()` method
+- TestCopilotClient extended with `listModels()` returning mock ModelInfo array
+- Pre-existing test failures (19) in aggregator/routes tests are from Romilly's parallel WIP on `InternalAggregatedSession` / `toClientSession()` stripping — NOT caused by these changes

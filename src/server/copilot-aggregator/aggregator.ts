@@ -14,6 +14,18 @@ import type {
 // Types
 // ---------------------------------------------------------------------------
 
+/** Internal session with routing fields (daemonId/projectId) — never sent to clients */
+export interface InternalAggregatedSession extends AggregatedSession {
+  daemonId: string;
+  projectId: string;
+}
+
+/** Strip internal routing fields before sending to clients */
+export function toClientSession(internal: InternalAggregatedSession): AggregatedSession {
+  const { daemonId: _d, projectId: _p, ...client } = internal;
+  return client;
+}
+
 export interface ToolInvocationRecord {
   sessionId: string;
   projectId: string;
@@ -67,11 +79,18 @@ function toEpochMs(ts: unknown): number {
  * Browser clients subscribe to events for real-time updates.
  */
 export class CopilotSessionAggregator extends EventEmitter {
-  private sessions = new Map<string, AggregatedSession>();
+  private sessions = new Map<string, InternalAggregatedSession>();
   private sdkStates = new Map<string, DaemonSdkState>();
   private conversationHistory = new Map<string, CopilotMessage[]>();
   private toolInvocations = new Map<string, ToolInvocationRecord[]>();
   private tombstones = new Set<string>();
+  private pendingRequests = new Map<string, {
+    resolve: (data: unknown) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+
+  /** Default timeout for request-response operations (ms) */
+  static REQUEST_TIMEOUT = 10_000;
 
   // ── Session updates ────────────────────────────────────
 
@@ -90,7 +109,7 @@ export class CopilotSessionAggregator extends EventEmitter {
       }
 
       const existing = this.sessions.get(info.sessionId);
-      const aggregated: AggregatedSession = {
+      const aggregated: InternalAggregatedSession = {
         ...existing,
         sessionId: info.sessionId,
         daemonId,
@@ -280,18 +299,26 @@ export class CopilotSessionAggregator extends EventEmitter {
 
   // ── Queries ────────────────────────────────────────────
 
-  /** Get all aggregated sessions */
+  /** Get all sessions for client consumption (stripped of internal fields) */
   getAllSessions(): AggregatedSession[] {
-    return Array.from(this.sessions.values());
+    return Array.from(this.sessions.values()).map(toClientSession);
   }
 
-  /** Get sessions for a specific project */
+  /** Get sessions for a specific project (client-facing) */
   getSessionsByProject(projectId: string): AggregatedSession[] {
-    return this.getAllSessions().filter((s) => s.projectId === projectId);
+    return Array.from(this.sessions.values())
+      .filter((s) => s.projectId === projectId)
+      .map(toClientSession);
   }
 
-  /** Get a specific session */
+  /** Get a specific session for client consumption (stripped) */
   getSession(sessionId: string): AggregatedSession | undefined {
+    const internal = this.sessions.get(sessionId);
+    return internal ? toClientSession(internal) : undefined;
+  }
+
+  /** Get internal session with routing fields — for server-side routing only */
+  getInternalSession(sessionId: string): InternalAggregatedSession | undefined {
     return this.sessions.get(sessionId);
   }
 
@@ -303,6 +330,33 @@ export class CopilotSessionAggregator extends EventEmitter {
   /** Find which daemon owns a given session */
   findDaemonForSession(sessionId: string): string | undefined {
     return this.sessions.get(sessionId)?.daemonId;
+  }
+
+  // ── Request-response helpers ──────────────────────────
+
+  /** Register a pending request and return a promise that resolves when the daemon responds */
+  waitForResponse<T = unknown>(requestId: string, timeoutMs?: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error(`Request ${requestId} timed out`));
+      }, timeoutMs ?? CopilotSessionAggregator.REQUEST_TIMEOUT);
+
+      this.pendingRequests.set(requestId, {
+        resolve: resolve as (data: unknown) => void,
+        timer,
+      });
+    });
+  }
+
+  /** Resolve a pending request with data from the daemon */
+  resolveRequest(requestId: string, data: unknown): void {
+    const pending = this.pendingRequests.get(requestId);
+    if (pending) {
+      clearTimeout(pending.timer);
+      this.pendingRequests.delete(requestId);
+      pending.resolve(data);
+    }
   }
 
   get size(): number {
