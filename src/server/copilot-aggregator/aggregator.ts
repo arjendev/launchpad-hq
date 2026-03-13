@@ -130,10 +130,11 @@ export class CopilotSessionAggregator extends EventEmitter {
       }
     } else {
       // Create a stub session for events without a prior session-list
+      // daemonId IS the projectId (owner/repo) — never fall back to "unknown"
       this.sessions.set(sessionId, {
         sessionId,
         daemonId,
-        projectId: "unknown",
+        projectId: daemonId,
         status: "active",
         startedAt: event.timestamp,
         lastEvent: { type: event.type, timestamp: event.timestamp },
