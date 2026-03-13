@@ -42,10 +42,14 @@ async function websocketPlugin(fastify: FastifyInstance) {
     fastify.log.info({ clientId }, "WebSocket client connected");
 
     ws.on("message", (data) => {
-      handleMessage(clientId, data.toString(), manager, fastify.log);
+      handleMessage(clientId, data.toString(), manager, fastify.log,
+        (fastify as unknown as { terminalRelay?: import("../terminal-relay/relay.js").TerminalRelay }).terminalRelay);
     });
 
     ws.on("close", () => {
+      // Clean up terminal bindings before removing client
+      const relay = (fastify as unknown as { terminalRelay?: import("../terminal-relay/relay.js").TerminalRelay }).terminalRelay;
+      if (relay) relay.removeClient(clientId);
       manager.remove(clientId);
       fastify.log.info({ clientId }, "WebSocket client disconnected");
     });

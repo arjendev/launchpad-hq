@@ -3,10 +3,9 @@ import type { WebSocket } from "ws";
 // --- Channels ---
 
 /** Known channels clients can subscribe to. */
-export type Channel = "devcontainer" | "copilot" | "terminal" | "daemon" | "attention";
+export type Channel = "copilot" | "terminal" | "daemon" | "attention";
 
 export const VALID_CHANNELS: ReadonlySet<string> = new Set<Channel>([
-  "devcontainer",
   "copilot",
   "terminal",
   "daemon",
@@ -29,7 +28,43 @@ export interface PingMessage {
   type: "ping";
 }
 
-export type ClientMessage = SubscribeMessage | UnsubscribeMessage | PingMessage;
+// --- Terminal-specific client → server messages ---
+
+export interface TerminalJoinMessage {
+  type: "terminal:join";
+  daemonId: string;
+  terminalId: string;
+}
+
+export interface TerminalLeaveMessage {
+  type: "terminal:leave";
+  daemonId: string;
+  terminalId: string;
+}
+
+export interface TerminalInputMessage {
+  type: "terminal:input";
+  daemonId: string;
+  terminalId: string;
+  data: string;
+}
+
+export interface TerminalResizeMessage {
+  type: "terminal:resize";
+  daemonId: string;
+  terminalId: string;
+  cols: number;
+  rows: number;
+}
+
+export type ClientMessage =
+  | SubscribeMessage
+  | UnsubscribeMessage
+  | PingMessage
+  | TerminalJoinMessage
+  | TerminalLeaveMessage
+  | TerminalInputMessage
+  | TerminalResizeMessage;
 
 // --- Server → Client messages ---
 

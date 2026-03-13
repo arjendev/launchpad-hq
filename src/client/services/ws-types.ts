@@ -5,12 +5,13 @@
 
 // --- Channels ---
 
-export type Channel = "devcontainer" | "copilot" | "terminal";
+export type Channel = "copilot" | "terminal" | "daemon" | "attention";
 
 export const VALID_CHANNELS: readonly Channel[] = [
-  "devcontainer",
   "copilot",
   "terminal",
+  "daemon",
+  "attention",
 ] as const;
 
 // --- Client → Server messages ---
@@ -29,7 +30,61 @@ export interface PingMessage {
   type: "ping";
 }
 
-export type ClientMessage = SubscribeMessage | UnsubscribeMessage | PingMessage;
+// --- Terminal-specific client → server messages ---
+
+export interface TerminalJoinMessage {
+  type: "terminal:join";
+  daemonId: string;
+  terminalId: string;
+}
+
+export interface TerminalLeaveMessage {
+  type: "terminal:leave";
+  daemonId: string;
+  terminalId: string;
+}
+
+export interface TerminalInputMessage {
+  type: "terminal:input";
+  daemonId: string;
+  terminalId: string;
+  data: string;
+}
+
+export interface TerminalResizeMessage {
+  type: "terminal:resize";
+  daemonId: string;
+  terminalId: string;
+  cols: number;
+  rows: number;
+}
+
+export type ClientMessage =
+  | SubscribeMessage
+  | UnsubscribeMessage
+  | PingMessage
+  | TerminalJoinMessage
+  | TerminalLeaveMessage
+  | TerminalInputMessage
+  | TerminalResizeMessage;
+
+// --- Terminal payload types (from server → client via UpdateMessage) ---
+
+export interface TerminalDataPayload {
+  type: "terminal:data";
+  projectId: string;
+  sessionId: string;
+  data: string;
+}
+
+export interface TerminalExitPayload {
+  type: "terminal:exit";
+  projectId: string;
+  terminalId: string;
+  exitCode: number;
+}
+
+export type TerminalPayload = TerminalDataPayload | TerminalExitPayload;
 
 // --- Server → Client messages ---
 
