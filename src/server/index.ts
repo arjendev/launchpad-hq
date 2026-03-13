@@ -15,9 +15,11 @@ import { GitHubAuthError } from "./github/auth.js";
 import statePlugin from "./state/plugin.js";
 import cachePlugin from "./cache/plugin.js";
 import websocket from "./ws/plugin.js";
+import daemonRegistryPlugin from "./daemon-registry/plugin.js";
 import containersPlugin from "./containers/plugin.js";
 import attentionPlugin from "./attention/plugin.js";
 import copilotPlugin from "./copilot/plugin.js";
+import daemonRoutes from "./routes/daemons.js";
 
 const config = loadConfig();
 
@@ -55,6 +57,10 @@ if (!config.isDev && existsSync(config.clientDistPath)) {
 
 await server.register(websocket);
 
+// --- Daemon registry (depends on websocket) ---
+
+await server.register(daemonRegistryPlugin);
+
 // --- Container monitoring ---
 
 await server.register(containersPlugin);
@@ -73,6 +79,7 @@ await server.register(healthRoutes);
 await server.register(projectRoutes);
 await server.register(githubDataRoutes);
 await server.register(attentionPlugin);
+await server.register(daemonRoutes);
 
 // --- Lifecycle ---
 

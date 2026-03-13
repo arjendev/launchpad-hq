@@ -3,12 +3,14 @@ import type { WebSocket } from "ws";
 // --- Channels ---
 
 /** Known channels clients can subscribe to. */
-export type Channel = "devcontainer" | "copilot" | "terminal";
+export type Channel = "devcontainer" | "copilot" | "terminal" | "daemon" | "attention";
 
 export const VALID_CHANNELS: ReadonlySet<string> = new Set<Channel>([
   "devcontainer",
   "copilot",
   "terminal",
+  "daemon",
+  "attention",
 ]);
 
 // --- Client → Server messages ---
