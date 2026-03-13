@@ -316,20 +316,27 @@ describe("Copilot session routes", () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
-      const res = await server.inject({
+      const resPromise = server.inject({
         method: "POST",
         url: "/api/daemons/test/repo1/copilot/sessions",
         payload: { model: "gpt-4" },
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.json().ok).toBe(true);
+      // Wait a tick so the route sends the message and starts waiting
+      await new Promise((r) => setTimeout(r, 10));
 
       expect(ws.sent).toHaveLength(1);
       const sentMsg = JSON.parse(ws.sent[0]);
       expect(sentMsg.type).toBe("copilot-create-session");
       expect(sentMsg.payload.requestId).toBeDefined();
       expect(sentMsg.payload.config).toEqual({ model: "gpt-4" });
+
+      // Resolve the pending request
+      server.copilotAggregator.resolveRequest(sentMsg.payload.requestId, { sessionId: "new-sess" });
+
+      const res = await resPromise;
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, sessionId: "new-sess" });
     });
 
     it("returns 404 for unknown daemon", async () => {

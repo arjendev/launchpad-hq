@@ -404,11 +404,12 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         .send({ error: "not_found", message: "Daemon not found" });
     }
 
+    const requestId = randomUUID();
     const sent = server.daemonRegistry.sendToDaemon(id, {
       type: "copilot-create-session",
       timestamp: Date.now(),
       payload: {
-        requestId: randomUUID(),
+        requestId,
         config: model ? { model } : undefined,
       },
     });
@@ -417,7 +418,14 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(502).send(sendFailed);
     }
 
-    return reply.send({ ok: true });
+    try {
+      const result = await server.copilotAggregator.waitForResponse<{ sessionId: string }>(requestId);
+      return reply.send({ ok: true, sessionId: result.sessionId });
+    } catch {
+      return reply
+        .status(504)
+        .send({ error: "timeout", message: "Session creation timed out" });
+    }
   });
 };
 
