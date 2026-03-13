@@ -61,7 +61,7 @@ describe("Copilot session routes", () => {
     });
 
     it("returns aggregated sessions after update", async () => {
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
         { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
         { sessionId: "s2", state: "idle", startedAt: 1000, lastActivityAt: 3000 },
       ]);
@@ -75,7 +75,7 @@ describe("Copilot session routes", () => {
       const body = res.json();
       expect(body.count).toBe(2);
       expect(body.sessions[0]).toHaveProperty("sessionId");
-      expect(body.sessions[0]).toHaveProperty("daemonId", "d1");
+      expect(body.sessions[0]).toHaveProperty("daemonId", "test/repo1");
     });
   });
 
@@ -83,7 +83,7 @@ describe("Copilot session routes", () => {
 
   describe("GET /api/copilot/aggregated/sessions/:sessionId", () => {
     it("returns session detail", async () => {
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
         { sessionId: "s1", state: "active", model: "gpt-4", startedAt: 1000, lastActivityAt: 2000 },
       ]);
 
@@ -113,7 +113,7 @@ describe("Copilot session routes", () => {
 
   describe("GET /api/copilot/aggregated/sessions/:sessionId/messages", () => {
     it("returns message history for a session", async () => {
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
         { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
       ]);
       server.copilotAggregator.appendMessages("s1", [
@@ -149,10 +149,10 @@ describe("Copilot session routes", () => {
     it("sends prompt to the correct daemon", async () => {
       // Register a mock daemon
       const ws = createMockSocket();
-      server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
       // Seed session (must be idle to accept a new prompt)
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
         { sessionId: "s1", state: "idle", startedAt: 1000, lastActivityAt: 2000 },
       ]);
 
@@ -174,7 +174,7 @@ describe("Copilot session routes", () => {
     });
 
     it("returns 400 when prompt is missing", async () => {
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
         { sessionId: "s1", state: "idle", startedAt: 1000, lastActivityAt: 2000 },
       ]);
 
@@ -202,9 +202,9 @@ describe("Copilot session routes", () => {
       // Register a daemon then disconnect it (ws closed)
       const ws = createMockSocket();
       ws.readyState = 3; // CLOSED
-      server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
         { sessionId: "s1", state: "idle", startedAt: 1000, lastActivityAt: 2000 },
       ]);
 
@@ -223,9 +223,9 @@ describe("Copilot session routes", () => {
   describe("POST /api/copilot/aggregated/sessions/:sessionId/abort", () => {
     it("sends abort to the correct daemon", async () => {
       const ws = createMockSocket();
-      server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
         { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
       ]);
 
@@ -257,7 +257,7 @@ describe("Copilot session routes", () => {
 
   describe("GET /api/copilot/aggregated/sessions/:sessionId/tools", () => {
     it("returns tool invocation history for a session", async () => {
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
         { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
       ]);
       server.copilotAggregator.handleToolInvocation(
@@ -283,7 +283,7 @@ describe("Copilot session routes", () => {
     });
 
     it("returns empty invocations for session with no tools used", async () => {
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
+      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
         { sessionId: "s1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
       ]);
 
@@ -314,11 +314,11 @@ describe("Copilot session routes", () => {
   describe("POST /api/daemons/:id/copilot/sessions", () => {
     it("sends create-session to the daemon", async () => {
       const ws = createMockSocket();
-      server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
       const res = await server.inject({
         method: "POST",
-        url: "/api/daemons/d1/copilot/sessions",
+        url: "/api/daemons/test/repo1/copilot/sessions",
         payload: { model: "gpt-4" },
       });
 
@@ -335,7 +335,7 @@ describe("Copilot session routes", () => {
     it("returns 404 for unknown daemon", async () => {
       const res = await server.inject({
         method: "POST",
-        url: "/api/daemons/nonexistent/copilot/sessions",
+        url: "/api/daemons/test/nonexistent/copilot/sessions",
         payload: {},
       });
 
@@ -345,11 +345,11 @@ describe("Copilot session routes", () => {
     it("returns 502 when daemon socket is closed", async () => {
       const ws = createMockSocket();
       ws.readyState = 3; // CLOSED
-      server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
       const res = await server.inject({
         method: "POST",
-        url: "/api/daemons/d1/copilot/sessions",
+        url: "/api/daemons/test/repo1/copilot/sessions",
         payload: {},
       });
 

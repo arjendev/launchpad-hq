@@ -1,9 +1,9 @@
 /**
  * REST endpoints for daemon terminal management.
  *
- * POST   /api/daemons/:id/terminal           — Spawn a new terminal
- * DELETE /api/daemons/:id/terminal/:termId    — Kill a terminal
- * GET    /api/daemons/:id/terminals           — List active terminals
+ * POST   /api/daemons/:owner/:repo/terminal           — Spawn a new terminal
+ * DELETE /api/daemons/:owner/:repo/terminal/:termId    — Kill a terminal
+ * GET    /api/daemons/:owner/:repo/terminals           — List active terminals
  */
 
 import { randomUUID } from 'node:crypto';
@@ -13,13 +13,18 @@ import type { FastifyPluginAsync } from 'fastify';
 // but tracks what we've asked the daemon to spawn)
 const daemonTerminals = new Map<string, Set<string>>();
 
+/** Build daemon ID from route params */
+function daemonId(params: { owner: string; repo: string }): string {
+  return `${params.owner}/${params.repo}`;
+}
+
 const terminalRoutes: FastifyPluginAsync = async (server) => {
-  /** POST /api/daemons/:id/terminal — spawn a new terminal on the daemon */
+  /** POST /api/daemons/:owner/:repo/terminal — spawn a new terminal on the daemon */
   server.post<{
-    Params: { id: string };
+    Params: { owner: string; repo: string };
     Body: { cols?: number; rows?: number };
-  }>('/api/daemons/:id/terminal', async (request, reply) => {
-    const { id } = request.params;
+  }>('/api/daemons/:owner/:repo/terminal', async (request, reply) => {
+    const id = daemonId(request.params);
 
     const daemon = server.daemonRegistry.getDaemon(id);
     if (!daemon) {
@@ -55,11 +60,12 @@ const terminalRoutes: FastifyPluginAsync = async (server) => {
     return reply.status(201).send({ terminalId });
   });
 
-  /** DELETE /api/daemons/:id/terminal/:termId — kill a terminal */
+  /** DELETE /api/daemons/:owner/:repo/terminal/:termId — kill a terminal */
   server.delete<{
-    Params: { id: string; termId: string };
-  }>('/api/daemons/:id/terminal/:termId', async (request, reply) => {
-    const { id, termId } = request.params;
+    Params: { owner: string; repo: string; termId: string };
+  }>('/api/daemons/:owner/:repo/terminal/:termId', async (request, reply) => {
+    const id = daemonId(request.params);
+    const { termId } = request.params;
 
     const daemon = server.daemonRegistry.getDaemon(id);
     if (!daemon) {
@@ -89,11 +95,11 @@ const terminalRoutes: FastifyPluginAsync = async (server) => {
     return reply.send({ ok: true });
   });
 
-  /** GET /api/daemons/:id/terminals — list active terminal IDs */
+  /** GET /api/daemons/:owner/:repo/terminals — list active terminal IDs */
   server.get<{
-    Params: { id: string };
-  }>('/api/daemons/:id/terminals', async (request, reply) => {
-    const { id } = request.params;
+    Params: { owner: string; repo: string };
+  }>('/api/daemons/:owner/:repo/terminals', async (request, reply) => {
+    const id = daemonId(request.params);
 
     const daemon = server.daemonRegistry.getDaemon(id);
     if (!daemon) {

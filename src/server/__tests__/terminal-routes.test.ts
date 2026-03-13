@@ -53,11 +53,11 @@ describe('Terminal REST routes', () => {
   describe('POST /api/daemons/:id/terminal', () => {
     it('spawns a terminal and returns terminalId', async () => {
       const ws = createMockSocket();
-      registry.register('d1', ws as never, makeDaemonInfo());
+      registry.register('test/repo1', ws as never, makeDaemonInfo());
 
       const res = await server.inject({
         method: 'POST',
-        url: '/api/daemons/d1/terminal',
+        url: '/api/daemons/test/repo1/terminal',
         payload: { cols: 120, rows: 40 },
       });
 
@@ -77,11 +77,11 @@ describe('Terminal REST routes', () => {
 
     it('works without cols/rows', async () => {
       const ws = createMockSocket();
-      registry.register('d1', ws as never, makeDaemonInfo());
+      registry.register('test/repo1', ws as never, makeDaemonInfo());
 
       const res = await server.inject({
         method: 'POST',
-        url: '/api/daemons/d1/terminal',
+        url: '/api/daemons/test/repo1/terminal',
         payload: {},
       });
 
@@ -91,7 +91,7 @@ describe('Terminal REST routes', () => {
     it('returns 404 for unknown daemon', async () => {
       const res = await server.inject({
         method: 'POST',
-        url: '/api/daemons/ghost/terminal',
+        url: '/api/daemons/test/ghost/terminal',
         payload: {},
       });
 
@@ -102,11 +102,11 @@ describe('Terminal REST routes', () => {
     it('returns 502 when daemon is disconnected', async () => {
       const ws = createMockSocket();
       ws.readyState = 3; // CLOSED
-      registry.register('d1', ws as never, makeDaemonInfo());
+      registry.register('test/repo1', ws as never, makeDaemonInfo());
 
       const res = await server.inject({
         method: 'POST',
-        url: '/api/daemons/d1/terminal',
+        url: '/api/daemons/test/repo1/terminal',
         payload: {},
       });
 
@@ -117,12 +117,12 @@ describe('Terminal REST routes', () => {
   describe('DELETE /api/daemons/:id/terminal/:termId', () => {
     it('kills a terminal', async () => {
       const ws = createMockSocket();
-      registry.register('d1', ws as never, makeDaemonInfo());
+      registry.register('test/repo1', ws as never, makeDaemonInfo());
 
       // First spawn a terminal
       const spawnRes = await server.inject({
         method: 'POST',
-        url: '/api/daemons/d1/terminal',
+        url: '/api/daemons/test/repo1/terminal',
         payload: {},
       });
       const { terminalId } = spawnRes.json();
@@ -133,7 +133,7 @@ describe('Terminal REST routes', () => {
       // Kill it
       const res = await server.inject({
         method: 'DELETE',
-        url: `/api/daemons/d1/terminal/${terminalId}`,
+        url: `/api/daemons/test/repo1/terminal/${terminalId}`,
       });
 
       expect(res.statusCode).toBe(200);
@@ -149,7 +149,7 @@ describe('Terminal REST routes', () => {
     it('returns 404 for unknown daemon', async () => {
       const res = await server.inject({
         method: 'DELETE',
-        url: '/api/daemons/ghost/terminal/t1',
+        url: '/api/daemons/test/ghost/terminal/t1',
       });
 
       expect(res.statusCode).toBe(404);
@@ -158,11 +158,11 @@ describe('Terminal REST routes', () => {
     it('returns 502 when daemon is disconnected', async () => {
       const ws = createMockSocket();
       ws.readyState = 3; // CLOSED
-      registry.register('d1', ws as never, makeDaemonInfo());
+      registry.register('test/repo1', ws as never, makeDaemonInfo());
 
       const res = await server.inject({
         method: 'DELETE',
-        url: '/api/daemons/d1/terminal/t1',
+        url: '/api/daemons/test/repo1/terminal/t1',
       });
 
       expect(res.statusCode).toBe(502);
@@ -172,23 +172,23 @@ describe('Terminal REST routes', () => {
   describe('GET /api/daemons/:id/terminals', () => {
     it('lists terminal IDs for a daemon', async () => {
       const ws = createMockSocket();
-      registry.register('d1', ws as never, makeDaemonInfo());
+      registry.register('test/repo1', ws as never, makeDaemonInfo());
 
       // Spawn two terminals
       const res1 = await server.inject({
         method: 'POST',
-        url: '/api/daemons/d1/terminal',
+        url: '/api/daemons/test/repo1/terminal',
         payload: {},
       });
       const res2 = await server.inject({
         method: 'POST',
-        url: '/api/daemons/d1/terminal',
+        url: '/api/daemons/test/repo1/terminal',
         payload: {},
       });
 
       const listRes = await server.inject({
         method: 'GET',
-        url: '/api/daemons/d1/terminals',
+        url: '/api/daemons/test/repo1/terminals',
       });
 
       expect(listRes.statusCode).toBe(200);
@@ -200,11 +200,11 @@ describe('Terminal REST routes', () => {
 
     it('returns empty list when no terminals exist', async () => {
       const ws = createMockSocket();
-      registry.register('d1', ws as never, makeDaemonInfo());
+      registry.register('test/repo1', ws as never, makeDaemonInfo());
 
       const res = await server.inject({
         method: 'GET',
-        url: '/api/daemons/d1/terminals',
+        url: '/api/daemons/test/repo1/terminals',
       });
 
       expect(res.statusCode).toBe(200);
@@ -214,7 +214,7 @@ describe('Terminal REST routes', () => {
     it('returns 404 for unknown daemon', async () => {
       const res = await server.inject({
         method: 'GET',
-        url: '/api/daemons/ghost/terminals',
+        url: '/api/daemons/test/ghost/terminals',
       });
 
       expect(res.statusCode).toBe(404);
@@ -222,24 +222,24 @@ describe('Terminal REST routes', () => {
 
     it('reflects killed terminals', async () => {
       const ws = createMockSocket();
-      registry.register('d1', ws as never, makeDaemonInfo());
+      registry.register('test/repo1', ws as never, makeDaemonInfo());
 
       // Spawn and kill
       const spawnRes = await server.inject({
         method: 'POST',
-        url: '/api/daemons/d1/terminal',
+        url: '/api/daemons/test/repo1/terminal',
         payload: {},
       });
       const { terminalId } = spawnRes.json();
 
       await server.inject({
         method: 'DELETE',
-        url: `/api/daemons/d1/terminal/${terminalId}`,
+        url: `/api/daemons/test/repo1/terminal/${terminalId}`,
       });
 
       const listRes = await server.inject({
         method: 'GET',
-        url: '/api/daemons/d1/terminals',
+        url: '/api/daemons/test/repo1/terminals',
       });
 
       expect(listRes.json().terminalIds).toEqual([]);
