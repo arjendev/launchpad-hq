@@ -9,6 +9,7 @@ interface AddProjectBody {
   owner: string;
   repo: string;
   runtimeTarget: RuntimeTarget;
+  daemonToken?: string;
 }
 
 interface ProjectParams {
@@ -201,7 +202,9 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     // Add to state
-    const daemonToken = generateDaemonToken();
+    const daemonToken = (typeof body.daemonToken === 'string' && body.daemonToken.length >= 32)
+      ? body.daemonToken
+      : generateDaemonToken();
     const entry: ProjectEntry = {
       owner,
       repo,
