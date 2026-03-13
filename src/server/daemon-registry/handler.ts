@@ -30,6 +30,7 @@ export type BrowserBroadcast = (channel: string, payload: unknown) => void;
  */
 export class DaemonWsHandler {
   private pending = new Map<WebSocket, PendingConnection>();
+  private wsToDaemonId = new Map<WebSocket, string>();
 
   constructor(
     private registry: DaemonRegistry,
@@ -132,6 +133,7 @@ export class DaemonWsHandler {
     switch (msg.type) {
       case "register": {
         const daemonId = msg.payload.projectId;
+        this.wsToDaemonId.set(ws, daemonId);
         this.registry.register(daemonId, ws, msg.payload);
         this.log.info({ daemonId, project: msg.payload.projectName }, "Daemon registered");
         break;
@@ -180,16 +182,24 @@ export class DaemonWsHandler {
         });
         break;
 
+      case "copilot-session-list":
+        this.registry.emit("copilot:session-list" as never, msg.payload.projectId, msg.payload);
+        break;
+
+      case "copilot-session-event":
+        this.registry.emit("copilot:session-event" as never, msg.payload.projectId, msg.payload);
+        break;
+
       case "copilot-sdk-session-list":
-        this.registry.emit("copilot:session-list" as never, msg.payload);
+        this.registry.emit("copilot:session-list" as never, this.wsToDaemonId.get(ws), msg.payload);
         break;
 
       case "copilot-sdk-session-event":
-        this.registry.emit("copilot:session-event" as never, msg.payload);
+        this.registry.emit("copilot:session-event" as never, this.wsToDaemonId.get(ws), msg.payload);
         break;
 
       case "copilot-sdk-state":
-        this.registry.emit("copilot:sdk-state" as never, msg.payload);
+        this.registry.emit("copilot:sdk-state" as never, this.wsToDaemonId.get(ws), msg.payload);
         break;
 
       case "copilot-conversation":
@@ -223,6 +233,7 @@ export class DaemonWsHandler {
   private handleDisconnect(ws: WebSocket): void {
     // Remove from pending if still authenticating
     this.pending.delete(ws);
+    this.wsToDaemonId.delete(ws);
 
     // Find and unregister the daemon that owns this socket
     for (const daemon of this.registry.getAllDaemons()) {
