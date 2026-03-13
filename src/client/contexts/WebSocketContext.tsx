@@ -46,13 +46,21 @@ export function WebSocketProvider({ children, url }: WebSocketProviderProps) {
   const managerRef = useRef<WebSocketManager | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
 
-  // Create and connect the manager once
-  if (!managerRef.current) {
-    managerRef.current = new WebSocketManager(url ? { url } : undefined);
+  // Ensure a live (non-disposed) manager exists.  Called during render and
+  // inside the effect so React 18 Strict Mode's unmount → remount cycle
+  // always has a fresh manager after cleanup nulled the ref.
+  function getOrCreateManager(): WebSocketManager {
+    if (!managerRef.current) {
+      managerRef.current = new WebSocketManager(url ? { url } : undefined);
+    }
+    return managerRef.current;
   }
 
+  // Populate the ref synchronously so the first render has a manager.
+  getOrCreateManager();
+
   useEffect(() => {
-    const mgr = managerRef.current!;
+    const mgr = getOrCreateManager();
     const unsub = mgr.onStatusChange(setStatus);
     mgr.connect();
 
@@ -64,7 +72,7 @@ export function WebSocketProvider({ children, url }: WebSocketProviderProps) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const value = useMemo<WebSocketContextValue>(() => {
-    const mgr = managerRef.current!;
+    const mgr = getOrCreateManager();
     return {
       status,
       subscribe: mgr.subscribe.bind(mgr),
@@ -72,6 +80,7 @@ export function WebSocketProvider({ children, url }: WebSocketProviderProps) {
       onMessage: mgr.onMessage.bind(mgr),
       manager: mgr,
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
   return (
