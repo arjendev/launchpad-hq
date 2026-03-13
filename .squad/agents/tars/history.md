@@ -153,3 +153,13 @@ Key achievements:
 - **Key files:** `src/daemon/terminal/manager.ts`
 - **Tests:** 620 passing (no new tests needed — existing terminal-manager tests cover the public API; `buildShellEnv` verified via inline tsx check)
 
+### 2026-03-14: Wire Real @github/copilot-sdk into Adapter
+- **What:** Replaced the stub `SdkCopilotAdapter` with a real implementation backed by `@github/copilot-sdk@^0.1.32`
+- **SDK wiring:** `CopilotClient` created in `start()` with `{ cwd, autoRestart: true, logLevel: 'warning' }`. `SdkCopilotSession` wraps SDK session with `sendAndWait()` for our `send() → Promise<string>` convenience API. Auto-approves all permissions via SDK's `approveAll`.
+- **Event mapping:** SDK uses underscores (`tool.execution_start`, `assistant.message_delta`), our protocol uses dots/camelCase (`tool.executionStart`, `assistant.message.delta`). `mapSdkEvent()` translates. SDK ISO timestamps → epoch ms.
+- **HQ tools:** `hq-tools.ts` now uses SDK `defineTool()` when available, falls back to plain objects. Tool signatures are structurally compatible.
+- **Fallback strategy:** Two-tier: (1) `isSdkAvailable()` checks if package imports (now true), (2) if `adapter.start()` fails (CLI not in PATH), manager catches the error and falls back to `MockCopilotAdapter` with a warning. Mock still works when `LAUNCHPAD_COPILOT_MOCK=true`.
+- **SDK bug workaround:** `session.js` imports `vscode-jsonrpc/node` without `.js` extension (ESM resolution fails). `scripts/patch-sdk.js` (postinstall) fixes it.
+- **Key files:** `src/daemon/copilot/sdk-adapter.ts`, `src/daemon/copilot/hq-tools.ts`, `src/daemon/copilot/manager.ts`, `scripts/patch-sdk.js`
+- **Tests:** 621 passing (rewrote sdk-adapter tests: availability=true, adapter state, safe-when-not-started checks; updated manager fallback tests for runtime fallback scenario)
+
