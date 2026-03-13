@@ -1,10 +1,13 @@
 import { EventEmitter } from "node:events";
 import type {
-  CopilotSessionInfo,
-  CopilotSessionEvent,
-  CopilotSdkState,
+  SessionEvent,
+  SessionMetadata,
+  ConnectionState,
+} from "@github/copilot-sdk";
+import type {
   CopilotMessage,
   CopilotHqToolName,
+  AggregatedSession,
 } from "../../shared/protocol.js";
 
 // ---------------------------------------------------------------------------
@@ -19,29 +22,11 @@ export interface ToolInvocationRecord {
   timestamp: number;
 }
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface AggregatedSession {
-  sessionId: string;
-  daemonId: string;
-  projectId: string;
-  cwd?: string;
-  gitRoot?: string;
-  repository?: string;
-  branch?: string;
-  summary?: string;
-  status: "active" | "idle" | "error";
-  model?: string;
-  startedAt: number;
-  lastEvent?: { type: string; timestamp: number };
-  updatedAt: number;
-}
+export type { AggregatedSession };
 
 export interface DaemonSdkState {
   daemonId: string;
-  state: CopilotSdkState;
+  state: ConnectionState;
   error?: string;
   updatedAt: number;
 }
@@ -50,15 +35,27 @@ export interface AggregatorEvents {
   "sessions-updated": (sessions: AggregatedSession[]) => void;
   "session-event": (
     sessionId: string,
-    event: CopilotSessionEvent,
+    event: SessionEvent,
   ) => void;
   "sdk-state-changed": (
     daemonId: string,
-    state: CopilotSdkState,
+    state: ConnectionState,
   ) => void;
   "tool-invocation": (
     record: ToolInvocationRecord,
   ) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Parse a timestamp that may be an ISO string, a Date, or a number into epoch ms */
+function toEpochMs(ts: unknown): number {
+  if (typeof ts === 'number') return ts;
+  if (ts instanceof Date) return ts.getTime();
+  if (typeof ts === 'string') return new Date(ts).getTime();
+  return Date.now();
 }
 
 // ---------------------------------------------------------------------------
@@ -78,11 +75,11 @@ export class CopilotSessionAggregator extends EventEmitter {
 
   // ── Session updates ────────────────────────────────────
 
-  /** Called when a daemon sends copilot-session-list or copilot-session-update */
+  /** Called when a daemon sends copilot-session-list — SDK SessionMetadata[] */
   updateSessions(
     daemonId: string,
     projectId: string,
-    sessions: CopilotSessionInfo[],
+    sessions: SessionMetadata[],
   ): void {
     const now = Date.now();
 
@@ -98,9 +95,9 @@ export class CopilotSessionAggregator extends EventEmitter {
         sessionId: info.sessionId,
         daemonId,
         projectId,
-        status: info.state === "ended" ? "idle" : info.state,
-        model: info.model,
-        startedAt: info.startedAt,
+        status: existing?.status ?? 'idle',
+        summary: info.summary,
+        startedAt: toEpochMs(info.startTime),
         updatedAt: now,
       };
       this.sessions.set(info.sessionId, aggregated);
@@ -111,19 +108,19 @@ export class CopilotSessionAggregator extends EventEmitter {
 
   // ── Firehose events ────────────────────────────────────
 
-  /** Called when a daemon sends copilot-session-event */
+  /** Called when a daemon sends copilot-session-event — SDK SessionEvent as-is */
   handleSessionEvent(
     daemonId: string,
     sessionId: string,
-    event: CopilotSessionEvent,
+    event: SessionEvent,
   ): void {
+    const eventTs = toEpochMs(event.timestamp);
     const session = this.sessions.get(sessionId);
     if (session) {
-      session.lastEvent = { type: event.type, timestamp: event.timestamp };
+      session.lastEvent = { type: event.type, timestamp: eventTs };
       session.updatedAt = Date.now();
 
-      // Update session status based on lifecycle events
-      // "active" = currently processing a prompt; "idle" = ready for input
+      // Update session status based on lifecycle events (SDK event names)
       if (
         event.type === "session.idle" ||
         event.type === "session.start" ||
@@ -134,26 +131,38 @@ export class CopilotSessionAggregator extends EventEmitter {
         session.status = "error";
       } else if (
         event.type === "user.message" ||
-        event.type === "assistant.message.delta" ||
-        event.type === "tool.executionStart"
+        event.type === "assistant.streaming_delta" ||
+        event.type === "assistant.message_delta" ||
+        event.type === "tool.execution_start"
       ) {
         session.status = "active";
-      } else if (event.type === "session.ended") {
+      } else if (event.type === "session.shutdown") {
         this.removeSession(sessionId);
         return; // session gone — skip further emit
       }
-    } else if (event.type === "session.ended") {
-      // No stub to create for a session that's ending
+
+      // Capture title and mode from enrichment events
+      if (event.type === "session.title_changed" && 'title' in event.data) {
+        session.title = event.data.title as string;
+      }
+      if (event.type === "session.mode_changed" && 'mode' in event.data) {
+        session.mode = event.data.mode as string;
+      }
+      if (event.type === "session.model_change" && 'model' in event.data) {
+        session.model = event.data.model as string;
+      }
+    } else if (event.type === "session.shutdown") {
+      // No stub to create for a session that's shutting down
       return;
     } else {
       // Create a stub session for events without a prior session-list
-      // daemonId IS the projectId (owner/repo) — never fall back to "unknown"
       this.sessions.set(sessionId, {
         sessionId,
         daemonId,
         projectId: daemonId,
-        status: "idle",        startedAt: event.timestamp,
-        lastEvent: { type: event.type, timestamp: event.timestamp },
+        status: "idle",
+        startedAt: eventTs,
+        lastEvent: { type: event.type, timestamp: eventTs },
         updatedAt: Date.now(),
       });
     }
@@ -166,7 +175,7 @@ export class CopilotSessionAggregator extends EventEmitter {
   /** Called when a daemon sends copilot-sdk-state */
   handleSdkStateChange(
     daemonId: string,
-    state: CopilotSdkState,
+    state: ConnectionState,
     error?: string,
   ): void {
     this.sdkStates.set(daemonId, {

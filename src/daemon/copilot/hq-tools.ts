@@ -8,14 +8,22 @@
  * Uses the SDK's `defineTool()` for proper registration.
  */
 
+import type { Tool } from '@github/copilot-sdk';
 import type { DaemonToHqMessage, CopilotHqToolName } from '../../shared/protocol.js';
-import type { ToolDefinition } from './adapter.js';
-import { getSdkDefineTool } from './sdk-adapter.js';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sdkDefineTool: any = null;
+try {
+  const sdk = await import('@github/copilot-sdk');
+  sdkDefineTool = sdk.defineTool;
+} catch {
+  // SDK not available — tools will be plain objects
+}
 
 export function createHqTools(
   sendToHq: (msg: DaemonToHqMessage) => void,
   projectId: string,
-): ToolDefinition[] {
+): Tool[] {
   function sendToolInvocation(
     sessionId: string,
     tool: CopilotHqToolName,
@@ -115,17 +123,15 @@ export function createHqTools(
   ] as const;
 
   // Use SDK's defineTool when available for proper registration
-  const define = getSdkDefineTool();
-
-  if (define) {
+  if (sdkDefineTool) {
     return toolSpecs.map((spec) =>
-      define(spec.name, {
+      sdkDefineTool(spec.name, {
         description: spec.description,
         parameters: spec.parameters,
         handler: spec.handler,
       }),
-    ) as unknown as ToolDefinition[];
+    ) as unknown as Tool[];
   }
 
-  return toolSpecs as unknown as ToolDefinition[];
+  return toolSpecs as unknown as Tool[];
 }

@@ -498,7 +498,7 @@ describe("DaemonWsHandler", () => {
     }));
   });
 
-  it("routes copilot-session-update to browser clients", async () => {
+  it("routes copilot-session-list to registry event", async () => {
     const handler = createHandler();
     const ws = createMockSocket();
     handler.handleConnection(ws as never);
@@ -517,18 +517,22 @@ describe("DaemonWsHandler", () => {
       payload: makeDaemonInfo(),
     }));
 
+    const emitSpy = vi.spyOn(registry, "emit");
     ws.simulateMessage(JSON.stringify({
-      type: "copilot-session-update",
+      type: "copilot-session-list",
       timestamp: Date.now(),
       payload: {
         projectId: "proj-1",
-        session: { sessionId: "cs1", state: "active", startedAt: 1000, lastActivityAt: 2000 },
+        requestId: "req-1",
+        sessions: [{ sessionId: "cs1", startTime: "2025-01-01T00:00:00.000Z", modifiedTime: "2025-01-01T00:00:01.000Z", isRemote: false }],
       },
     }));
 
-    expect(broadcast).toHaveBeenCalledWith("copilot", expect.objectContaining({
-      type: "copilot:session-update",
-    }));
+    expect(emitSpy).toHaveBeenCalledWith(
+      "copilot:session-list",
+      expect.anything(),
+      expect.objectContaining({ projectId: "proj-1" }),
+    );
   });
 
   it("handles disconnect and broadcasts to browsers", async () => {

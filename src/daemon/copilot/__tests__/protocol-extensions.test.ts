@@ -1,19 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import type {
-  CopilotSdkState,
-  CopilotSdkSessionInfo,
-  CopilotSessionEvent,
-  CopilotSessionEventType,
+  ConnectionState,
+  SessionEvent,
+  SessionEventType,
+  SessionMetadata,
+} from '@github/copilot-sdk';
+import type {
   SessionConfigWire,
   ToolDefinitionWire,
   CopilotSdkStateMessage,
-  CopilotSdkSessionListMessage,
-  CopilotSdkSessionEventMessage,
+  CopilotSessionListMessage,
+  CopilotSessionEventMessage,
   CopilotCreateSessionMessage,
   CopilotResumeSessionMessage,
   CopilotSendPromptMessage,
   CopilotAbortSessionMessage,
   CopilotListSessionsMessage,
+  CopilotModelsListMessage,
+  CopilotAuthStatusMessage,
   DaemonToHqMessage,
   HqToDaemonMessage,
   WsMessage,
@@ -22,64 +26,15 @@ import type {
 
 const now = Date.now();
 
-describe('Copilot SDK protocol extensions', () => {
+describe('Copilot SDK protocol (big-bang refactor)', () => {
   // -----------------------------------------------------------------------
-  // Shared types
+  // SDK re-exports
   // -----------------------------------------------------------------------
 
-  describe('CopilotSdkState', () => {
+  describe('ConnectionState (SDK)', () => {
     it('accepts all valid states', () => {
-      const states: CopilotSdkState[] = ['disconnected', 'connecting', 'connected', 'error'];
+      const states: ConnectionState[] = ['disconnected', 'connecting', 'connected', 'error'];
       expect(states).toHaveLength(4);
-    });
-  });
-
-  describe('CopilotSdkSessionInfo', () => {
-    it('has correct shape with optional fields', () => {
-      const info: CopilotSdkSessionInfo = {
-        sessionId: 'sess-1',
-        cwd: '/ws/project',
-        gitRoot: '/ws/project',
-        repository: 'org/repo',
-        branch: 'main',
-        summary: 'Working on feature X',
-      };
-      expect(info.sessionId).toBe('sess-1');
-      expect(info.repository).toBe('org/repo');
-    });
-
-    it('works with only required fields', () => {
-      const info: CopilotSdkSessionInfo = { sessionId: 'sess-2' };
-      expect(info.sessionId).toBe('sess-2');
-      expect(info.cwd).toBeUndefined();
-    });
-  });
-
-  describe('CopilotSessionEvent', () => {
-    it('has correct shape', () => {
-      const event: CopilotSessionEvent = {
-        type: 'assistant.message.delta',
-        data: { delta: 'hello ' },
-        timestamp: now,
-      };
-      expect(event.type).toBe('assistant.message.delta');
-      expect(event.data.delta).toBe('hello ');
-    });
-
-    it('accepts all event types', () => {
-      const types: CopilotSessionEventType[] = [
-        'user.message',
-        'assistant.message',
-        'assistant.message.delta',
-        'assistant.reasoning',
-        'assistant.reasoning.delta',
-        'tool.executionStart',
-        'tool.executionComplete',
-        'session.start',
-        'session.idle',
-        'session.error',
-      ];
-      expect(types).toHaveLength(10);
     });
   });
 
@@ -111,7 +66,7 @@ describe('Copilot SDK protocol extensions', () => {
   // -----------------------------------------------------------------------
 
   describe('Daemon → HQ: copilot-sdk-state', () => {
-    it('has correct message shape', () => {
+    it('has correct message shape with ConnectionState', () => {
       const msg: CopilotSdkStateMessage = {
         type: 'copilot-sdk-state',
         timestamp: now,
@@ -131,40 +86,62 @@ describe('Copilot SDK protocol extensions', () => {
     });
   });
 
-  describe('Daemon → HQ: copilot-sdk-session-list', () => {
-    it('has correct message shape', () => {
-      const msg: CopilotSdkSessionListMessage = {
-        type: 'copilot-sdk-session-list',
+  describe('Daemon → HQ: copilot-session-list', () => {
+    it('carries SDK SessionMetadata[]', () => {
+      const sessions: SessionMetadata[] = [
+        { sessionId: 'sess-1', startTime: new Date(), modifiedTime: new Date(), isRemote: false, summary: 'Test' },
+        { sessionId: 'sess-2', startTime: new Date(), modifiedTime: new Date(), isRemote: false },
+      ];
+      const msg: CopilotSessionListMessage = {
+        type: 'copilot-session-list',
         timestamp: now,
-        payload: {
-          requestId: 'req-1',
-          sessions: [
-            { sessionId: 'sess-1', repository: 'org/repo' },
-            { sessionId: 'sess-2', branch: 'main' },
-          ],
-        },
+        payload: { projectId: 'proj-1', requestId: 'req-1', sessions },
       };
-      expect(msg.type).toBe('copilot-sdk-session-list');
+      expect(msg.type).toBe('copilot-session-list');
       expect(msg.payload.sessions).toHaveLength(2);
     });
   });
 
-  describe('Daemon → HQ: copilot-sdk-session-event', () => {
-    it('has correct message shape', () => {
-      const msg: CopilotSdkSessionEventMessage = {
-        type: 'copilot-sdk-session-event',
+  describe('Daemon → HQ: copilot-session-event', () => {
+    it('carries SDK SessionEvent as-is', () => {
+      const event: SessionEvent = {
+        id: 'evt-1',
+        timestamp: new Date().toISOString(),
+        parentId: null,
+        type: 'session.idle',
+        data: {},
+      } as SessionEvent;
+
+      const msg: CopilotSessionEventMessage = {
+        type: 'copilot-session-event',
         timestamp: now,
-        payload: {
-          sessionId: 'sess-1',
-          event: {
-            type: 'assistant.message.delta',
-            data: { delta: 'Hello' },
-            timestamp: now,
-          },
-        },
+        payload: { projectId: 'proj-1', sessionId: 'sess-1', event },
       };
-      expect(msg.type).toBe('copilot-sdk-session-event');
-      expect(msg.payload.event.type).toBe('assistant.message.delta');
+      expect(msg.type).toBe('copilot-session-event');
+      expect(msg.payload.event.type).toBe('session.idle');
+    });
+  });
+
+  describe('Daemon → HQ: copilot-models-list (NEW)', () => {
+    it('has correct message shape', () => {
+      const msg: CopilotModelsListMessage = {
+        type: 'copilot-models-list',
+        timestamp: now,
+        payload: { models: [] },
+      };
+      expect(msg.type).toBe('copilot-models-list');
+    });
+  });
+
+  describe('Daemon → HQ: copilot-auth-status (NEW)', () => {
+    it('has correct message shape', () => {
+      const msg: CopilotAuthStatusMessage = {
+        type: 'copilot-auth-status',
+        timestamp: now,
+        payload: { authenticated: true, user: 'octocat' },
+      };
+      expect(msg.type).toBe('copilot-auth-status');
+      expect(msg.payload.user).toBe('octocat');
     });
   });
 
@@ -225,16 +202,6 @@ describe('Copilot SDK protocol extensions', () => {
       };
       expect(msg.type).toBe('copilot-send-prompt');
       expect(msg.payload.prompt).toBe('Fix the tests');
-      expect(msg.payload.attachments).toHaveLength(1);
-    });
-
-    it('works without attachments', () => {
-      const msg: CopilotSendPromptMessage = {
-        type: 'copilot-send-prompt',
-        timestamp: now,
-        payload: { sessionId: 'sess-1', prompt: 'Hello' },
-      };
-      expect(msg.payload.attachments).toBeUndefined();
     });
   });
 
@@ -265,7 +232,7 @@ describe('Copilot SDK protocol extensions', () => {
   // -----------------------------------------------------------------------
 
   describe('discriminated union membership', () => {
-    it('DaemonToHqMessage includes new SDK types', () => {
+    it('DaemonToHqMessage includes SDK-backed types', () => {
       const msg: DaemonToHqMessage = {
         type: 'copilot-sdk-state',
         timestamp: now,
@@ -281,7 +248,18 @@ describe('Copilot SDK protocol extensions', () => {
       }
     });
 
-    it('HqToDaemonMessage includes new SDK command types', () => {
+    it('DaemonToHqMessage includes new message types', () => {
+      const types: DaemonToHqMessage['type'][] = [
+        'copilot-session-list',
+        'copilot-session-event',
+        'copilot-sdk-state',
+        'copilot-models-list',
+        'copilot-auth-status',
+      ];
+      expect(types).toHaveLength(5);
+    });
+
+    it('HqToDaemonMessage includes copilot command types', () => {
       const types: HqToDaemonMessage['type'][] = [
         'copilot-create-session',
         'copilot-resume-session',
@@ -293,32 +271,39 @@ describe('Copilot SDK protocol extensions', () => {
     });
 
     it('WsMessage narrows correctly', () => {
+      const event: SessionEvent = {
+        id: 'e1',
+        timestamp: new Date().toISOString(),
+        parentId: null,
+        type: 'session.idle',
+        data: {},
+      } as SessionEvent;
+
       const msg: WsMessage = {
-        type: 'copilot-sdk-session-event',
+        type: 'copilot-session-event',
         timestamp: now,
-        payload: {
-          sessionId: 's1',
-          event: { type: 'session.idle', data: {}, timestamp: now },
-        },
+        payload: { projectId: 'proj-1', sessionId: 's1', event },
       };
 
-      if (msg.type === 'copilot-sdk-session-event') {
+      if (msg.type === 'copilot-session-event') {
         expect(msg.payload.sessionId).toBe('s1');
       }
     });
 
-    it('MessageType includes all new discriminants', () => {
+    it('MessageType includes all discriminants', () => {
       const newTypes: MessageType[] = [
         'copilot-sdk-state',
-        'copilot-sdk-session-list',
-        'copilot-sdk-session-event',
+        'copilot-session-list',
+        'copilot-session-event',
+        'copilot-models-list',
+        'copilot-auth-status',
         'copilot-create-session',
         'copilot-resume-session',
         'copilot-send-prompt',
         'copilot-abort-session',
         'copilot-list-sessions',
       ];
-      expect(newTypes).toHaveLength(8);
+      expect(newTypes).toHaveLength(10);
     });
   });
 });

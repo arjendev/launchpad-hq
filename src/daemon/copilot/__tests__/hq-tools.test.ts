@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHqTools } from '../hq-tools.js';
 import type { DaemonToHqMessage } from '../../../shared/protocol.js';
-import type { ToolDefinition } from '../adapter.js';
+import type { Tool } from '@github/copilot-sdk';
+
+const inv = { sessionId: 's1', toolCallId: 'tc1', toolName: '', arguments: {} };
 
 describe('createHqTools', () => {
   let sent: DaemonToHqMessage[];
   let sendToHq: (msg: DaemonToHqMessage) => void;
-  let tools: ToolDefinition[];
+  let tools: Tool[];
 
   beforeEach(() => {
     sent = [];
@@ -33,26 +35,28 @@ describe('createHqTools', () => {
   it('each tool has parameters with required fields', () => {
     for (const tool of tools) {
       expect(tool.parameters).toBeDefined();
-      expect(tool.parameters.type).toBe('object');
-      expect(tool.parameters.properties).toBeDefined();
+      const params = tool.parameters as Record<string, unknown>;
+      expect(params.type).toBe('object');
+      expect(params.properties).toBeDefined();
     }
   });
 
   // ── report_progress ──────────────────────────────────
 
   describe('report_progress', () => {
-    let tool: ToolDefinition;
+    let tool: Tool;
 
     beforeEach(() => {
       tool = tools.find((t) => t.name === 'report_progress')!;
     });
 
     it('has status and summary as required parameters', () => {
-      expect(tool.parameters.required).toEqual(['status', 'summary']);
+      const params = tool.parameters as Record<string, unknown>;
+      expect(params.required).toEqual(['status', 'summary']);
     });
 
     it('handler sends copilot-tool-invocation message to HQ', async () => {
-      const result = await tool.handler({ status: 'working', summary: 'Fixing tests' });
+      const result = await tool.handler({ status: 'working', summary: 'Fixing tests' }, { ...inv, toolName: 'report_progress' });
 
       expect(sent).toHaveLength(1);
       expect(sent[0].type).toBe('copilot-tool-invocation');
@@ -64,7 +68,7 @@ describe('createHqTools', () => {
     });
 
     it('handler returns acknowledgment', async () => {
-      const result = await tool.handler({ status: 'completed', summary: 'Done' });
+      const result = await tool.handler({ status: 'completed', summary: 'Done' }, { ...inv, toolName: 'report_progress' });
 
       expect(result).toEqual({
         acknowledged: true,
@@ -76,18 +80,19 @@ describe('createHqTools', () => {
   // ── request_human_review ─────────────────────────────
 
   describe('request_human_review', () => {
-    let tool: ToolDefinition;
+    let tool: Tool;
 
     beforeEach(() => {
       tool = tools.find((t) => t.name === 'request_human_review')!;
     });
 
     it('has reason and urgency as required parameters', () => {
-      expect(tool.parameters.required).toEqual(['reason', 'urgency']);
+      const params = tool.parameters as Record<string, unknown>;
+      expect(params.required).toEqual(['reason', 'urgency']);
     });
 
     it('handler sends copilot-tool-invocation message to HQ', async () => {
-      await tool.handler({ reason: 'Need approval', urgency: 'high' });
+      await tool.handler({ reason: 'Need approval', urgency: 'high' }, { ...inv, toolName: 'request_human_review' });
 
       expect(sent).toHaveLength(1);
       const msg = sent[0] as DaemonToHqMessage & { type: 'copilot-tool-invocation' };
@@ -96,7 +101,7 @@ describe('createHqTools', () => {
     });
 
     it('handler returns acknowledgment', async () => {
-      const result = await tool.handler({ reason: 'Check this', urgency: 'low' });
+      const result = await tool.handler({ reason: 'Check this', urgency: 'low' }, { ...inv, toolName: 'request_human_review' });
 
       expect(result).toEqual({
         acknowledged: true,
@@ -108,21 +113,22 @@ describe('createHqTools', () => {
   // ── report_blocker ───────────────────────────────────
 
   describe('report_blocker', () => {
-    let tool: ToolDefinition;
+    let tool: Tool;
 
     beforeEach(() => {
       tool = tools.find((t) => t.name === 'report_blocker')!;
     });
 
     it('has blocker as required parameter', () => {
-      expect(tool.parameters.required).toEqual(['blocker']);
+      const params = tool.parameters as Record<string, unknown>;
+      expect(params.required).toEqual(['blocker']);
     });
 
     it('handler sends copilot-tool-invocation message to HQ', async () => {
       await tool.handler({
         blocker: 'API key expired',
         attempted: ['regenerate key', 'use cached token'],
-      });
+      }, { ...inv, toolName: 'report_blocker' });
 
       expect(sent).toHaveLength(1);
       const msg = sent[0] as DaemonToHqMessage & { type: 'copilot-tool-invocation' };
@@ -132,7 +138,7 @@ describe('createHqTools', () => {
     });
 
     it('handler returns acknowledgment', async () => {
-      const result = await tool.handler({ blocker: 'Cannot connect' });
+      const result = await tool.handler({ blocker: 'Cannot connect' }, { ...inv, toolName: 'report_blocker' });
 
       expect(result).toEqual({
         acknowledged: true,

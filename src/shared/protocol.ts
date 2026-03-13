@@ -3,9 +3,27 @@
  *
  * All messages are discriminated unions keyed on the `type` field.
  * Types only — no runtime WebSocket code lives here.
+ *
+ * Copilot types are re-exported from @github/copilot-sdk — the SDK
+ * is the source of truth.  Events flow as-is, no mapping.
  */
 
 import type { PROTOCOL_VERSION } from './constants.js';
+
+// ---------------------------------------------------------------------------
+// SDK re-exports — source of truth for Copilot types
+// ---------------------------------------------------------------------------
+
+import type {
+  ConnectionState,
+  SessionEvent,
+  SessionEventType,
+  SessionMetadata,
+  ModelInfo,
+  GetAuthStatusResponse,
+} from '@github/copilot-sdk';
+
+export type { ConnectionState, SessionEvent, SessionEventType, SessionMetadata, ModelInfo, GetAuthStatusResponse };
 
 // ---------------------------------------------------------------------------
 // Shared domain types
@@ -34,18 +52,6 @@ export interface DaemonInfo {
   protocolVersion: typeof PROTOCOL_VERSION;
 }
 
-/** Copilot session lifecycle state */
-export type CopilotSessionState = 'active' | 'idle' | 'ended';
-
-/** Summary of a single Copilot session */
-export interface CopilotSessionInfo {
-  sessionId: string;
-  state: CopilotSessionState;
-  model?: string;
-  startedAt: number;
-  lastActivityAt: number;
-}
-
 /** A single message within a Copilot conversation */
 export interface CopilotMessage {
   role: 'user' | 'assistant' | 'system';
@@ -56,41 +62,22 @@ export interface CopilotMessage {
 }
 
 // ---------------------------------------------------------------------------
-// Copilot SDK integration types
+// HQ-specific enriched session (aggregator output)
 // ---------------------------------------------------------------------------
 
-/** Copilot SDK adapter connection state */
-export type CopilotSdkState = 'disconnected' | 'connecting' | 'connected' | 'error';
-
-/** Session metadata from the Copilot SDK layer */
-export interface CopilotSdkSessionInfo {
+/** Aggregated view of a session across daemons — HQ enrichment on top of SDK data */
+export interface AggregatedSession {
   sessionId: string;
-  cwd?: string;
-  gitRoot?: string;
-  repository?: string;
-  branch?: string;
+  daemonId: string;
+  projectId: string;
+  status: 'idle' | 'active' | 'error' | 'ended';
+  model?: string;
+  title?: string;
+  mode?: string;
   summary?: string;
-}
-
-/** Event types emitted by the Copilot SDK session */
-export type CopilotSessionEventType =
-  | 'user.message'
-  | 'assistant.message'
-  | 'assistant.message.delta'
-  | 'assistant.reasoning'
-  | 'assistant.reasoning.delta'
-  | 'tool.executionStart'
-  | 'tool.executionComplete'
-  | 'session.start'
-  | 'session.idle'
-  | 'session.error'
-  | 'session.ended';
-
-/** A single event from a Copilot SDK session */
-export interface CopilotSessionEvent {
-  type: CopilotSessionEventType;
-  data: Record<string, unknown>;
-  timestamp: number;
+  startedAt: number;
+  updatedAt: number;
+  lastEvent?: { type: string; timestamp: number };
 }
 
 /** Tool definition (wire-safe — no handler) for session configuration */
@@ -100,7 +87,7 @@ export interface ToolDefinitionWire {
   parameters: Record<string, unknown>;
 }
 
-/** Session configuration sent over the wire */
+/** Session configuration sent over the wire (handler-free subset of SDK SessionConfig) */
 export interface SessionConfigWire {
   model?: string;
   systemMessage?: { mode: 'append' | 'replace'; content: string };
@@ -174,13 +161,6 @@ export interface TerminalExitMessage extends BaseMessage<'terminal-exit'> {
   };
 }
 
-export interface CopilotSessionUpdateMessage extends BaseMessage<'copilot-session-update'> {
-  payload: {
-    projectId: string;
-    session: CopilotSessionInfo;
-  };
-}
-
 export interface CopilotConversationMessage extends BaseMessage<'copilot-conversation'> {
   payload: {
     projectId: string;
@@ -189,28 +169,40 @@ export interface CopilotConversationMessage extends BaseMessage<'copilot-convers
   };
 }
 
-// Daemon → HQ: batch SDK session list (sent on connect or periodically)
-export interface CopilotSdkSessionListMessage extends BaseMessage<'copilot-sdk-session-list'> {
+// Daemon → HQ: batch session list — SDK SessionMetadata[] directly
+export interface CopilotSessionListMessage extends BaseMessage<'copilot-session-list'> {
   payload: {
+    projectId: string;
     requestId: string;
-    sessions: CopilotSdkSessionInfo[];
+    sessions: SessionMetadata[];
   };
 }
 
-// Daemon → HQ: individual SDK session event (firehose)
-export interface CopilotSdkSessionEventMessage extends BaseMessage<'copilot-sdk-session-event'> {
+// Daemon → HQ: individual session event — SDK SessionEvent as-is
+export interface CopilotSessionEventMessage extends BaseMessage<'copilot-session-event'> {
   payload: {
+    projectId: string;
     sessionId: string;
-    event: CopilotSessionEvent;
+    event: SessionEvent;
   };
 }
 
-// Daemon → HQ: SDK adapter connection state change
+// Daemon → HQ: SDK connection state change
 export interface CopilotSdkStateMessage extends BaseMessage<'copilot-sdk-state'> {
   payload: {
-    state: CopilotSdkState;
+    state: ConnectionState;
     error?: string;
   };
+}
+
+// Daemon → HQ: available models
+export interface CopilotModelsListMessage extends BaseMessage<'copilot-models-list'> {
+  payload: { models: ModelInfo[] };
+}
+
+// Daemon → HQ: auth status
+export interface CopilotAuthStatusMessage extends BaseMessage<'copilot-auth-status'> {
+  payload: { authenticated: boolean; user?: string; scopes?: string[] };
 }
 
 export interface AttentionItemMessage extends BaseMessage<'attention-item'> {
@@ -230,23 +222,6 @@ export interface CopilotToolInvocationMessage extends BaseMessage<'copilot-tool-
   args: Record<string, unknown>;
 }
 
-// Daemon → HQ: batch session list (aggregator-facing, includes projectId)
-export interface CopilotSessionListMessage extends BaseMessage<'copilot-session-list'> {
-  payload: {
-    projectId: string;
-    sessions: CopilotSessionInfo[];
-  };
-}
-
-// Daemon → HQ: individual session event with projectId (aggregator-facing)
-export interface CopilotSessionEventMessage extends BaseMessage<'copilot-session-event'> {
-  payload: {
-    projectId: string;
-    sessionId: string;
-    event: CopilotSessionEvent;
-  };
-}
-
 /** Auth response from daemon after receiving a challenge */
 export interface AuthResponseMessage extends BaseMessage<'auth-response'> {
   payload: {
@@ -262,13 +237,12 @@ export type DaemonToHqMessage =
   | StatusUpdateMessage
   | TerminalDataMessage
   | TerminalExitMessage
-  | CopilotSessionUpdateMessage
   | CopilotSessionListMessage
   | CopilotSessionEventMessage
   | CopilotConversationMessage
-  | CopilotSdkSessionListMessage
-  | CopilotSdkSessionEventMessage
   | CopilotSdkStateMessage
+  | CopilotModelsListMessage
+  | CopilotAuthStatusMessage
   | AttentionItemMessage
   | CopilotToolInvocationMessage
   | AuthResponseMessage;
