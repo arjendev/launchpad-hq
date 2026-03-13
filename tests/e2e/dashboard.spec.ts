@@ -23,8 +23,8 @@ test.describe("Dashboard smoke tests", () => {
       page.getByText("Select a project from the sidebar"),
     ).toBeVisible();
 
-    // Live sessions panel
-    await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
+    // Right panel
+    await expect(page.getByRole("heading", { name: "Connected Project" })).toBeVisible();
   });
 
   test("no uncaught exceptions in first 5 seconds after load", async ({

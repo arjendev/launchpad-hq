@@ -222,9 +222,9 @@ describe("WebSocketManager", () => {
       mgr.connect();
       getLatestMock().simulateOpen();
 
-      mgr.subscribe("devcontainer", vi.fn());
+      mgr.subscribe("daemon", vi.fn());
       const sent = getLatestMock().sent.map((s) => JSON.parse(s));
-      expect(sent).toContainEqual({ type: "subscribe", channel: "devcontainer" });
+      expect(sent).toContainEqual({ type: "subscribe", channel: "daemon" });
 
       mgr.dispose();
     });
@@ -277,14 +277,14 @@ describe("WebSocketManager", () => {
       mgr.connect();
       getLatestMock().simulateOpen();
 
-      const unsub = mgr.subscribe("devcontainer", vi.fn());
+      const unsub = mgr.subscribe("daemon", vi.fn());
       getLatestMock().sent = []; // clear subscribe message
 
       unsub();
 
       const sent = getLatestMock().sent.map((s) => JSON.parse(s));
-      expect(sent).toContainEqual({ type: "unsubscribe", channel: "devcontainer" });
-      expect(mgr.getSubscriptions().has("devcontainer")).toBe(false);
+      expect(sent).toContainEqual({ type: "unsubscribe", channel: "daemon" });
+      expect(mgr.getSubscriptions().has("daemon")).toBe(false);
 
       mgr.dispose();
     });
@@ -294,7 +294,7 @@ describe("WebSocketManager", () => {
       mgr.connect();
       getLatestMock().simulateOpen();
 
-      mgr.subscribe("devcontainer", vi.fn());
+      mgr.subscribe("daemon", vi.fn());
       mgr.subscribe("copilot", vi.fn());
 
       // Disconnect and reconnect
@@ -303,7 +303,7 @@ describe("WebSocketManager", () => {
       getLatestMock().simulateOpen();
 
       const sent = getLatestMock().sent.map((s) => JSON.parse(s));
-      expect(sent).toContainEqual({ type: "subscribe", channel: "devcontainer" });
+      expect(sent).toContainEqual({ type: "subscribe", channel: "daemon" });
       expect(sent).toContainEqual({ type: "subscribe", channel: "copilot" });
 
       mgr.dispose();

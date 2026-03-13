@@ -16,7 +16,7 @@ import statePlugin from "./state/plugin.js";
 import cachePlugin from "./cache/plugin.js";
 import websocket from "./ws/plugin.js";
 import daemonRegistryPlugin from "./daemon-registry/plugin.js";
-import containersPlugin from "./containers/plugin.js";
+
 import attentionPlugin from "./attention/plugin.js";
 import copilotPlugin from "./copilot/plugin.js";
 import copilotAggregatorPlugin from "./copilot-aggregator/plugin.js";
@@ -70,10 +70,6 @@ await server.register(daemonRegistryPlugin);
 // --- Terminal relay (depends on websocket + daemon-registry) ---
 
 await server.register(terminalRelayPlugin);
-
-// --- Container monitoring ---
-
-await server.register(containersPlugin);
 
 // --- Copilot introspection (mock adapter until real SDK ships) ---
 

@@ -97,7 +97,7 @@ describe("useWebSocket hook", () => {
 
 describe("useSubscription hook", () => {
   function TestSubscriber() {
-    const { data, status } = useSubscription<{ value: string }>("devcontainer");
+    const { data, status } = useSubscription<{ value: string }>("daemon");
     return (
       <div>
         <span data-testid="sub-status">{status}</span>
@@ -129,7 +129,7 @@ describe("useSubscription hook", () => {
       mockWs.onmessage?.({
         data: JSON.stringify({
           type: "update",
-          channel: "devcontainer",
+          channel: "daemon",
           payload: { value: "running" },
         }),
       });

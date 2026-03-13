@@ -6,6 +6,9 @@ import type { DaemonInfo, DaemonToHqMessage, HqToDaemonMessage } from "../../sha
 import { HEARTBEAT_TIMEOUT_MS } from "../../shared/constants.js";
 import daemonRoutes from "../routes/daemons.js";
 
+/** Flush the microtask queue so async auth handling completes. */
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
 // --- Mock helpers ---
 
 function createMockSocket() {
@@ -259,7 +262,7 @@ describe("DaemonWsHandler", () => {
     expect(msg.payload.nonce).toBeDefined();
   });
 
-  it("rejects auth with wrong nonce", () => {
+  it("rejects auth with wrong nonce", async () => {
     const handler = createHandler();
     const ws = createMockSocket();
     handler.handleConnection(ws as never);
@@ -271,6 +274,7 @@ describe("DaemonWsHandler", () => {
       payload: { projectId: "proj-1", token: validToken, nonce: "wrong-nonce" },
     };
     ws.simulateMessage(JSON.stringify(authResponse));
+    await tick();
 
     // Should have challenge + reject
     expect(ws.sent).toHaveLength(2);
@@ -279,7 +283,7 @@ describe("DaemonWsHandler", () => {
     expect(reject.payload.reason).toBe("Nonce mismatch");
   });
 
-  it("rejects auth with invalid token", () => {
+  it("rejects auth with invalid token", async () => {
     const handler = createHandler(() => "expected-token");
     const ws = createMockSocket();
     handler.handleConnection(ws as never);
@@ -291,6 +295,7 @@ describe("DaemonWsHandler", () => {
       payload: { projectId: "proj-1", token: "wrong-token", nonce: challenge.payload.nonce },
     };
     ws.simulateMessage(JSON.stringify(authResponse));
+    await tick();
 
     expect(ws.sent).toHaveLength(2);
     const reject = JSON.parse(ws.sent[1]);
@@ -298,7 +303,7 @@ describe("DaemonWsHandler", () => {
     expect(reject.payload.reason).toBe("Invalid token");
   });
 
-  it("accepts auth with correct token and nonce", () => {
+  it("accepts auth with correct token and nonce", async () => {
     const handler = createHandler();
     const ws = createMockSocket();
     handler.handleConnection(ws as never);
@@ -310,13 +315,14 @@ describe("DaemonWsHandler", () => {
       payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
     };
     ws.simulateMessage(JSON.stringify(authResponse));
+    await tick();
 
     expect(ws.sent).toHaveLength(2);
     const accept = JSON.parse(ws.sent[1]);
     expect(accept.type).toBe("auth-accept");
   });
 
-  it("processes register message after auth", () => {
+  it("processes register message after auth", async () => {
     const handler = createHandler();
     const ws = createMockSocket();
     handler.handleConnection(ws as never);
@@ -328,6 +334,7 @@ describe("DaemonWsHandler", () => {
       timestamp: Date.now(),
       payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
     }));
+    await tick();
 
     // Now send register
     ws.simulateMessage(JSON.stringify({
@@ -356,7 +363,7 @@ describe("DaemonWsHandler", () => {
     expect(log.warn).toHaveBeenCalled();
   });
 
-  it("routes heartbeat messages", () => {
+  it("routes heartbeat messages", async () => {
     const handler = createHandler();
     const ws = createMockSocket();
     handler.handleConnection(ws as never);
@@ -368,6 +375,7 @@ describe("DaemonWsHandler", () => {
       timestamp: Date.now(),
       payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
     }));
+    await tick();
 
     // Register
     ws.simulateMessage(JSON.stringify({
@@ -388,7 +396,7 @@ describe("DaemonWsHandler", () => {
     expect(registry.getDaemon("proj-1")!.lastHeartbeat).toBeGreaterThanOrEqual(beforeHb);
   });
 
-  it("routes status-update to browser clients", () => {
+  it("routes status-update to browser clients", async () => {
     const handler = createHandler();
     const ws = createMockSocket();
     handler.handleConnection(ws as never);
@@ -400,6 +408,7 @@ describe("DaemonWsHandler", () => {
       timestamp: Date.now(),
       payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
     }));
+    await tick();
     ws.simulateMessage(JSON.stringify({
       type: "register",
       timestamp: Date.now(),
@@ -422,7 +431,7 @@ describe("DaemonWsHandler", () => {
     }));
   });
 
-  it("routes terminal-data to browser clients", () => {
+  it("routes terminal-data to browser clients", async () => {
     const handler = createHandler();
     const ws = createMockSocket();
     handler.handleConnection(ws as never);
@@ -434,6 +443,7 @@ describe("DaemonWsHandler", () => {
       timestamp: Date.now(),
       payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
     }));
+    await tick();
     ws.simulateMessage(JSON.stringify({
       type: "register",
       timestamp: Date.now(),
@@ -454,7 +464,7 @@ describe("DaemonWsHandler", () => {
     }));
   });
 
-  it("routes terminal-exit to browser clients", () => {
+  it("routes terminal-exit to browser clients", async () => {
     const handler = createHandler();
     const ws = createMockSocket();
     handler.handleConnection(ws as never);
@@ -466,6 +476,7 @@ describe("DaemonWsHandler", () => {
       timestamp: Date.now(),
       payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
     }));
+    await tick();
     ws.simulateMessage(JSON.stringify({
       type: "register",
       timestamp: Date.now(),
@@ -487,7 +498,7 @@ describe("DaemonWsHandler", () => {
     }));
   });
 
-  it("routes copilot-session-update to browser clients", () => {
+  it("routes copilot-session-update to browser clients", async () => {
     const handler = createHandler();
     const ws = createMockSocket();
     handler.handleConnection(ws as never);
@@ -499,6 +510,7 @@ describe("DaemonWsHandler", () => {
       timestamp: Date.now(),
       payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
     }));
+    await tick();
     ws.simulateMessage(JSON.stringify({
       type: "register",
       timestamp: Date.now(),
@@ -519,7 +531,7 @@ describe("DaemonWsHandler", () => {
     }));
   });
 
-  it("handles disconnect and broadcasts to browsers", () => {
+  it("handles disconnect and broadcasts to browsers", async () => {
     const handler = createHandler();
     const ws = createMockSocket();
     handler.handleConnection(ws as never);
@@ -531,6 +543,7 @@ describe("DaemonWsHandler", () => {
       timestamp: Date.now(),
       payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
     }));
+    await tick();
     ws.simulateMessage(JSON.stringify({
       type: "register",
       timestamp: Date.now(),
@@ -548,7 +561,7 @@ describe("DaemonWsHandler", () => {
     }));
   });
 
-  it("ignores invalid JSON from daemon", () => {
+  it("ignores invalid JSON from daemon", async () => {
     const handler = createHandler();
     const ws = createMockSocket();
     handler.handleConnection(ws as never);
@@ -560,6 +573,7 @@ describe("DaemonWsHandler", () => {
       timestamp: Date.now(),
       payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
     }));
+    await tick();
 
     // Send garbage
     ws.simulateMessage("not valid json{{{");

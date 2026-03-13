@@ -18,7 +18,7 @@ interface PendingConnection {
 }
 
 /** Token lookup: given a projectId, return the stored secret (or undefined) */
-export type TokenLookup = (projectId: string) => string | undefined;
+export type TokenLookup = (projectId: string) => string | undefined | Promise<string | undefined>;
 
 /** Callback for broadcasting daemon events to browser clients */
 export type BrowserBroadcast = (channel: string, payload: unknown) => void;
@@ -84,7 +84,10 @@ export class DaemonWsHandler {
     const pending = this.pending.get(ws);
     if (pending) {
       if (msg.type === "auth-response") {
-        this.handleAuthResponse(ws, pending, msg);
+        void this.handleAuthResponse(ws, pending, msg).catch((err) => {
+          this.log.error({ err }, "Auth response handling failed");
+          this.sendReject(ws, "Internal error");
+        });
       } else {
         this.log.warn({ type: msg.type }, "Message before auth — ignoring");
       }
@@ -96,11 +99,11 @@ export class DaemonWsHandler {
   }
 
   /** Validate auth response and promote or reject */
-  private handleAuthResponse(
+  private async handleAuthResponse(
     ws: WebSocket,
     pending: PendingConnection,
     msg: DaemonToHqMessage & { type: "auth-response" },
-  ): void {
+  ): Promise<void> {
     const { projectId, token, nonce } = msg.payload;
 
     // Verify nonce matches what we sent
@@ -110,7 +113,7 @@ export class DaemonWsHandler {
     }
 
     // Look up expected token for this project
-    const expected = this.tokenLookup(projectId);
+    const expected = await this.tokenLookup(projectId);
     if (!expected || !validateDaemonToken(token, expected)) {
       this.sendReject(ws, "Invalid token");
       return;

@@ -4,11 +4,20 @@ import userEvent from "@testing-library/user-event";
 import { render } from "../../test-utils/client.js";
 import { ProjectList } from "../components/ProjectList";
 import { KanbanBoard } from "../components/KanbanBoard";
-import { SessionsPanel } from "../components/SessionsPanel";
+import { ConnectedProjectPanel } from "../components/ConnectedProjectPanel";
 
 // Mock fetch globally
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
+
+// Mock ProjectContext so ConnectedProjectPanel can render standalone
+vi.mock("../contexts/ProjectContext.js", () => ({
+  useSelectedProject: () => ({
+    selectedProject: null,
+    selectProject: vi.fn(),
+  }),
+  ProjectProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
 
 beforeEach(() => {
   mockFetch.mockReset();
@@ -96,9 +105,9 @@ describe("KanbanBoard", () => {
   });
 });
 
-describe("SessionsPanel", () => {
-  it("renders the sessions heading", () => {
-    render(<SessionsPanel />);
-    expect(screen.getByText("Sessions")).toBeInTheDocument();
+describe("ConnectedProjectPanel", () => {
+  it("renders the panel heading", () => {
+    render(<ConnectedProjectPanel />);
+    expect(screen.getByText("Connected Project")).toBeInTheDocument();
   });
 });
