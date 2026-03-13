@@ -106,7 +106,7 @@ describe("CopilotSessionAggregator", () => {
       const session = aggregator.getSession("unknown-sess");
       expect(session).toBeDefined();
       expect(session!.daemonId).toBe("d1");
-      expect(session!.status).toBe("active");
+      expect(session!.status).toBe("idle");
     });
 
     it("emits session-event", () => {
