@@ -100,3 +100,15 @@ TARS delivered devcontainer discovery via Docker CLI — a clean, lightweight al
 - `vitest.config.ts` server project now includes `src/shared/**/*.test.ts`
 - 30 tests added (23 protocol + 7 auth), all passing alongside existing 200 tests (230 total)
 
+### 2026-03-13: Daemon Core Process (#30)
+- Daemon module lives in `src/daemon/` with 4 files: `config.ts`, `client.ts`, `state.ts`, `index.ts`
+- `config.ts`: loads from env vars (LAUNCHPAD_HQ_URL, LAUNCHPAD_DAEMON_TOKEN, LAUNCHPAD_PROJECT_ID) → `.launchpad/daemon.json` fallback → defaults. Validates required fields.
+- `client.ts`: `DaemonWebSocketClient` extends typed EventEmitter. Connects outbound to HQ, handles auth-challenge/response automatically, starts heartbeat after auth-accept, reconnects with exponential backoff (1s→30s cap).
+- `state.ts`: `DaemonState` tracks ProjectState in memory, notifies listeners only on actual value changes. Convenience setters for initialized/online/workState.
+- `index.ts`: `startDaemon()` wires config→client→state. Responds to `request-status` with current state. State changes trigger `status-update` to HQ when authenticated.
+- `src/cli.ts`: CLI router — `launchpad-hq --daemon` starts daemon, otherwise starts HQ server. Dynamic imports keep each mode's deps separate.
+- `package.json` bin entry updated from `dist/server/index.js` to `dist/cli.js`
+- `tsconfig.server.json` and `vitest.config.ts` include `src/daemon/`
+- Key ws library lesson: `ws.terminate()` on CONNECTING state emits 'error' via `process.nextTick` — must install no-op error handler before terminate to avoid uncaught exceptions
+- 38 tests (14 client, 11 config, 13 state), 351 total passing
+
