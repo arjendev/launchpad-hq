@@ -13,10 +13,6 @@ import type {
 
 const mockSession: AggregatedSession = {
   sessionId: "abc123",
-  daemonId: "d1",
-  projectId: "proj-1",
-  repository: "owner/my-project",
-  branch: "main",
   status: "idle",
   startedAt: Date.now() - 600_000,
   updatedAt: Date.now(),
@@ -81,6 +77,11 @@ function setupFetchMock(overrides?: {
         !urlStr.includes("/tools") &&
         !urlStr.includes("/send") &&
         !urlStr.includes("/abort") &&
+        !urlStr.includes("/mode") &&
+        !urlStr.includes("/plan") &&
+        !urlStr.includes("/disconnect") &&
+        !urlStr.includes("/resume") &&
+        !urlStr.includes("/set-model") &&
         (!init || init.method === "GET" || !init.method)
       ) {
         if (!session) {
@@ -138,7 +139,28 @@ function setupFetchMock(overrides?: {
         };
       }
 
-      // Fallback for other endpoints (copilot sessions list, etc.)
+      // Fallback for other endpoints (copilot sessions list, models, mode, plan, etc.)
+      if (urlStr.includes("/api/copilot/models")) {
+        return {
+          ok: true,
+          json: async () => ({ models: ["gpt-4o", "claude-sonnet"] }),
+        };
+      }
+
+      if (urlStr.includes("/mode") && (!init || !init.method || init.method === "GET")) {
+        return {
+          ok: true,
+          json: async () => ({ sessionId: "abc123", mode: "agent" }),
+        };
+      }
+
+      if (urlStr.includes("/plan") && (!init || !init.method || init.method === "GET")) {
+        return {
+          ok: true,
+          json: async () => ({ sessionId: "abc123", content: "" }),
+        };
+      }
+
       if (urlStr.includes("/api/copilot/sessions")) {
         return {
           ok: true,
@@ -164,7 +186,7 @@ describe("CopilotConversation", () => {
   it("renders message list with user and assistant messages", async () => {
     setupFetchMock();
     render(
-      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+      <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
@@ -184,7 +206,7 @@ describe("CopilotConversation", () => {
   it("user messages are right-aligned", async () => {
     setupFetchMock();
     render(
-      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+      <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
@@ -205,7 +227,7 @@ describe("CopilotConversation", () => {
   it("assistant messages are left-aligned", async () => {
     setupFetchMock();
     render(
-      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+      <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
@@ -224,7 +246,7 @@ describe("CopilotConversation", () => {
   it("renders HQ tool invocations highlighted", async () => {
     setupFetchMock({ tools: mockToolInvocations });
     render(
-      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+      <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
@@ -239,7 +261,7 @@ describe("CopilotConversation", () => {
   it("renders empty state when no messages", async () => {
     setupFetchMock({ messages: [] });
     render(
-      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+      <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
@@ -261,7 +283,7 @@ describe("CopilotConversation", () => {
     );
 
     render(
-      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+      <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
@@ -273,7 +295,7 @@ describe("CopilotConversation", () => {
     setupFetchMock();
     const user = userEvent.setup();
     render(
-      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+      <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
@@ -307,7 +329,7 @@ describe("CopilotConversation", () => {
     });
     const user = userEvent.setup();
     render(
-      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+      <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
@@ -367,6 +389,27 @@ describe("CopilotConversation", () => {
           };
         }
 
+        if (urlStr.includes("/api/copilot/models")) {
+          return {
+            ok: true,
+            json: async () => ({ models: ["gpt-4o", "claude-sonnet"] }),
+          };
+        }
+
+        if (urlStr.includes("/mode")) {
+          return {
+            ok: true,
+            json: async () => ({ sessionId: "abc123", mode: "agent" }),
+          };
+        }
+
+        if (urlStr.includes("/plan")) {
+          return {
+            ok: true,
+            json: async () => ({ sessionId: "abc123", content: "" }),
+          };
+        }
+
         if (urlStr.includes("/api/copilot/aggregated/sessions/")) {
           return { ok: true, json: async () => mockSession };
         }
@@ -380,7 +423,7 @@ describe("CopilotConversation", () => {
 
     const user = userEvent.setup();
     render(
-      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+      <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
@@ -401,19 +444,14 @@ describe("CopilotConversation", () => {
     resolveSend?.();
   });
 
-  it("shows session header with branch and status", async () => {
+  it("shows session header with status", async () => {
     setupFetchMock();
     render(
-      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+      <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
       expect(screen.getByText("Session abc123")).toBeInTheDocument();
-    });
-
-    // Branch badge
-    await waitFor(() => {
-      expect(screen.getByText("main")).toBeInTheDocument();
     });
 
     // Status badge
@@ -427,7 +465,7 @@ describe("CopilotConversation", () => {
     render(
       <CopilotConversation
         sessionId="abc123"
-        daemonId="d1"
+       
         onClose={onClose}
       />,
     );
@@ -445,7 +483,7 @@ describe("CopilotConversation", () => {
       session: { ...mockSession, status: "active" },
     });
     render(
-      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+      <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
@@ -458,14 +496,14 @@ describe("CopilotConversation", () => {
     expect(screen.queryByTestId("send-button")).not.toBeInTheDocument();
   });
 
-  it("shows repository name in header", async () => {
+  it("shows control panel toggle", async () => {
     setupFetchMock();
     render(
-      <CopilotConversation sessionId="abc123" daemonId="d1" />,
+      <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
-      expect(screen.getByText("owner/my-project")).toBeInTheDocument();
+      expect(screen.getByTestId("control-panel-toggle")).toBeInTheDocument();
     });
   });
 });

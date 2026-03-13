@@ -28,10 +28,6 @@ const mockDaemons: DaemonSummary[] = [
 const mockAggregatedSessions: AggregatedSession[] = [
   {
     sessionId: "abc12345-6789-0000-0000-000000000001",
-    daemonId: "owner/my-project",
-    projectId: "owner/my-project",
-    repository: "owner/my-project",
-    branch: "main",
     summary: "Refactoring auth module",
     status: "active",
     startedAt: Date.now() - 600_000,
@@ -39,10 +35,6 @@ const mockAggregatedSessions: AggregatedSession[] = [
   },
   {
     sessionId: "def45678-9012-0000-0000-000000000002",
-    daemonId: "owner/my-project",
-    projectId: "owner/my-project",
-    repository: "owner/my-project",
-    branch: "feature-tests",
     summary: "Adding tests",
     status: "idle",
     startedAt: Date.now() - 1200_000,
@@ -182,8 +174,6 @@ describe("ConnectedProjectPanel", () => {
       expect(screen.getByText("Session abc12345")).toBeInTheDocument();
     });
     expect(screen.getByText("Session def45678")).toBeInTheDocument();
-    expect(screen.getByText("main")).toBeInTheDocument();
-    expect(screen.getByText("feature-tests")).toBeInTheDocument();
   });
 
   it("shows session summaries", async () => {

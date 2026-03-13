@@ -136,22 +136,34 @@ export type CopilotSessionEvent = SessionEvent;
 
 // ── Aggregated Copilot session types (match server copilot-aggregator) ────
 
-export type AggregatedSessionStatus = "active" | "idle" | "error";
+export type AggregatedSessionStatus = "active" | "idle" | "error" | "ended";
 
 export interface AggregatedSession {
   sessionId: string;
-  cwd?: string;
-  gitRoot?: string;
-  repository?: string;
-  branch?: string;
-  summary?: string;
   status: AggregatedSessionStatus;
   model?: string;
   title?: string;
   mode?: string;
+  summary?: string;
   startedAt: number;
-  lastEvent?: { type: string; timestamp: number };
   updatedAt: number;
+  lastEvent?: { type: string; timestamp: number };
+}
+
+// ── New endpoint response types ────
+
+export interface ModeResponse {
+  sessionId: string;
+  mode: string;
+}
+
+export interface PlanResponse {
+  sessionId: string;
+  content: string;
+}
+
+export interface ModelsResponse {
+  models: string[];
 }
 
 export interface AggregatedSessionMessage {
