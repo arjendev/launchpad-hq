@@ -48,6 +48,16 @@ When triaging, the Lead should ask:
 4. **Is it security-sensitive?** Auth, encryption, access control → always 🔴
 5. **Is it medium complexity with specs?** Feature with clear requirements, refactoring with tests → likely 🟡
 
+## Review Gate — Human Reviewer
+
+| Reviewer | Scope | When |
+|----------|-------|------|
+| Arjen | Architecture, design, vision, any decision costly to revert | Before proceeding with implementation |
+
+**Important decision criteria:** A decision is "important" if reversing it later requires considerable effort — e.g., changing the data model, switching frameworks, altering the persistence layer, redesigning the API surface, or pivoting product direction. Routine implementation choices (naming, file structure, minor refactors) do NOT require review.
+
+**Process:** When an agent proposes an important decision, the coordinator presents it to Arjen for approval BEFORE spawning implementation work. Non-dependent work continues in parallel — Arjen's review does NOT block unrelated tasks.
+
 ## Rules
 
 1. **Eager by default** — spawn all agents who could usefully start work, including anticipatory downstream work.
