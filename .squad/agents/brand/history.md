@@ -57,6 +57,16 @@ The kanban board is read-only in Phase 1 (no drag-and-drop). Classification logi
 
 Brand's frontend unlocks the entire user experience by consuming Romilly's REST API and displaying the data hierarchy from TARS' persistence layer.
 
+### 2026-03-13: Live sessions panel (Issue #16)
+- **SessionsPanel** rewritten from placeholder to three-section Mantine `Accordion` (Devcontainers, Copilot Sessions, Attention Items), all default-expanded.
+- **REST + WebSocket merge pattern**: `useDevcontainers()` and `useCopilotSessions()` hooks fetch initial data via TanStack Query, then patch the query cache on WebSocket updates using `qc.setQueryData()` inside a `useEffect` with a ref guard to avoid double-patching.
+- **Client types** (`src/client/services/types.ts`) now mirrors server types for `DevContainer`, `CopilotSession`, `CopilotSessionSummary`, `AttentionItem`, `AttentionCountResponse` — keep in sync with `src/server/containers/types.ts`, `src/server/copilot/types.ts`, `src/server/attention/types.ts`.
+- **Expandable conversation**: `CopilotSessionCard` uses `useState` toggle + lazy `useCopilotSession(id)` fetch on expand. Shows last 5 messages in a Mantine `Timeline`.
+- **Attention dismiss**: `useDismissAttention()` mutation calls `POST /api/attention/:id/dismiss`, invalidates both `attention` and `attention-count` query keys.
+- **Mantine size prop**: Must be string (`"xs"`, `"sm"`) not numeric — Mantine v7 types enforce this.
+- **Test pattern for fetch mocks**: `vi.stubGlobal("fetch", vi.fn(...))` with URL matching handles multiple endpoints in one mock. Clean up with `vi.unstubAllGlobals()` in `beforeEach`.
+- **Avoid staging other agents' work**: Use selective `git add` on specific files, not `git add -A`, when parallel agents share the filesystem.
+
 ### 2026-03-13: WebSocket client hooks & connection manager (Issue #17)
 - **WebSocketManager** (`src/client/services/ws.ts`) — connection manager with auto-connect, auto-reconnect using exponential backoff (1s → 2s → 4s → max 30s), message queuing during disconnects, ping keep-alive (25s), and channel re-subscription on reconnect.
 - **Client WS types** (`src/client/services/ws-types.ts`) — mirrors server protocol types: `Channel`, `ClientMessage`, `ServerMessage`, `ConnectionStatus`. Keep in sync with `src/server/ws/types.ts`.
@@ -67,4 +77,26 @@ Brand's frontend unlocks the entire user experience by consuming Romilly's REST 
 - **Tests** — 18 unit tests for `WebSocketManager` (lifecycle, backoff, subscriptions, queuing, ping, listeners) + 6 tests for React context/hooks/component. All pass.
 - **Parallel entanglement (again):** My files got swept into TARS's commit `ecd1f7c` (copilot #15) because we were working on the same filesystem. Same issue as #8/#9. Need separate branches or coordinated staging.
 - **Mock pattern:** Use `vi.stubGlobal("WebSocket", ...)` + `vi.unstubAllGlobals()` — not direct assignment + `vi.restoreAllMocks()`, which clears mock implementations.
+
+## Phase 2 Summary
+
+**Completed Issues:** #16, #17 (2/5 Phase 2 items)
+**Total Tests Added (Phase 2):** 32 + 12 = 44 tests
+**Commits:** 2 (WebSocket client, live sessions panel)
+
+Brand delivered the complete client-side real-time layer:
+1. **WebSocket client hooks** — auto-reconnect, exponential backoff, message queuing, context provider with typed subscriptions
+2. **Live sessions panel** — three-accordion UI showing devcontainers, copilot sessions (with expandable conversation), and attention items. Real-time sync via WebSocket + TanStack Query.
+
+All components integrate with the server's WebSocket broadcast channels (devcontainer, copilot, attention). The REST + WebSocket merge pattern (initial fetch + cache patching on updates) is clean and testable.
+
+Decisions on WebSocket client architecture captured in decisions.md. Parallel filesystem entanglement issue resolved with selective `git add`.
+
+### 2026-03-13: Renamed src/client/api/ → src/client/services/ for clarity
+- The `api/` directory was renamed to `services/` to avoid confusion with server `/api` routes and proxy logic
+- Updated all imports across the client codebase
+- Vite proxy configuration stays unchanged (still routes `/api` to server)
+- No functional changes; cleaner mental model for code organization
+
+
 

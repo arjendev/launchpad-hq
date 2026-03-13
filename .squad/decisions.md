@@ -162,3 +162,27 @@
 **By:** Brand (Frontend Dev)
 **What:** The "Full Stack" compound launch profile now starts the Fastify server + launches Vite via `preLaunchTask`. Added `"preLaunchTask": "dev:client"` to the "Client (Debug)" configuration.
 **Why:** Ensures Vite dev server is running before Chrome opens at `localhost:5173`. "Full Stack" now launches Server (Debug) + Client (Debug) correctly.
+
+### 2026-03-13: Technical — Docker CLI over @devcontainers/cli for container discovery
+**By:** TARS (Platform Dev)
+**What:** Use Docker CLI (`docker ps`, `docker inspect`) with the `devcontainer.local_folder` label filter for devcontainer discovery, rather than the `@devcontainers/cli` npm package.
+**Why:** `@devcontainers/cli` is a heavy dependency (~50MB installed) designed for building/running containers, not just listing them. Docker CLI is always present when devcontainers are running. The `devcontainer.local_folder` label is set by VS Code's Dev Container extension — it's the canonical marker. `docker inspect` gives all metadata in a single call. DockerExecutor interface enables clean testing without Docker.
+**Impact:** The `@devcontainers/cli` package is NOT added to package.json. If future features need container lifecycle management, we may reconsider.
+
+### 2026-03-13: Technical — Copilot SDK Availability (March 2026)
+**By:** CASE (Copilot SDK Specialist)
+**What:** No official GitHub Copilot SDK is publicly available as of March 2026. Built adapter pattern with MockCopilotAdapter for frontend development instead.
+**Why:** Searched npm registry, GitHub repositories, and docs — no programmatic API for session introspection ships. The CopilotAdapter interface defines the contract; MockCopilotAdapter provides realistic simulated data.
+**Impact:** When the SDK ships, create SdkCopilotAdapter and wire it based on config/detection. No REST endpoints or types need changing. Risk: if SDK's data model differs radically, the adapter will need mapping logic.
+
+### 2026-03-13: Technical — WebSocket Client Architecture
+**By:** Brand (Frontend Dev)
+**What:** WebSocket client uses a single `WebSocketManager` class instance shared via React context (`WebSocketProvider`). Two hooks: `useWebSocket()` for raw access and `useSubscription(channel)` for typed channel subscriptions. Manager handles auto-reconnect with exponential backoff, message queuing during disconnects, and channel re-subscription on reconnect.
+**Why:** Single manager avoids multiple connections. Context provider prevents prop drilling. `useSubscription` returns `{ data, status }` — simple API for real-time channel data. Message queuing (capped at 100) prevents lost messages during brief disconnects. Exponential backoff (1s → 30s max) avoids hammering the server during outages.
+**Impact:** All real-time features (devcontainer status, copilot sessions, terminal) use `useSubscription(channel)`. ConnectionStatus badge in header. Message protocol must stay in sync between client and server.
+
+### 2026-03-13: Technical — Attention System Architecture
+**By:** Romilly (Backend Dev)
+**What:** Attention system at `src/server/attention/` uses a rule engine pattern with pure evaluation functions, an in-memory manager with configurable maxItems/LRU eviction, and periodic evaluation via `setInterval`. Rules are individually toggleable. WebSocket broadcasts on "attention" channel. Deterministic item IDs via SHA-256 hash for stable deduplication.
+**Why:** Pure rule functions are testable without mocking. In-memory storage is fast and sufficient for a personal tool. Deterministic IDs preserve dismissed state when items are re-evaluated. `Promise.allSettled` prevents one failing project from blocking others. Stubs for CI-failing and session-idle rules are ready.
+**Impact:** Attention badge in header shows count. Rule stubs await Checks API and Copilot SDK integration.
