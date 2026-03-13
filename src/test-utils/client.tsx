@@ -5,13 +5,14 @@ import { afterEach } from "vitest";
 import type { ReactNode } from "react";
 import { ProjectProvider } from "../client/contexts/ProjectContext.js";
 import { WebSocketProvider } from "../client/contexts/WebSocketContext.js";
+import { ThemeProvider } from "../client/contexts/ThemeContext.js";
 
 afterEach(() => {
   cleanup();
 });
 
 /**
- * Wrapper that provides Mantine, QueryClient, WebSocket, and ProjectContext for component tests.
+ * Wrapper that provides Mantine, QueryClient, Theme, WebSocket, and ProjectContext for component tests.
  */
 function TestProviders({ children }: { children: ReactNode }) {
   const queryClient = new QueryClient({
@@ -24,9 +25,11 @@ function TestProviders({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <MantineProvider defaultColorScheme="light">
-        <WebSocketProvider url="ws://localhost:0/ws">
-          <ProjectProvider>{children}</ProjectProvider>
-        </WebSocketProvider>
+        <ThemeProvider>
+          <WebSocketProvider url="ws://localhost:0/ws">
+            <ProjectProvider>{children}</ProjectProvider>
+          </WebSocketProvider>
+        </ThemeProvider>
       </MantineProvider>
     </QueryClientProvider>
   );

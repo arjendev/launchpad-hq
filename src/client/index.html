@@ -7,6 +7,17 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Prevent flash of wrong theme — read preference before React mounts.
+      (function() {
+        var stored = localStorage.getItem('mantine-color-scheme-value');
+        var theme = stored && stored !== 'auto' ? stored : (
+          window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        );
+        document.documentElement.setAttribute('data-mantine-color-scheme', theme);
+        document.documentElement.setAttribute('data-theme', theme);
+      })();
+    </script>
     <script type="module" src="./main.tsx"></script>
   </body>
 </html>
