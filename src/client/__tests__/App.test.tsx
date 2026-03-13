@@ -1,26 +1,28 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { TestProviders } from "../../test-utils/index.js";
+import { describe, it, expect, afterEach } from "vitest";
+import { render, screen, cleanup } from "@testing-library/react";
+import { MantineProvider } from "@mantine/core";
 import { ProjectList } from "../components/ProjectList";
 import { KanbanBoard } from "../components/KanbanBoard";
 import { SessionsPanel } from "../components/SessionsPanel";
 
+function Wrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <MantineProvider defaultColorScheme="light">{children}</MantineProvider>
+  );
+}
+
+afterEach(() => {
+  cleanup();
+});
+
 describe("ProjectList", () => {
   it("renders the projects heading", () => {
-    render(
-      <TestProviders>
-        <ProjectList />
-      </TestProviders>,
-    );
+    render(<ProjectList />, { wrapper: Wrapper });
     expect(screen.getByText("Projects")).toBeInTheDocument();
   });
 
   it("renders placeholder project names", () => {
-    render(
-      <TestProviders>
-        <ProjectList />
-      </TestProviders>,
-    );
+    render(<ProjectList />, { wrapper: Wrapper });
     expect(screen.getByText(/repo-alpha/)).toBeInTheDocument();
     expect(screen.getByText(/repo-beta/)).toBeInTheDocument();
   });
@@ -28,20 +30,12 @@ describe("ProjectList", () => {
 
 describe("KanbanBoard", () => {
   it("renders the board heading", () => {
-    render(
-      <TestProviders>
-        <KanbanBoard />
-      </TestProviders>,
-    );
+    render(<KanbanBoard />, { wrapper: Wrapper });
     expect(screen.getByText("Board")).toBeInTheDocument();
   });
 
   it("renders kanban columns", () => {
-    render(
-      <TestProviders>
-        <KanbanBoard />
-      </TestProviders>,
-    );
+    render(<KanbanBoard />, { wrapper: Wrapper });
     expect(screen.getByText("Todo")).toBeInTheDocument();
     expect(screen.getByText("In Progress")).toBeInTheDocument();
     expect(screen.getByText("Done")).toBeInTheDocument();
@@ -50,11 +44,7 @@ describe("KanbanBoard", () => {
 
 describe("SessionsPanel", () => {
   it("renders the sessions heading", () => {
-    render(
-      <TestProviders>
-        <SessionsPanel />
-      </TestProviders>,
-    );
+    render(<SessionsPanel />, { wrapper: Wrapper });
     expect(screen.getByText("Sessions")).toBeInTheDocument();
   });
 });
