@@ -233,6 +233,42 @@ export class CopilotManager {
         await this.pollSessions(msg.payload.requestId);
         break;
 
+      case 'copilot-set-model':
+        await this.handleSetModel(msg.payload.sessionId, msg.payload.model);
+        break;
+
+      case 'copilot-get-mode':
+        await this.handleGetMode(msg.payload.requestId, msg.payload.sessionId);
+        break;
+
+      case 'copilot-set-mode':
+        await this.handleSetMode(msg.payload.sessionId, msg.payload.mode);
+        break;
+
+      case 'copilot-get-plan':
+        await this.handleGetPlan(msg.payload.requestId, msg.payload.sessionId);
+        break;
+
+      case 'copilot-update-plan':
+        await this.handleUpdatePlan(msg.payload.sessionId, msg.payload.content);
+        break;
+
+      case 'copilot-delete-plan':
+        await this.handleDeletePlan(msg.payload.sessionId);
+        break;
+
+      case 'copilot-disconnect-session':
+        await this.handleDisconnect(msg.payload.sessionId);
+        break;
+
+      case 'copilot-list-models':
+        await this.handleListModels(msg.payload.requestId);
+        break;
+
+      case 'copilot-delete-session':
+        await this.handleDeleteSession(msg.payload.sessionId);
+        break;
+
       default:
         // Not a copilot command — ignore
         break;
@@ -382,9 +418,163 @@ export class CopilotManager {
     });
   }
 
+  private async handleSetModel(sessionId: string, model: string): Promise<void> {
+    const session = this.activeSessions.get(sessionId);
+    if (!session) return;
+    try {
+      await session.setModel(model);
+    } catch (err) {
+      this.sendSessionError(sessionId, `setModel failed: ${String(err)}`);
+    }
+  }
+
+  private async handleGetMode(requestId: string, sessionId: string): Promise<void> {
+    const session = this.activeSessions.get(sessionId);
+    if (!session) return;
+    try {
+      const result = await session.rpc.mode.get();
+      this.sendToHq({
+        type: 'copilot-mode-response',
+        timestamp: Date.now(),
+        payload: { requestId, sessionId, mode: result.mode },
+      });
+    } catch (err) {
+      this.sendSessionError(sessionId, `getMode failed: ${String(err)}`);
+    }
+  }
+
+  private async handleSetMode(sessionId: string, mode: string): Promise<void> {
+    const session = this.activeSessions.get(sessionId);
+    if (!session) return;
+    try {
+      await session.rpc.mode.set({ mode: mode as 'interactive' | 'plan' | 'autopilot' });
+    } catch (err) {
+      this.sendSessionError(sessionId, `setMode failed: ${String(err)}`);
+    }
+  }
+
+  private async handleGetPlan(requestId: string, sessionId: string): Promise<void> {
+    const session = this.activeSessions.get(sessionId);
+    if (!session) return;
+    try {
+      const plan = await session.rpc.plan.read();
+      this.sendToHq({
+        type: 'copilot-plan-response',
+        timestamp: Date.now(),
+        payload: { requestId, sessionId, plan },
+      });
+    } catch (err) {
+      this.sendSessionError(sessionId, `getPlan failed: ${String(err)}`);
+    }
+  }
+
+  private async handleUpdatePlan(sessionId: string, content: string): Promise<void> {
+    const session = this.activeSessions.get(sessionId);
+    if (!session) return;
+    try {
+      await session.rpc.plan.update({ content });
+    } catch (err) {
+      this.sendSessionError(sessionId, `updatePlan failed: ${String(err)}`);
+    }
+  }
+
+  private async handleDeletePlan(sessionId: string): Promise<void> {
+    const session = this.activeSessions.get(sessionId);
+    if (!session) return;
+    try {
+      await session.rpc.plan.delete();
+    } catch (err) {
+      this.sendSessionError(sessionId, `deletePlan failed: ${String(err)}`);
+    }
+  }
+
+  private async handleDisconnect(sessionId: string): Promise<void> {
+    const session = this.activeSessions.get(sessionId);
+    if (!session) return;
+
+    try {
+      await session.disconnect();
+    } catch {
+      // session may already be disconnected
+    }
+
+    const unsub = this.sessionUnsubscribers.get(sessionId);
+    if (unsub) unsub();
+    this.sessionUnsubscribers.delete(sessionId);
+    this.activeSessions.delete(sessionId);
+
+    this.sendToHq({
+      type: 'copilot-session-event',
+      timestamp: Date.now(),
+      payload: {
+        projectId: this.projectId,
+        sessionId,
+        event: syntheticEvent('session.shutdown', { sessionId, reason: 'disconnected' }),
+      },
+    });
+  }
+
+  private async handleListModels(requestId: string): Promise<void> {
+    if (!this.client || !this.started) return;
+    try {
+      const models = await this.client.listModels();
+      this.sendToHq({
+        type: 'copilot-models-list',
+        timestamp: Date.now(),
+        payload: { requestId, models },
+      });
+    } catch (err) {
+      console.warn(`⚠ listModels failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async handleDeleteSession(sessionId: string): Promise<void> {
+    // Disconnect locally if tracked
+    const session = this.activeSessions.get(sessionId);
+    if (session) {
+      try { await session.disconnect(); } catch { /* already disconnected */ }
+      const unsub = this.sessionUnsubscribers.get(sessionId);
+      if (unsub) unsub();
+      this.sessionUnsubscribers.delete(sessionId);
+      this.activeSessions.delete(sessionId);
+    }
+
+    // Delete from SDK registry (permanent)
+    if (this.client && this.started) {
+      try {
+        await this.client.deleteSession(sessionId);
+      } catch {
+        // session may not exist in registry
+      }
+    }
+
+    this.sendToHq({
+      type: 'copilot-session-event',
+      timestamp: Date.now(),
+      payload: {
+        projectId: this.projectId,
+        sessionId,
+        event: syntheticEvent('session.shutdown', { sessionId, reason: 'deleted' }),
+      },
+    });
+  }
+
   // -----------------------------------------------------------------------
   // Internal helpers
   // -----------------------------------------------------------------------
+
+  /** Send a session error event to HQ */
+  private sendSessionError(sessionId: string, message: string): void {
+    this.sendToHq({
+      type: 'copilot-session-event',
+      timestamp: Date.now(),
+      payload: {
+        projectId: this.projectId,
+        sessionId,
+        event: syntheticEvent('session.error', { message }),
+      },
+    });
+  }
 
   /** Track a session and forward its events to HQ as-is */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

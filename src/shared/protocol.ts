@@ -65,11 +65,9 @@ export interface CopilotMessage {
 // HQ-specific enriched session (aggregator output)
 // ---------------------------------------------------------------------------
 
-/** Aggregated view of a session across daemons — HQ enrichment on top of SDK data */
+/** Aggregated view of a session — client-facing (no internal routing fields) */
 export interface AggregatedSession {
   sessionId: string;
-  daemonId: string;
-  projectId: string;
   status: 'idle' | 'active' | 'error' | 'ended';
   model?: string;
   title?: string;
@@ -197,7 +195,16 @@ export interface CopilotSdkStateMessage extends BaseMessage<'copilot-sdk-state'>
 
 // Daemon → HQ: available models
 export interface CopilotModelsListMessage extends BaseMessage<'copilot-models-list'> {
-  payload: { models: ModelInfo[] };
+  payload: { requestId: string; models: ModelInfo[] };
+}
+
+// Daemon → HQ: mode query response
+export interface CopilotModeResponseMessage extends BaseMessage<'copilot-mode-response'> {
+  payload: { requestId: string; sessionId: string; mode: string };
+}
+
+export interface CopilotPlanResponseMessage extends BaseMessage<'copilot-plan-response'> {
+  payload: { requestId: string; sessionId: string; plan: { exists: boolean; content: string | null; path: string | null } };
 }
 
 // Daemon → HQ: auth status
@@ -242,6 +249,8 @@ export type DaemonToHqMessage =
   | CopilotConversationMessage
   | CopilotSdkStateMessage
   | CopilotModelsListMessage
+  | CopilotModeResponseMessage
+  | CopilotPlanResponseMessage
   | CopilotAuthStatusMessage
   | AttentionItemMessage
   | CopilotToolInvocationMessage
@@ -351,6 +360,43 @@ export interface CopilotListSessionsMessage extends BaseMessage<'copilot-list-se
   };
 }
 
+// HQ → Daemon: session control messages
+export interface CopilotSetModelMessage extends BaseMessage<'copilot-set-model'> {
+  payload: { sessionId: string; model: string };
+}
+
+export interface CopilotGetModeMessage extends BaseMessage<'copilot-get-mode'> {
+  payload: { requestId: string; sessionId: string };
+}
+
+export interface CopilotSetModeMessage extends BaseMessage<'copilot-set-mode'> {
+  payload: { sessionId: string; mode: string };
+}
+
+export interface CopilotGetPlanMessage extends BaseMessage<'copilot-get-plan'> {
+  payload: { requestId: string; sessionId: string };
+}
+
+export interface CopilotUpdatePlanMessage extends BaseMessage<'copilot-update-plan'> {
+  payload: { sessionId: string; content: string };
+}
+
+export interface CopilotDeletePlanMessage extends BaseMessage<'copilot-delete-plan'> {
+  payload: { sessionId: string };
+}
+
+export interface CopilotDisconnectSessionMessage extends BaseMessage<'copilot-disconnect-session'> {
+  payload: { sessionId: string };
+}
+
+export interface CopilotListModelsMessage extends BaseMessage<'copilot-list-models'> {
+  payload: { requestId: string };
+}
+
+export interface CopilotDeleteSessionMessage extends BaseMessage<'copilot-delete-session'> {
+  payload: { sessionId: string };
+}
+
 export type HqToDaemonMessage =
   | AuthChallengeMessage
   | AuthAcceptMessage
@@ -365,7 +411,16 @@ export type HqToDaemonMessage =
   | CopilotResumeSessionMessage
   | CopilotSendPromptMessage
   | CopilotAbortSessionMessage
-  | CopilotListSessionsMessage;
+  | CopilotListSessionsMessage
+  | CopilotSetModelMessage
+  | CopilotGetModeMessage
+  | CopilotSetModeMessage
+  | CopilotGetPlanMessage
+  | CopilotUpdatePlanMessage
+  | CopilotDeletePlanMessage
+  | CopilotDisconnectSessionMessage
+  | CopilotListModelsMessage
+  | CopilotDeleteSessionMessage;
 
 // ---------------------------------------------------------------------------
 // Combined union — every message that can travel over the wire
