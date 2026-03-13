@@ -52,4 +52,12 @@ Doyle's integration tests validated the entire Phase 1 foundation:
 
 The integration phase unlocked Phase 2 work with confidence. All infrastructure tested and working.
 
+### 2026-03-13: Copilot session lifecycle e2e tests
+- **Test count:** 637 total (603 existing + 34 new). All pass.
+- **Test file:** `src/server/__tests__/copilot-session-lifecycle.test.ts` — comprehensive backend integration tests for the full Copilot session lifecycle.
+- **Coverage:** 8 test groups: session creation via daemon endpoint, status transitions through all event types (session.start→idle, user.message→active, assistant.message→idle, session.error→error, session.idle→idle, full lifecycle chain), send prompt flow (happy + error paths), abort session flow, projectId injection regression (stub sessions use daemonId, not "unknown"), aggregated session listing, message/tool history endpoints, multi-daemon routing (prompts/aborts reach the correct daemon).
+- **Key pattern:** `buildServer()` helper registers websocket + daemonRegistry + copilotAggregator + copilotSessionRoutes. `createMockSocket()` with `sent[]` for verifying daemon messages. `server.daemonRegistry.emit("copilot:session-event")` to simulate the full DaemonWsHandler→registry→aggregator pipeline.
+- **Regression guard:** Explicit assertions that `projectId !== "unknown"` for both `updateSessions` and `handleSessionEvent` stub creation paths — the bug that was previously fixed.
+- **No fixes needed:** All routes and event handling worked correctly.
+
 
