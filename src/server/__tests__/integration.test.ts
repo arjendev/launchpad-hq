@@ -51,6 +51,20 @@ function createMockStateService(
       enrichment.projects = { ...d.projects };
     }),
     sync: vi.fn().mockResolvedValue(undefined),
+    getProjectByToken: vi.fn().mockResolvedValue(undefined),
+    updateProjectState: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+/** Build a full ProjectEntry with defaults. */
+function makeProject(overrides: Partial<import("../state/types.js").ProjectEntry> & { owner: string; repo: string }): import("../state/types.js").ProjectEntry {
+  return {
+    addedAt: "2026-01-01T00:00:00Z",
+    runtimeTarget: "local",
+    initialized: false,
+    daemonToken: "test-token",
+    workState: "stopped",
+    ...overrides,
   };
 }
 
@@ -124,7 +138,7 @@ function stubFetch() {
 }
 
 const TRACKED = [
-  { owner: "acme", repo: "widget", addedAt: "2026-01-01T00:00:00Z" },
+  makeProject({ owner: "acme", repo: "widget" }),
 ];
 
 // ── Server builder with all Phase 1 plugins ─────────────
@@ -143,6 +157,7 @@ async function buildFullServer(
   });
   server.decorate("stateService", stateService);
   server.decorate("githubGraphQL", graphql);
+  server.decorate("daemonRegistry", { getAllDaemons: vi.fn().mockReturnValue([]) });
 
   await server.register(apiCachePlugin, {
     cache: { diskPersistence: false },
@@ -185,10 +200,10 @@ describe("Phase 1 Integration: Full CRUD lifecycle", () => {
     res = await server.inject({
       method: "POST",
       url: "/api/projects",
-      payload: { owner: "acme", repo: "widget" },
+      payload: { owner: "acme", repo: "widget", runtimeTarget: "local" },
     });
     expect(res.statusCode).toBe(201);
-    expect(res.json()).toMatchObject({ owner: "acme", repo: "widget" });
+    expect(res.json()).toMatchObject({ owner: "acme", repo: "widget", runtimeTarget: "local" });
     expect(stateService.saveConfig).toHaveBeenCalled();
 
     // 3. Now listed
@@ -228,14 +243,14 @@ describe("Phase 1 Integration: Full CRUD lifecycle", () => {
     await server.inject({
       method: "POST",
       url: "/api/projects",
-      payload: { owner: "acme", repo: "widget" },
+      payload: { owner: "acme", repo: "widget", runtimeTarget: "local" },
     });
 
     // Try adding again
     const res = await server.inject({
       method: "POST",
       url: "/api/projects",
-      payload: { owner: "acme", repo: "widget" },
+      payload: { owner: "acme", repo: "widget", runtimeTarget: "local" },
     });
     expect(res.statusCode).toBe(409);
   });
@@ -354,7 +369,7 @@ describe("Phase 1 Integration: Dashboard aggregation", () => {
   it("aggregates data across tracked projects", async () => {
     const twoProjects = [
       ...TRACKED,
-      { owner: "acme", repo: "gizmo", addedAt: "2026-02-01T00:00:00Z" },
+      makeProject({ owner: "acme", repo: "gizmo", addedAt: "2026-02-01T00:00:00Z" }),
     ];
     const { server: s, graphql: gql } = await buildFullServer(twoProjects);
 

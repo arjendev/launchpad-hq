@@ -30,6 +30,27 @@ function statusLabel(project: DashboardProject): string {
   return "healthy";
 }
 
+const RUNTIME_TARGET_LABELS: Record<string, string> = {
+  "wsl-devcontainer": "WSL+DC",
+  wsl: "WSL",
+  local: "Local",
+};
+
+function runtimeTargetLabel(target: string): string {
+  return RUNTIME_TARGET_LABELS[target] ?? target;
+}
+
+function workStateLabel(state: string): string | null {
+  switch (state) {
+    case "working":
+      return "🔨 working";
+    case "awaiting":
+      return "⏳ awaiting";
+    default:
+      return null;
+  }
+}
+
 function ProjectItem({
   project,
   selected,
@@ -73,15 +94,30 @@ function ProjectItem({
             <Text size="sm" fw={500} truncate>
               {project.owner}/{project.repo}
             </Text>
+            <Text
+              component="span"
+              size="xs"
+              title={project.daemonStatus === "online" ? "Daemon online" : "Daemon offline"}
+            >
+              {project.daemonStatus === "online" ? "🟢" : "⚫"}
+            </Text>
           </Group>
 
           <Group gap={4} mt={4}>
+            <Badge size="xs" variant="light" color="grape">
+              {runtimeTargetLabel(project.runtimeTarget)}
+            </Badge>
             <Badge size="xs" variant="light" color="violet">
               {project.openIssueCount} issues
             </Badge>
             <Badge size="xs" variant="light" color="cyan">
               {project.openPrCount} PRs
             </Badge>
+            {project.daemonStatus === "online" && workStateLabel(project.workState) && (
+              <Badge size="xs" variant="light" color="blue">
+                {workStateLabel(project.workState)}
+              </Badge>
+            )}
           </Group>
         </Box>
 

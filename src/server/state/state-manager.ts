@@ -2,6 +2,7 @@ import { GitHubStateClient } from "./github-state-client.js";
 import { LocalCache } from "./local-cache.js";
 import type {
   ProjectConfig,
+  ProjectEntry,
   UserPreferences,
   EnrichmentData,
   StateService,
@@ -90,6 +91,31 @@ export class StateManager implements StateService {
       this.pullFile(FILES.preferences),
       this.pullFile(FILES.enrichment),
     ]);
+  }
+
+  async getProjectByToken(token: string): Promise<ProjectEntry | undefined> {
+    const config = await this.getConfig();
+    return config.projects.find((p) => p.daemonToken === token);
+  }
+
+  async updateProjectState(
+    owner: string,
+    repo: string,
+    updates: Partial<Pick<ProjectEntry, "initialized" | "workState">>,
+  ): Promise<ProjectEntry | undefined> {
+    const config = await this.getConfig();
+    const project = config.projects.find(
+      (p) =>
+        p.owner.toLowerCase() === owner.toLowerCase() &&
+        p.repo.toLowerCase() === repo.toLowerCase(),
+    );
+    if (!project) return undefined;
+
+    if (updates.initialized !== undefined) project.initialized = updates.initialized;
+    if (updates.workState !== undefined) project.workState = updates.workState;
+
+    await this.saveConfig(config);
+    return project;
   }
 
   // ---- internal helpers -----------------------------------------------------

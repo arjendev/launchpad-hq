@@ -77,7 +77,13 @@ function createMockStateService(
     } satisfies EnrichmentData),
     saveEnrichment: vi.fn().mockResolvedValue(undefined),
     sync: vi.fn().mockResolvedValue(undefined),
+    getProjectByToken: vi.fn().mockResolvedValue(undefined),
+    updateProjectState: vi.fn().mockResolvedValue(undefined),
   };
+}
+
+function createMockDaemonRegistry() {
+  return { getAllDaemons: vi.fn().mockReturnValue([]) };
 }
 
 function createMockGraphQL() {
@@ -118,12 +124,25 @@ async function buildServer(
   server.decorate("githubUser", { login: "testuser", avatarUrl: "https://example.com" });
   server.decorate("stateService", stateService);
   server.decorate("githubGraphQL", graphql);
+  server.decorate("daemonRegistry", createMockDaemonRegistry());
   await server.register(githubDataRoutes);
 
   return { server, stateService, graphql };
 }
 
-const TRACKED = [{ owner: "acme", repo: "api", addedAt: "2026-01-01T00:00:00Z" }];
+/** Build a full ProjectEntry with sensible defaults for tests. */
+function makeProject(overrides: Partial<import("../state/types.js").ProjectEntry> & { owner: string; repo: string }): import("../state/types.js").ProjectEntry {
+  return {
+    addedAt: "2026-01-01T00:00:00Z",
+    runtimeTarget: "local",
+    initialized: false,
+    daemonToken: "test-token",
+    workState: "stopped",
+    ...overrides,
+  };
+}
+
+const TRACKED = [makeProject({ owner: "acme", repo: "api" })];
 
 // ── Tests ───────────────────────────────────────────────
 
@@ -292,8 +311,8 @@ describe("GitHub data routes", () => {
 
     it("aggregates data across all tracked projects", async () => {
       const projects = [
-        { owner: "acme", repo: "api", addedAt: "2026-01-01T00:00:00Z" },
-        { owner: "acme", repo: "ui", addedAt: "2026-02-01T00:00:00Z" },
+        makeProject({ owner: "acme", repo: "api" }),
+        makeProject({ owner: "acme", repo: "ui", addedAt: "2026-02-01T00:00:00Z" }),
       ];
       const { server, graphql } = await buildServer(projects);
 
@@ -313,8 +332,8 @@ describe("GitHub data routes", () => {
 
     it("handles partial failures gracefully", async () => {
       const projects = [
-        { owner: "acme", repo: "api", addedAt: "2026-01-01T00:00:00Z" },
-        { owner: "acme", repo: "gone", addedAt: "2026-02-01T00:00:00Z" },
+        makeProject({ owner: "acme", repo: "api" }),
+        makeProject({ owner: "acme", repo: "gone", addedAt: "2026-02-01T00:00:00Z" }),
       ];
       const { server, graphql } = await buildServer(projects);
 

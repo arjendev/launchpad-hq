@@ -2,9 +2,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createTestServer, type FastifyInstance } from "../../test-utils/server.js";
 import projectRoutes from "../routes/projects.js";
 import type { StateService } from "../state/types.js";
-import type { ProjectConfig, EnrichmentData } from "../state/types.js";
+import type { ProjectConfig, ProjectEntry, EnrichmentData } from "../state/types.js";
 
 // ---- Helpers ----------------------------------------------------------------
+
+/** Build a full ProjectEntry with sensible defaults. */
+function makeProject(overrides: Partial<ProjectEntry> & Pick<ProjectEntry, "owner" | "repo">): ProjectEntry {
+  return {
+    addedAt: "2026-01-01T00:00:00Z",
+    runtimeTarget: "local",
+    initialized: false,
+    daemonToken: "test-token-" + overrides.owner + "-" + overrides.repo,
+    workState: "stopped",
+    ...overrides,
+  };
+}
 
 /** Build a mock StateService with sensible defaults. */
 function createMockStateService(initialProjects: ProjectConfig["projects"] = []): StateService & {
@@ -31,6 +43,23 @@ function createMockStateService(initialProjects: ProjectConfig["projects"] = [])
       enrichment.projects = { ...d.projects };
     }),
     sync: vi.fn().mockResolvedValue(undefined),
+    getProjectByToken: vi.fn().mockImplementation(async (token: string) => {
+      return config.projects.find((p) => p.daemonToken === token);
+    }),
+    updateProjectState: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+/** Mock daemon registry for testing daemon status derivation. */
+function createMockDaemonRegistry(connectedProjects: string[] = []) {
+  return {
+    getAllDaemons: vi.fn().mockReturnValue(
+      connectedProjects.map((pid) => ({
+        projectId: pid,
+        state: "connected",
+        lastHeartbeat: Date.now(),
+      })),
+    ),
   };
 }
 
@@ -57,6 +86,7 @@ function stubFetch(overrides: Record<string, { ok: boolean; status: number; json
 /** Create a Fastify instance decorated with stateService & githubToken for testing. */
 async function buildServer(
   initialProjects: ProjectConfig["projects"] = [],
+  connectedDaemons: string[] = [],
 ): Promise<{ server: FastifyInstance; stateService: ReturnType<typeof createMockStateService> }> {
   const server = await createTestServer();
   const stateService = createMockStateService(initialProjects);
@@ -64,6 +94,7 @@ async function buildServer(
   server.decorate("githubToken", "ghp_test_token");
   server.decorate("githubUser", { login: "testuser", avatarUrl: "https://example.com/avatar" });
   server.decorate("stateService", stateService);
+  server.decorate("daemonRegistry", createMockDaemonRegistry(connectedDaemons));
   await server.register(projectRoutes);
 
   return { server, stateService };
@@ -91,8 +122,8 @@ describe("Project routes", () => {
 
     it("returns tracked projects", async () => {
       const projects = [
-        { owner: "acme", repo: "api", addedAt: "2026-01-01T00:00:00Z" },
-        { owner: "acme", repo: "ui", addedAt: "2026-02-01T00:00:00Z" },
+        makeProject({ owner: "acme", repo: "api", addedAt: "2026-01-01T00:00:00Z" }),
+        makeProject({ owner: "acme", repo: "ui", addedAt: "2026-02-01T00:00:00Z" }),
       ];
       const { server } = await buildServer(projects);
       const res = await server.inject({ method: "GET", url: "/api/projects" });
@@ -114,7 +145,7 @@ describe("Project routes", () => {
       const res = await server.inject({
         method: "POST",
         url: "/api/projects",
-        payload: { owner: "acme", repo: "widget" },
+        payload: { owner: "acme", repo: "widget", runtimeTarget: "local" },
       });
 
       expect(res.statusCode).toBe(201);
@@ -122,7 +153,42 @@ describe("Project routes", () => {
       expect(body.owner).toBe("acme");
       expect(body.repo).toBe("widget");
       expect(body.addedAt).toBeDefined();
+      expect(body.runtimeTarget).toBe("local");
+      expect(body.initialized).toBe(false);
+      expect(body.workState).toBe("stopped");
+      expect(body.daemonToken).toBeDefined();
+      expect(typeof body.daemonToken).toBe("string");
+      expect(body.daemonToken.length).toBeGreaterThan(0);
+      expect(body.daemonStatus).toBe("offline");
       expect(stateService.saveConfig).toHaveBeenCalledOnce();
+    });
+
+    it("rejects missing runtimeTarget", async () => {
+      stubFetch();
+      const { server } = await buildServer();
+
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/projects",
+        payload: { owner: "acme", repo: "widget" },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().message).toContain("runtimeTarget");
+    });
+
+    it("rejects invalid runtimeTarget value", async () => {
+      stubFetch();
+      const { server } = await buildServer();
+
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/projects",
+        payload: { owner: "acme", repo: "widget", runtimeTarget: "docker" },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().message).toContain("runtimeTarget");
     });
 
     it("rejects missing body fields", async () => {
@@ -130,7 +196,7 @@ describe("Project routes", () => {
       const res = await server.inject({
         method: "POST",
         url: "/api/projects",
-        payload: { owner: "acme" }, // missing repo
+        payload: { owner: "acme" }, // missing repo and runtimeTarget
       });
 
       expect(res.statusCode).toBe(400);
@@ -142,7 +208,7 @@ describe("Project routes", () => {
       const res = await server.inject({
         method: "POST",
         url: "/api/projects",
-        payload: { owner: "acme/evil", repo: "widget" },
+        payload: { owner: "acme/evil", repo: "widget", runtimeTarget: "local" },
       });
 
       expect(res.statusCode).toBe(400);
@@ -151,13 +217,13 @@ describe("Project routes", () => {
     it("detects duplicates (case-insensitive)", async () => {
       stubFetch();
       const { server } = await buildServer([
-        { owner: "Acme", repo: "Widget", addedAt: "2026-01-01T00:00:00Z" },
+        makeProject({ owner: "Acme", repo: "Widget" }),
       ]);
 
       const res = await server.inject({
         method: "POST",
         url: "/api/projects",
-        payload: { owner: "acme", repo: "widget" },
+        payload: { owner: "acme", repo: "widget", runtimeTarget: "local" },
       });
 
       expect(res.statusCode).toBe(409);
@@ -171,7 +237,7 @@ describe("Project routes", () => {
       const res = await server.inject({
         method: "POST",
         url: "/api/projects",
-        payload: { owner: "acme", repo: "nonexistent" },
+        payload: { owner: "acme", repo: "nonexistent", runtimeTarget: "local" },
       });
 
       expect(res.statusCode).toBe(404);
@@ -184,7 +250,7 @@ describe("Project routes", () => {
   describe("DELETE /api/projects/:owner/:repo", () => {
     it("removes a tracked project", async () => {
       const { server, stateService } = await buildServer([
-        { owner: "acme", repo: "api", addedAt: "2026-01-01T00:00:00Z" },
+        makeProject({ owner: "acme", repo: "api" }),
       ]);
 
       const res = await server.inject({
@@ -215,7 +281,7 @@ describe("Project routes", () => {
   describe("PUT /api/projects/:owner/:repo", () => {
     it("updates enrichment data for a tracked project", async () => {
       const { server, stateService } = await buildServer([
-        { owner: "acme", repo: "api", addedAt: "2026-01-01T00:00:00Z" },
+        makeProject({ owner: "acme", repo: "api" }),
       ]);
 
       const res = await server.inject({
@@ -246,7 +312,7 @@ describe("Project routes", () => {
 
     it("rejects empty body", async () => {
       const { server } = await buildServer([
-        { owner: "acme", repo: "api", addedAt: "2026-01-01T00:00:00Z" },
+        makeProject({ owner: "acme", repo: "api" }),
       ]);
 
       const res = await server.inject({
@@ -260,7 +326,7 @@ describe("Project routes", () => {
 
     it("rejects non-array labels", async () => {
       const { server } = await buildServer([
-        { owner: "acme", repo: "api", addedAt: "2026-01-01T00:00:00Z" },
+        makeProject({ owner: "acme", repo: "api" }),
       ]);
 
       const res = await server.inject({
@@ -292,7 +358,7 @@ describe("Project routes", () => {
       stubFetch({ "/user/repos": { ok: true, status: 200, json: repos } });
 
       const { server } = await buildServer([
-        { owner: "testuser", repo: "my-app", addedAt: "2026-01-01T00:00:00Z" },
+        makeProject({ owner: "testuser", repo: "my-app" }),
       ]);
 
       const res = await server.inject({
@@ -337,6 +403,76 @@ describe("Project routes", () => {
       const fetchUrl = fetchMock.mock.calls[0][0] as string;
       expect(fetchUrl).toContain("page=2");
       expect(fetchUrl).toContain("per_page=10");
+    });
+  });
+
+  // ---- GET /api/projects/:owner/:repo (detail) ------------------------------
+
+  describe("GET /api/projects/:owner/:repo", () => {
+    it("returns project detail with daemonToken", async () => {
+      const { server } = await buildServer([
+        makeProject({ owner: "acme", repo: "api", runtimeTarget: "wsl", daemonToken: "secret-token-123" }),
+      ]);
+
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/projects/acme/api",
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.owner).toBe("acme");
+      expect(body.repo).toBe("api");
+      expect(body.runtimeTarget).toBe("wsl");
+      expect(body.daemonToken).toBe("secret-token-123");
+      expect(body.daemonStatus).toBe("offline");
+      expect(body.initialized).toBe(false);
+      expect(body.workState).toBe("stopped");
+    });
+
+    it("returns 404 for untracked project", async () => {
+      const { server } = await buildServer();
+
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/projects/acme/nope",
+      });
+
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error).toBe("not_found");
+    });
+
+    it("derives online daemonStatus from registry", async () => {
+      const { server } = await buildServer(
+        [makeProject({ owner: "acme", repo: "api" })],
+        ["acme/api"],
+      );
+
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/projects/acme/api",
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.daemonStatus).toBe("online");
+      expect(body.lastSeen).toBeDefined();
+    });
+  });
+
+  // ---- daemonToken security -------------------------------------------------
+
+  describe("daemonToken security", () => {
+    it("does not include daemonToken in list response", async () => {
+      const { server } = await buildServer([
+        makeProject({ owner: "acme", repo: "api", daemonToken: "secret-token" }),
+      ]);
+
+      const res = await server.inject({ method: "GET", url: "/api/projects" });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.projects[0].daemonToken).toBeUndefined();
     });
   });
 });

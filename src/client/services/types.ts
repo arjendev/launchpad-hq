@@ -4,6 +4,12 @@ export interface ProjectEntry {
   owner: string;
   repo: string;
   addedAt: string;
+  runtimeTarget: string;
+  initialized: boolean;
+  daemonStatus: "online" | "offline";
+  workState: string;
+  lastSeen?: number;
+  daemonToken?: string;
 }
 
 export interface ListProjectsResponse {
@@ -18,6 +24,9 @@ export interface DashboardProject {
   openPrCount: number;
   updatedAt: string;
   isArchived: boolean;
+  runtimeTarget: string;
+  daemonStatus: "online" | "offline";
+  workState: string;
 }
 
 export interface DashboardResponse {
@@ -30,6 +39,7 @@ export interface DashboardResponse {
 export interface AddProjectRequest {
   owner: string;
   repo: string;
+  runtimeTarget: string;
 }
 
 export interface ApiError {

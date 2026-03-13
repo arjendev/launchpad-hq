@@ -62,6 +62,9 @@ export interface DashboardProject {
   openPrCount: number;
   updatedAt: string;
   isArchived: boolean;
+  runtimeTarget: string;
+  daemonStatus: "online" | "offline";
+  workState: string;
 }
 
 export interface DashboardResponse {
@@ -146,6 +149,22 @@ async function assertProjectTracked(
       p.owner.toLowerCase() === owner.toLowerCase() &&
       p.repo.toLowerCase() === repo.toLowerCase(),
   );
+}
+
+// ── Daemon status derivation ────────────────────────────
+
+function deriveDaemonStatus(
+  fastify: { daemonRegistry: { getAllDaemons(): Array<{ projectId: string; state: string; lastHeartbeat: number }> } },
+  owner: string,
+  repo: string,
+): "online" | "offline" {
+  const projectId = `${owner}/${repo}`;
+  const daemons = fastify.daemonRegistry.getAllDaemons();
+  return daemons.some(
+    (d) => d.projectId.toLowerCase() === projectId.toLowerCase() && d.state === "connected",
+  )
+    ? "online"
+    : "offline";
 }
 
 // ── Route plugin ────────────────────────────────────────
@@ -359,6 +378,9 @@ const githubDataRoutes: FastifyPluginAsync = async (fastify) => {
             openPrCount: meta.openPrCount,
             updatedAt: meta.updatedAt,
             isArchived: meta.isArchived,
+            runtimeTarget: project.runtimeTarget,
+            daemonStatus: deriveDaemonStatus(fastify, project.owner, project.repo),
+            workState: project.workState,
           });
         } else {
           // Include project but with zero counts on failure
@@ -372,6 +394,9 @@ const githubDataRoutes: FastifyPluginAsync = async (fastify) => {
             openPrCount: 0,
             updatedAt: project.addedAt,
             isArchived: false,
+            runtimeTarget: project.runtimeTarget,
+            daemonStatus: deriveDaemonStatus(fastify, project.owner, project.repo),
+            workState: project.workState,
           });
         }
       }
