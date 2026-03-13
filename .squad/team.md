@@ -14,13 +14,17 @@
 |------|------|---------|--------|
 | Cooper | Lead | .squad/agents/cooper/charter.md | 🏗️ Active |
 | Brand | Frontend Dev | .squad/agents/brand/charter.md | ⚛️ Active |
-| Romilly | Backend Dev | .squad/agents/romilly/charter.md | 🔧 Active |
-| TARS | Platform Dev | .squad/agents/tars/charter.md | ⚙️ Active |
-| CASE | Copilot SDK Specialist | .squad/agents/case/charter.md | 🤖 Active |
-| Doyle | Tester | .squad/agents/doyle/charter.md | 🧪 Active |
+| Romilly | Backend Dev (HQ) | .squad/agents/romilly/charter.md | 🔧 Active |
+| TARS | Daemon & SDK Specialist | .squad/agents/tars/charter.md | ⚙️ Active |
+| Doyle | Quality Reviewer | .squad/agents/doyle/charter.md | 🧪 Active |
 | Scribe | Session Logger | .squad/agents/scribe/charter.md | 📋 Active |
-| Ralph | Work Monitor | — | 🔄 Monitor |
 | Arjen | 👤 Human · Reviewer | — | 👤 Active |
+
+### Restructuring notes (Wave 2 → Wave 3 transition)
+- **CASE merged into TARS** — both were building daemon/SDK code in `src/daemon/` and `src/shared/`. TARS now owns all daemon, protocol, and Copilot SDK work.
+- **Doyle repurposed** — from standalone tester to post-wave quality reviewer (e2e sweeps, integration tests, Playwright). Agents write their own unit tests.
+- **Ralph removed** — work monitor role absorbed by Cooper.
+- **Scribe** — stays but will use a standard model (was on haiku, kept hitting rate limits).
 
 ## Project Context
 
