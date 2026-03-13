@@ -6,6 +6,9 @@
  * but spawn() will throw.
  */
 
+import { execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+
 // node-pty types (subset we use)
 interface IPty {
   onData: (handler: (data: string) => void) => { dispose: () => void };
@@ -36,6 +39,72 @@ async function loadNodePty(): Promise<NodePtyModule | null> {
   }
   nodePtyLoaded = true;
   return nodePty;
+}
+
+/** Minimum PATH entries to guarantee core utilities are available. */
+const FALLBACK_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
+
+/**
+ * Detect the current user's default shell from /etc/passwd.
+ * Returns undefined if detection fails.
+ */
+function detectShellFromPasswd(): string | undefined {
+  try {
+    const line = execSync('getent passwd $(id -un)', { encoding: 'utf8', timeout: 2000 }).trim();
+    const shell = line.split(':').pop();
+    if (shell && existsSync(shell)) return shell;
+  } catch {
+    // Not available on all systems
+  }
+  return undefined;
+}
+
+/**
+ * Build a sane shell environment by merging process.env with
+ * guaranteed defaults. Critical when the daemon is backgrounded
+ * (e.g. postStartCommand) where process.env is minimal.
+ */
+export function buildShellEnv(processEnv: Record<string, string | undefined>): Record<string, string> {
+  const env: Record<string, string> = {};
+
+  // Copy existing env (strip undefined values)
+  for (const [key, value] of Object.entries(processEnv)) {
+    if (value !== undefined) env[key] = value;
+  }
+
+  // TERM — always match the PTY name we pass to node-pty
+  env['TERM'] = 'xterm-256color';
+
+  // COLORTERM — enable truecolor support
+  env['COLORTERM'] = 'truecolor';
+
+  // SHELL — detect if missing
+  if (!env['SHELL']) {
+    env['SHELL'] = detectShellFromPasswd() ?? '/bin/bash';
+  }
+
+  // HOME — derive from user if missing
+  if (!env['HOME']) {
+    try {
+      env['HOME'] = execSync('echo ~', { encoding: 'utf8', timeout: 2000 }).trim();
+    } catch {
+      env['HOME'] = process.platform === 'win32' ? (env['USERPROFILE'] ?? '') : `/home/${env['USER'] ?? 'root'}`;
+    }
+  }
+
+  // PATH — ensure minimum entries are present
+  if (!env['PATH']) {
+    env['PATH'] = FALLBACK_PATH;
+  } else if (!env['PATH'].includes('/usr/bin')) {
+    env['PATH'] = `${env['PATH']}:${FALLBACK_PATH}`;
+  }
+
+  // LANG — prevent i18n issues in non-interactive shells
+  if (!env['LANG']) {
+    env['LANG'] = 'en_US.UTF-8';
+  }
+
+  return env;
 }
 
 export interface TerminalSession {
@@ -74,14 +143,22 @@ export class DaemonTerminalManager {
     const shell = options?.shell ?? (process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/sh');
     const cols = options?.cols ?? 80;
     const rows = options?.rows ?? 24;
+    const env = buildShellEnv(process.env as Record<string, string | undefined>);
 
-    const pty = nodePty.spawn(shell, [], {
-      name: 'xterm-256color',
-      cols,
-      rows,
-      cwd: process.cwd(),
-      env: process.env as Record<string, string>,
-    });
+    let pty: IPty;
+    try {
+      pty = nodePty.spawn(shell, ['-l'], {
+        name: 'xterm-256color',
+        cols,
+        rows,
+        cwd: process.cwd(),
+        env,
+      });
+      console.log(`[terminal] Spawned PTY session '${terminalId}': shell=${shell} pid=${pty.pid} cols=${cols} rows=${rows}`);
+    } catch (err) {
+      console.error(`[terminal] Failed to spawn PTY session '${terminalId}': shell=${shell}`, err);
+      throw err;
+    }
 
     const dataDisposable = pty.onData((data: string) => {
       const handler = this.dataHandlers.get(terminalId);
@@ -89,6 +166,7 @@ export class DaemonTerminalManager {
     });
 
     const exitDisposable = pty.onExit((e: { exitCode: number }) => {
+      console.log(`[terminal] PTY session '${terminalId}' exited: code=${e.exitCode}`);
       const handler = this.exitHandlers.get(terminalId);
       if (handler) handler(e.exitCode);
       this.sessions.delete(terminalId);
