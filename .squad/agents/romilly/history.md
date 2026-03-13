@@ -198,3 +198,16 @@ Decision on attention system architecture captured in decisions.md.
 
 Wave 1 delivered foundational daemon architecture, frontend UI, and backend data integration. All Phase 1 issues (#25, #30, #34, #36) closed on GitHub. Decisions finalized for hub-and-spoke model, shared protocol types, dual-WebSocket pattern, theme system, and Copilot SDK integration approach.
 
+
+
+### 2025-07-24: Session end cleanup bug fix
+- **Bug:** Clicking "End" on a Copilot session did not remove it from the UI.
+- **Root cause:** Three bugs across the stack — aggregator had no `removeSession()`, abort route didn't clean up aggregator, daemon manager didn't clean up `activeSessions` or emit `session.ended`.
+- **Fix 1 (Aggregator):** Added `removeSession(sessionId)` — deletes from `sessions`, `conversationHistory`, `toolInvocations` maps, emits `sessions-updated`. `handleSessionEvent` now handles `session.ended` by calling `removeSession`; no stub created for ended sessions.
+- **Fix 2 (Abort route):** Changed from failing with 502 on disconnected daemon to always succeeding — sends abort best-effort, then always calls `removeSession` so UI updates immediately.
+- **Fix 3 (Daemon manager):** `handleAbort` now unsubscribes event handler, removes from `activeSessions`, and emits `session.ended` back to HQ.
+- **Protocol:** Added `session.ended` to `CopilotSessionEventType` union in `src/shared/protocol.ts`.
+- **Tests:** Added 8 new tests (removeSession, session.ended handling, abort-with-cleanup, disconnected-daemon-abort). Updated 3 existing tests for new behavior. All 645 tests pass.
+- **Key learning:** Abort cleanup needs to be idempotent — HQ removes immediately on user action, daemon emits `session.ended` as a safety net. Both paths converge on `removeSession` which is a no-op for already-removed sessions.
+- **Commit:** c15a8fc
+- **Decision captured in:** `.squad/decisions/decisions.md` — "Backend — Session abort cleanup strategy"
