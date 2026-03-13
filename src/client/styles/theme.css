@@ -1,0 +1,53 @@
+/* ── launchpad-hq theme tokens ──────────────────────────
+ *  Dark = mission control aesthetic (default)
+ *  Light = daytime / outdoor readability
+ *  Keyed off Mantine's data-mantine-color-scheme attribute.
+ * ─────────────────────────────────────────────────────── */
+
+/* Smooth transition when toggling themes */
+html,
+html *,
+html *::before,
+html *::after {
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+/* ── Dark theme (default — mission control) ──────────── */
+[data-mantine-color-scheme="dark"] {
+  --lp-bg: #0b1120;
+  --lp-surface: #141d2f;
+  --lp-text: #e4e8f1;
+  --lp-text-secondary: #8892a8;
+  --lp-border: #253044;
+  --lp-accent: #4c9aff;
+  --lp-success: #36b37e;
+  --lp-warning: #ffab00;
+  --lp-error: #ff5630;
+
+  /* Kanban column accent colors */
+  --lp-kanban-todo: #4c9aff;
+  --lp-kanban-progress: #ffab00;
+  --lp-kanban-done: #36b37e;
+}
+
+/* ── Light theme ─────────────────────────────────────── */
+[data-mantine-color-scheme="light"] {
+  --lp-bg: #f5f7fa;
+  --lp-surface: #ffffff;
+  --lp-text: #1a1d23;
+  --lp-text-secondary: #6b7280;
+  --lp-border: #dde1e8;
+  --lp-accent: #2563eb;
+  --lp-success: #16a34a;
+  --lp-warning: #d97706;
+  --lp-error: #dc2626;
+
+  /* Kanban column accent colors */
+  --lp-kanban-todo: #2563eb;
+  --lp-kanban-progress: #d97706;
+  --lp-kanban-done: #16a34a;
+}

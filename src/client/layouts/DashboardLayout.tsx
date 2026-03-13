@@ -4,6 +4,7 @@ import { ProjectList } from "../components/ProjectList";
 import { KanbanBoard } from "../components/KanbanBoard";
 import { SessionsPanel } from "../components/SessionsPanel";
 import { ConnectionStatus } from "../components/ConnectionStatus";
+import { ThemeToggle } from "../components/ThemeToggle";
 
 export function DashboardLayout() {
   const isSmallScreen = useMediaQuery("(max-width: 768px)");
@@ -13,7 +14,10 @@ export function DashboardLayout() {
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between">
           <Title order={3}>🚀 launchpad-hq</Title>
-          <ConnectionStatus />
+          <Group gap="xs">
+            <ThemeToggle />
+            <ConnectionStatus />
+          </Group>
         </Group>
       </AppShell.Header>
 
@@ -29,9 +33,9 @@ export function DashboardLayout() {
               minWidth: isSmallScreen ? undefined : 250,
               borderRight: isSmallScreen
                 ? undefined
-                : "1px solid var(--mantine-color-default-border)",
+                : "1px solid var(--lp-border)",
               borderBottom: isSmallScreen
-                ? "1px solid var(--mantine-color-default-border)"
+                ? "1px solid var(--lp-border)"
                 : undefined,
             }}
           >
@@ -50,9 +54,9 @@ export function DashboardLayout() {
               minWidth: isSmallScreen ? undefined : 300,
               borderLeft: isSmallScreen
                 ? undefined
-                : "1px solid var(--mantine-color-default-border)",
+                : "1px solid var(--lp-border)",
               borderTop: isSmallScreen
-                ? "1px solid var(--mantine-color-default-border)"
+                ? "1px solid var(--lp-border)"
                 : undefined,
             }}
           >
