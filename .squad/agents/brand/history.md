@@ -57,3 +57,14 @@ The kanban board is read-only in Phase 1 (no drag-and-drop). Classification logi
 
 Brand's frontend unlocks the entire user experience by consuming Romilly's REST API and displaying the data hierarchy from TARS' persistence layer.
 
+### 2026-03-13: WebSocket client hooks & connection manager (Issue #17)
+- **WebSocketManager** (`src/client/services/ws.ts`) — connection manager with auto-connect, auto-reconnect using exponential backoff (1s → 2s → 4s → max 30s), message queuing during disconnects, ping keep-alive (25s), and channel re-subscription on reconnect.
+- **Client WS types** (`src/client/services/ws-types.ts`) — mirrors server protocol types: `Channel`, `ClientMessage`, `ServerMessage`, `ConnectionStatus`. Keep in sync with `src/server/ws/types.ts`.
+- **WebSocketContext** (`src/client/contexts/WebSocketContext.tsx`) — React context provider with `useWebSocket()` hook (raw connection) and `useSubscription(channel)` hook (typed topic subscriptions with latest payload state).
+- **ConnectionStatus** (`src/client/components/ConnectionStatus.tsx`) — Mantine Badge with dot variant showing Live/Connecting/Reconnecting/Offline. Added to DashboardLayout header.
+- **App.tsx** — `WebSocketProvider` wraps the app (inside MantineProvider, outside ProjectProvider).
+- **Test utils** — `src/test-utils/client.tsx` updated to include `WebSocketProvider` with dummy URL for all component tests.
+- **Tests** — 18 unit tests for `WebSocketManager` (lifecycle, backoff, subscriptions, queuing, ping, listeners) + 6 tests for React context/hooks/component. All pass.
+- **Parallel entanglement (again):** My files got swept into TARS's commit `ecd1f7c` (copilot #15) because we were working on the same filesystem. Same issue as #8/#9. Need separate branches or coordinated staging.
+- **Mock pattern:** Use `vi.stubGlobal("WebSocket", ...)` + `vi.unstubAllGlobals()` — not direct assignment + `vi.restoreAllMocks()`, which clears mock implementations.
+
