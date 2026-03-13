@@ -101,6 +101,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
 
   const copilot = new CopilotManager({
     sendToHq: (msg) => client.send(msg),
+    projectId: config.projectId,
   });
 
   client.on('message', (msg) => {
