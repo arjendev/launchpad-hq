@@ -252,3 +252,19 @@
 **What:** Handler injects projectId from WS-to-daemonId mapping into SDK message payloads before emitting to registry. Aggregator uses daemonId as fallback (safe since daemonId === projectId, both are `owner/repo`). Poll errors now logged via `console.warn`.
 **Why:** SDK sessions (`copilot-sdk-session-event`, `copilot-sdk-session-list`) were arriving without projectId, defaulting to "unknown" and disappearing from project-filtered lists. Handler injection ensures all message types carry projectId.
 **Impact:** Files: `src/server/copilot/handler.ts`, `src/server/copilot/aggregator.ts`, `src/daemon/copilot/manager.ts`. 603 tests pass. Commit: 1c93ce1.
+
+### 2026-03-13: Backend — Session Status Lifecycle Semantics
+**By:** Romilly (Backend Dev)
+**Date:** 2026-03-13
+**Status:** Implemented (Commit: 2f03e16)
+**What:** Redefined session status lifecycle to fix a deadlock where newly created sessions were stuck at `"active"`, blocking send-prompt route with 409. New semantics: `"idle"` = ready for input, `"active"` = processing prompt. Lifecycle: `session.start` → `idle`, `user.message` → `active`, `assistant.message` → `idle`. Stub sessions from firehose also start as `idle`.
+**Why:** Sessions created via stub or session.start event were unblockable — the send-prompt guard rejects messages when `status === "active"`. Redefining semantics unblocks the entire flow without API changes. Type definition already supported both states.
+**Impact:** Files modified: aggregator.ts, aggregator.test.ts, injection.test.ts. All 603 tests pass. No breaking changes.
+
+### 2026-03-13: UI — End Session Button Always Visible
+**By:** Brand (Frontend Dev)
+**Date:** 2026-03-13
+**Status:** Implemented (Commit: 4b9e6dd)
+**What:** Added always-visible "✕ End" button in CopilotConversation header. Calls abort endpoint + navigates back via `onClose()` on success. Styled `variant="subtle" color="red" size="compact-xs"` to indicate destructive action. Works for sessions in any state, not just active.
+**Why:** Users had no way to end idle sessions from the UI. Existing Abort button only appeared during active processing. New button provides clear exit path for all cases while keeping in-progress Abort button for its intended purpose (stop without leaving).
+**Impact:** File: `src/client/components/CopilotConversation.tsx`. Reuses `useAbortSession()` hook; no new logic.
