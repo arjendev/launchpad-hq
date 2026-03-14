@@ -29,6 +29,8 @@ import type {
   CopilotAgentCatalogResponse,
   CopilotAgentPreferenceResponse,
   CopilotSessionAgentResponse,
+  TunnelState,
+  TunnelQrResponse,
 } from "./types.js";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -1331,6 +1333,53 @@ export function useUpdateInboxMessage(owner?: string, repo?: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["inbox", owner, repo] });
       void qc.invalidateQueries({ queryKey: ["inbox-count", owner, repo] });
+    },
+  });
+}
+
+// ── Tunnel hooks ────────────────────────────────────────
+
+/** Poll tunnel status every 5 seconds. */
+export function useTunnelStatus() {
+  return useQuery<TunnelState>({
+    queryKey: ["tunnel"],
+    queryFn: () => fetchJson<TunnelState>("/api/tunnel"),
+    refetchInterval: 5_000,
+  });
+}
+
+/** Fetch QR code when tunnel is running. */
+export function useTunnelQr(enabled: boolean) {
+  return useQuery<TunnelQrResponse>({
+    queryKey: ["tunnel-qr"],
+    queryFn: () => fetchJson<TunnelQrResponse>("/api/tunnel/qr"),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+/** Start the dev tunnel. */
+export function useStartTunnel() {
+  const qc = useQueryClient();
+  return useMutation<TunnelState, Error>({
+    mutationFn: () =>
+      fetchJson<TunnelState>("/api/tunnel/start", { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["tunnel"] });
+      void qc.invalidateQueries({ queryKey: ["tunnel-qr"] });
+    },
+  });
+}
+
+/** Stop the dev tunnel. */
+export function useStopTunnel() {
+  const qc = useQueryClient();
+  return useMutation<TunnelState, Error>({
+    mutationFn: () =>
+      fetchJson<TunnelState>("/api/tunnel/stop", { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["tunnel"] });
+      void qc.invalidateQueries({ queryKey: ["tunnel-qr"] });
     },
   });
 }
