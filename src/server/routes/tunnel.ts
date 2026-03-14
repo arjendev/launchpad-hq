@@ -69,10 +69,11 @@ async function tunnelPlugin(fastify: FastifyInstance) {
       return manager.getState();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to start tunnel";
+      const state = manager.getState();
       return reply.status(500).send({
+        ...state,
         error: "tunnel_start_failed",
         message,
-        ...manager.getState(),
       });
     }
   });
@@ -84,10 +85,11 @@ async function tunnelPlugin(fastify: FastifyInstance) {
       return manager.getState();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to stop tunnel";
+      const state = manager.getState();
       return reply.status(500).send({
+        ...state,
         error: "tunnel_stop_failed",
         message,
-        ...manager.getState(),
       });
     }
   });
