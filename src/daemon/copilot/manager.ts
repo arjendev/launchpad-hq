@@ -700,16 +700,17 @@ export class CopilotManager {
     this.activeSessions.delete(sessionId);
     logSdk(`Session removed: ${sessionId}`);
 
+    // Send session.idle (not session.shutdown) so the aggregator keeps the
+    // session visible and resumable.  shutdown would tombstone it.
     this.sendToHq({
       type: 'copilot-session-event',
       timestamp: Date.now(),
       payload: {
         projectId: this.projectId,
         sessionId,
-        event: syntheticEvent('session.shutdown', {
+        event: syntheticEvent('session.idle', {
           sessionId,
           reason: 'disconnected',
-          shutdownType: 'routine',
         }),
       },
     });

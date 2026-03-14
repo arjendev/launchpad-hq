@@ -205,8 +205,15 @@ class TestCopilotClient {
   }
 
   async listSessions(): Promise<Array<{ sessionId: string; startTime: Date; modifiedTime: Date; isRemote: boolean; summary?: string }>> {
+    const dynamicSessions = Array.from(this.sessions.keys()).map((id) => ({
+      sessionId: id,
+      startTime: new Date(),
+      modifiedTime: new Date(),
+      isRemote: false,
+    }));
     return [
       { sessionId: 'test-session-001', startTime: new Date(), modifiedTime: new Date(), isRemote: false, summary: 'Test session' },
+      ...dynamicSessions,
     ];
   }
 
@@ -277,14 +284,16 @@ const SQUAD_AGENT_CONFIG = {
 
 describe('CopilotManager', () => {
   let manager: CopilotManager;
+  let mockClient: TestCopilotClient;
   let sent: DaemonToHqMessage[];
   const sendToHq = (msg: DaemonToHqMessage) => sent.push(msg);
 
   beforeEach(() => {
     sent = [];
+    mockClient = new TestCopilotClient();
     manager = new CopilotManager({
       sendToHq,
-      client: new TestCopilotClient(),
+      client: mockClient,
       pollIntervalMs: 60_000,
     });
   });
@@ -1368,7 +1377,7 @@ describe('CopilotManager', () => {
   // -----------------------------------------------------------------------
 
   describe('handleMessage: copilot-disconnect-session', () => {
-    it('disconnects session and emits session.shutdown', async () => {
+    it('disconnects session and emits session.idle (not session.shutdown)', async () => {
       await manager.start();
 
       await manager.handleMessage({
@@ -1389,11 +1398,42 @@ describe('CopilotManager', () => {
         payload: { sessionId },
       } as HqToDaemonMessage);
 
+      // Should send session.idle so aggregator keeps the session visible
+      const idleEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.idle',
+      );
+      expect(idleEvent).toBeDefined();
+      expect(idleEvent!.payload.event.data.reason).toBe('disconnected');
+
+      // Must NOT send session.shutdown (that would tombstone the session)
       const shutdownEvent = sent.find(
         (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.shutdown',
       );
-      expect(shutdownEvent).toBeDefined();
-      expect(shutdownEvent!.payload.event.data.reason).toBe('disconnected');
+      expect(shutdownEvent).toBeUndefined();
+    });
+
+    it('does not call client.deleteSession — session persists in SDK registry', async () => {
+      await manager.start();
+
+      await manager.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-disc-nodelete' },
+      });
+
+      const startEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.start',
+      );
+      const sessionId = startEvent!.payload.sessionId;
+
+      await manager.handleMessage({
+        type: 'copilot-disconnect-session',
+        timestamp: Date.now(),
+        payload: { sessionId },
+      } as HqToDaemonMessage);
+
+      // Session must NOT be deleted from SDK registry
+      expect(mockClient.deletedSessionIds).not.toContain(sessionId);
     });
 
     it('removes session from tracking after disconnect', async () => {
@@ -1416,18 +1456,27 @@ describe('CopilotManager', () => {
         payload: { sessionId },
       } as HqToDaemonMessage);
 
-      // Sending a prompt to the disconnected session should yield an error
+      // Sending a prompt to the disconnected session will auto-resume via
+      // getOrAttachSession → client.resumeSession, so it should succeed
+      // (not error). This proves the session is still in the SDK registry.
       sent = [];
       await manager.handleMessage({
         type: 'copilot-send-prompt',
         timestamp: Date.now(),
-        payload: { sessionId, prompt: 'Should fail' },
+        payload: { sessionId, prompt: 'After disconnect' },
       });
 
+      // The auto-resume should produce events (not an error)
       const errorEvent = sent.find(
         (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.error',
       );
-      expect(errorEvent).toBeDefined();
+      expect(errorEvent).toBeUndefined();
+
+      // Should see the assistant response from the resumed session
+      const responseEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'assistant.message',
+      );
+      expect(responseEvent).toBeDefined();
     });
 
     it('silently ignores disconnect for unknown session', async () => {
@@ -1493,6 +1542,83 @@ describe('CopilotManager', () => {
         payload: { sessionId },
       } as HqToDaemonMessage);
 
+      const shutdownEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.shutdown',
+      );
+      expect(shutdownEvent).toBeDefined();
+      expect(shutdownEvent!.payload.event.data.reason).toBe('deleted');
+    });
+
+    it('calls client.deleteSession to permanently remove from SDK registry', async () => {
+      await manager.start();
+
+      await manager.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-del-sdk' },
+      });
+
+      const startEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.start',
+      );
+      const sessionId = startEvent!.payload.sessionId;
+
+      await manager.handleMessage({
+        type: 'copilot-delete-session',
+        timestamp: Date.now(),
+        payload: { sessionId },
+      } as HqToDaemonMessage);
+
+      // Must have called deleteSession on the SDK client
+      expect(mockClient.deletedSessionIds).toContain(sessionId);
+    });
+
+    it('session cannot be resumed after delete', async () => {
+      await manager.start();
+
+      await manager.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-del-noresume' },
+      });
+
+      const startEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.start',
+      );
+      const sessionId = startEvent!.payload.sessionId;
+
+      await manager.handleMessage({
+        type: 'copilot-delete-session',
+        timestamp: Date.now(),
+        payload: { sessionId },
+      } as HqToDaemonMessage);
+
+      // Sending a prompt after delete — session was deleted from SDK, so
+      // getOrAttachSession / findKnownSession should fail to find it
+      sent = [];
+      await manager.handleMessage({
+        type: 'copilot-send-prompt',
+        timestamp: Date.now(),
+        payload: { sessionId, prompt: 'After delete' },
+      });
+
+      const errorEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.error',
+      );
+      expect(errorEvent).toBeDefined();
+    });
+
+    it('silently handles delete for unknown session', async () => {
+      await manager.start();
+      sent = [];
+
+      await manager.handleMessage({
+        type: 'copilot-delete-session',
+        timestamp: Date.now(),
+        payload: { sessionId: 'nonexistent' },
+      } as HqToDaemonMessage);
+
+      // Should still send shutdown event (daemon notifies HQ of deletion)
       const shutdownEvent = sent.find(
         (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.shutdown',
       );

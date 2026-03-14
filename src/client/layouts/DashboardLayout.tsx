@@ -14,12 +14,11 @@ import type { MobileTab } from "../components/MobileNavBar.js";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { useSelectedSession } from "../contexts/SessionContext.js";
 import { useDaemonForProject, useInboxCount } from "../services/hooks.js";
-
 export function DashboardLayout() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [mobileTab, setMobileTab] = useState<MobileTab>("projects");
   const { selectedProject } = useSelectedProject();
-  const { selectedSession, selectSession } = useSelectedSession();
+  const { selectedSession, selectSession, terminalOpen, closeTerminal } = useSelectedSession();
 
   const projectId = selectedProject
     ? `${selectedProject.owner}/${selectedProject.repo}`
@@ -120,6 +119,15 @@ export function DashboardLayout() {
                       )}
                     />
                   )}
+                  {!selectedSession && terminalOpen && daemon && (
+                    <ResizableTerminalPanel
+                      daemonId={daemon.daemonId}
+                      onClose={closeTerminal}
+                      defaultHeight={Math.floor(
+                        (window.innerHeight - 50) * 0.7,
+                      )}
+                    />
+                  )}
                 </>
               )}
             </div>
@@ -130,7 +138,8 @@ export function DashboardLayout() {
   }
 
   // ── Mobile layout ─────────────────────────────────────
-  const showTerminal = !!selectedSession && !!daemon;
+  const showSessionPanel = !!selectedSession && !!daemon;
+  const showStandaloneTerminal = !selectedSession && terminalOpen && !!daemon;
 
   return (
     <AppShell header={{ height: 46 }} padding={0}>
@@ -155,13 +164,20 @@ export function DashboardLayout() {
         >
           {/* Active panel */}
           <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-            {showTerminal ? (
+            {showSessionPanel ? (
               <ResizableTerminalPanel
                 daemonId={daemon.daemonId}
                 sessionId={selectedSession.sessionId}
                 sessionType={selectedSession.sessionType}
                 terminalId={selectedSession.sessionId}
                 onClose={() => selectSession(null)}
+                defaultHeight={window.innerHeight - 46 - 52}
+                minHeight={200}
+              />
+            ) : showStandaloneTerminal ? (
+              <ResizableTerminalPanel
+                daemonId={daemon.daemonId}
+                onClose={closeTerminal}
                 defaultHeight={window.innerHeight - 46 - 52}
                 minHeight={200}
               />

@@ -10,6 +10,9 @@ interface SessionContextValue {
     session: AggregatedSession | null,
     options?: { resume?: boolean },
   ) => void;
+  terminalOpen: boolean;
+  openTerminal: () => void;
+  closeTerminal: () => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -20,6 +23,7 @@ function shouldDisconnectOnDeselect(session: AggregatedSession | null): boolean 
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [selectedSession, setSelectedSession] = useState<AggregatedSession | null>(null);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const { selectedProject } = useSelectedProject();
   const disconnectSession = useDisconnectSession();
   const resumeSession = useResumeSession();
@@ -37,11 +41,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       prev?.owner !== selectedProject?.owner ||
       prev?.repo !== selectedProject?.repo;
 
-    if (changed && selectedSession) {
-      if (shouldDisconnectOnDeselect(selectedSession)) {
+    if (changed) {
+      if (selectedSession && shouldDisconnectOnDeselect(selectedSession)) {
         disconnectSession.mutate(selectedSession.sessionId);
       }
       setSelectedSession(null);
+      setTerminalOpen(false);
     }
   }, [selectedProject]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -61,6 +66,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
 
       setSelectedSession(session);
+      // Selecting a session closes the standalone terminal
+      if (session) setTerminalOpen(false);
 
       // Resume existing sessions on selection. Freshly created sessions can opt out
       // because create already starts them, and StrictMode would otherwise amplify
@@ -72,8 +79,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [selectedSession, disconnectSession, resumeSession],
   );
 
+  const openTerminal = useCallback(() => {
+    // Deselect current session and open standalone terminal
+    if (selectedSession && shouldDisconnectOnDeselect(selectedSession)) {
+      disconnectSession.mutate(selectedSession.sessionId);
+    }
+    setSelectedSession(null);
+    setTerminalOpen(true);
+  }, [selectedSession, disconnectSession]);
+
+  const closeTerminal = useCallback(() => {
+    setTerminalOpen(false);
+  }, []);
+
   return (
-    <SessionContext.Provider value={{ selectedSession, selectSession }}>
+    <SessionContext.Provider value={{ selectedSession, selectSession, terminalOpen, openTerminal, closeTerminal }}>
       {children}
     </SessionContext.Provider>
   );
