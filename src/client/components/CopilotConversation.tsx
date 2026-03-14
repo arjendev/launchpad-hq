@@ -21,7 +21,6 @@ import {
   useConversationEntries,
   useSendPrompt,
   useAbortSession,
-  useEndSession,
   useListModels,
   useSetModel,
   useSetMode,
@@ -35,24 +34,8 @@ import type { ConversationEntry } from "../services/types.js";
 export interface CopilotConversationProps {
   sessionId: string;
   sessionType?: string;
-  onClose?: () => void;
+  controlPanelOpen?: boolean;
 }
-
-// ── Status helpers ─────────────────────────────────────
-
-const statusColor: Record<string, string> = {
-  active: "green",
-  idle: "yellow",
-  error: "red",
-  ended: "gray",
-};
-
-const statusLabel: Record<string, string> = {
-  active: "● active",
-  idle: "● idle",
-  error: "● error",
-  ended: "● ended",
-};
 
 // ── Individual message components (memoized) ───────────
 
@@ -601,7 +584,7 @@ function AgentRoster({ entries }: { entries: ConversationEntry[] }) {
 export function CopilotConversation({
   sessionId,
   sessionType,
-  onClose,
+  controlPanelOpen,
 }: CopilotConversationProps) {
   const { data: session } = useAggregatedSession(sessionId);
   const { entries, isLoading, isError, error, sessionStatus } =
@@ -609,10 +592,8 @@ export function CopilotConversation({
 
   const sendPrompt = useSendPrompt();
   const abortSession = useAbortSession();
-  const endSession = useEndSession();
 
   const [promptText, setPromptText] = useState("");
-  const [controlPanelOpen, setControlPanelOpen] = useState(false);
 
   // Auto-scroll logic
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -665,64 +646,12 @@ export function CopilotConversation({
     abortSession.mutate(sessionId);
   }, [sessionId, abortSession]);
 
-  const handleEndSession = useCallback(() => {
-    endSession.mutate(sessionId, { onSuccess: () => onClose?.() });
-  }, [sessionId, endSession, onClose]);
-
   // ── Render ─────────────────────────────────────────
 
   return (
     <Stack gap={0} style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      {/* Header */}
-      <Box p="xs" style={{ borderBottom: "1px solid var(--lp-border)" }}>
-        <Group gap="xs" justify="space-between" wrap="nowrap">
-          <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
-            {onClose && (
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                onClick={onClose}
-                data-testid="back-button"
-              >
-                ← Back
-              </Button>
-            )}
-            <Text size="sm" fw={600} truncate>
-              {session?.summary ?? session?.title ?? `Session ${sessionId.slice(0, 8)}`}
-            </Text>
-          </Group>
-          <Group gap={4} wrap="nowrap">
-            <Badge
-              size="xs"
-              variant="dot"
-              color={statusColor[sessionStatus ?? "idle"] ?? "gray"}
-            >
-              {statusLabel[sessionStatus ?? "idle"] ?? sessionStatus}
-            </Badge>
-            <Button
-              size="compact-xs"
-              variant="subtle"
-              onClick={() => setControlPanelOpen((o) => !o)}
-              data-testid="control-panel-toggle"
-            >
-              ⚙️
-            </Button>
-            <Button
-              size="compact-xs"
-              variant="subtle"
-              color="red"
-              onClick={handleEndSession}
-              loading={endSession.isPending}
-              data-testid="end-session-button"
-            >
-              🛑 End
-            </Button>
-          </Group>
-        </Group>
-      </Box>
-
       {/* SDK Control Panel */}
-      <Collapse in={controlPanelOpen}>
+      <Collapse in={!!controlPanelOpen}>
         <Box style={{ borderBottom: "1px solid var(--lp-border)" }}>
           <SdkControlPanel sessionId={sessionId} />
         </Box>

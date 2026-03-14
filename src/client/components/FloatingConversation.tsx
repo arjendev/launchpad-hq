@@ -1,7 +1,8 @@
-import { Badge, CloseButton, Group, Paper, Text, Tooltip, Transition } from "@mantine/core";
+import { useState } from "react";
+import { Badge, Button, CloseButton, Group, Paper, Text, Tooltip, Transition } from "@mantine/core";
 import { CopilotConversation } from "./CopilotConversation.js";
 import { Terminal } from "./Terminal.js";
-import { useAggregatedSession } from "../services/hooks.js";
+import { useAggregatedSession, useEndSession } from "../services/hooks.js";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { useDaemonForProject } from "../services/hooks.js";
 
@@ -10,6 +11,20 @@ export interface FloatingConversationProps {
   sessionType?: string;
   onClose: () => void;
 }
+
+const statusColor: Record<string, string> = {
+  active: "green",
+  idle: "yellow",
+  error: "red",
+  ended: "gray",
+};
+
+const statusLabel: Record<string, string> = {
+  active: "● active",
+  idle: "● idle",
+  error: "● error",
+  ended: "● ended",
+};
 
 export function FloatingConversation({
   sessionId,
@@ -22,18 +37,30 @@ export function FloatingConversation({
     ? `${selectedProject.owner}/${selectedProject.repo}`
     : null;
   const { daemon } = useDaemonForProject(projectId ?? undefined);
+  const endSession = useEndSession();
+
   // Use prop first (immediate), fall back to query (lazy)
   const resolvedSessionType = propSessionType ?? sessionData?.sessionType;
   const isCliSession = resolvedSessionType === "copilot-cli";
+  const isSdkLike = resolvedSessionType === "copilot-sdk" || resolvedSessionType === "squad-sdk";
 
-  const handleClose = () => {
+  const [controlPanelOpen, setControlPanelOpen] = useState(false);
+
+  const sessionStatus = sessionData?.status ?? "idle";
+
+  const handleDetach = () => {
     if (isCliSession && sessionId) {
-      // Tell daemon to buffer output while detached
       fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/disconnect`, {
         method: "POST",
       }).catch(() => {});
     }
     onClose();
+  };
+
+  const handleEndSession = () => {
+    endSession.mutate(sessionId, {
+      onSuccess: () => onClose(),
+    });
   };
 
   return (
@@ -84,20 +111,51 @@ export function FloatingConversation({
                 </Badge>
               )}
             </Group>
-            <CloseButton
-              size="sm"
-              aria-label="Close conversation"
-              onClick={handleClose}
-              data-testid="floating-close"
-            />
+            <Group gap={4} wrap="nowrap">
+              <Badge
+                size="xs"
+                variant="dot"
+                color={statusColor[sessionStatus] ?? "gray"}
+              >
+                {statusLabel[sessionStatus] ?? sessionStatus}
+              </Badge>
+              {isSdkLike && (
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  onClick={() => setControlPanelOpen((o) => !o)}
+                  data-testid="control-panel-toggle"
+                >
+                  ⚙️
+                </Button>
+              )}
+              <Tooltip label="Detach (hide session)">
+                <CloseButton
+                  size="sm"
+                  aria-label="Detach"
+                  onClick={handleDetach}
+                  data-testid="floating-close"
+                />
+              </Tooltip>
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                color="red"
+                onClick={handleEndSession}
+                loading={endSession.isPending}
+                data-testid="end-session-button"
+              >
+                🛑 End
+              </Button>
+            </Group>
           </Group>
 
           {/* Conversation body */}
           <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
             {isCliSession && daemon ? (
-              <Terminal daemonId={daemon.daemonId} terminalId={sessionId} onClose={handleClose} />
+              <Terminal daemonId={daemon.daemonId} terminalId={sessionId} onClose={handleDetach} />
             ) : (
-              <CopilotConversation sessionId={sessionId} sessionType={resolvedSessionType} onClose={handleClose} />
+              <CopilotConversation sessionId={sessionId} sessionType={resolvedSessionType} controlPanelOpen={controlPanelOpen} />
             )}
           </div>
         </Paper>
