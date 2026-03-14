@@ -525,6 +525,46 @@ export function useListModels() {
  * ConversationEntry[] for the conversation viewer.
  * Subscribes to the copilot WS channel and appends new events in real-time.
  */
+
+function formatEventContent(eventType: string, data: Record<string, unknown>): string {
+  switch (eventType) {
+    case "session.start": return "Session started";
+    case "session.resume": return "Session resumed";
+    case "session.shutdown": return "Session ended";
+    case "session.title_changed": return `Title: ${data.title ?? ""}`;
+    case "session.model_change": return `Model changed to ${data.model ?? "unknown"}`;
+    case "session.mode_changed": return `Mode: ${data.mode ?? "unknown"}`;
+    case "session.plan_changed": return "Plan updated";
+    case "session.task_complete": return "Task complete";
+    case "session.compaction_start": return "Compacting context…";
+    case "session.compaction_complete": return "Context compacted";
+    case "session.truncation": return "Context truncated";
+    case "session.info": return String(data.message ?? data.content ?? "Info");
+    case "session.warning": return String(data.message ?? data.content ?? "Warning");
+    case "session.usage_info": return `Tokens: ${JSON.stringify(data)}`;
+    case "assistant.turn_start": return "Turn started";
+    case "assistant.turn_end": return "Turn ended";
+    case "assistant.reasoning": return String(data.content ?? data.reasoning ?? "Reasoning…");
+    case "assistant.reasoning_delta": return String(data.deltaContent ?? "");
+    case "assistant.intent": return `Intent: ${data.intent ?? ""}`;
+    case "assistant.usage": return `Usage: ${JSON.stringify(data)}`;
+    case "tool.execution_partial_result": return `Partial: ${data.result ?? ""}`;
+    case "tool.execution_progress": return `Progress: ${data.message ?? ""}`;
+    case "permission.requested": return `Permission needed: ${data.tool ?? data.action ?? ""}`;
+    case "permission.completed": return `Permission ${data.granted ? "granted" : "denied"}`;
+    case "elicitation.requested": return `Question: ${data.message ?? ""}`;
+    case "elicitation.completed": return `Answer: ${data.response ?? ""}`;
+    case "abort": return "Aborted";
+    default: {
+      const summary = Object.entries(data)
+        .filter(([, v]) => v !== undefined && v !== null)
+        .map(([k, v]) => `${k}: ${typeof v === "string" ? v.slice(0, 80) : JSON.stringify(v)}`)
+        .join(", ");
+      return summary || eventType;
+    }
+  }
+}
+
 export function useConversationEntries(sessionId: string | null): {
   entries: ConversationEntry[];
   isLoading: boolean;
@@ -541,6 +581,10 @@ export function useConversationEntries(sessionId: string | null): {
   // Track streaming delta content
   const streamingRef = useRef<{ id: string; content: string } | null>(null);
   const [streamingEntry, setStreamingEntry] = useState<ConversationEntry | null>(null);
+
+  // Track reasoning delta content
+  const reasoningRef = useRef<{ id: string; content: string } | null>(null);
+  const [reasoningEntry, setReasoningEntry] = useState<ConversationEntry | null>(null);
 
   // Accumulate real-time events
   const [realtimeEntries, setRealtimeEntries] = useState<ConversationEntry[]>([]);
@@ -690,8 +734,53 @@ export function useConversationEntries(sessionId: string | null): {
             ]);
             break;
 
-          default:
+          case "assistant.reasoning_delta": {
+            const delta = (event.data as { deltaContent?: string }).deltaContent ?? "";
+            if (!reasoningRef.current) {
+              reasoningRef.current = { id: `rt-reasoning-${ts}`, content: delta };
+            } else {
+              reasoningRef.current.content += delta;
+            }
+            setReasoningEntry({
+              id: reasoningRef.current.id,
+              type: "event",
+              content: reasoningRef.current.content,
+              timestamp: ts,
+              eventType: "assistant.reasoning",
+              isStreaming: true,
+            });
             break;
+          }
+
+          case "assistant.reasoning":
+            reasoningRef.current = null;
+            setReasoningEntry(null);
+            setRealtimeEntries((prev) => [
+              ...prev,
+              {
+                id: `rt-reasoning-${ts}`,
+                type: "event",
+                content: (event.data as { content?: string }).content ?? "",
+                timestamp: ts,
+                eventType: "assistant.reasoning",
+              },
+            ]);
+            break;
+
+          default: {
+            setRealtimeEntries((prev) => [
+              ...prev,
+              {
+                id: `rt-evt-${event.type}-${ts}`,
+                type: "event" as const,
+                content: formatEventContent(event.type, event.data as Record<string, unknown>),
+                timestamp: ts,
+                eventType: event.type,
+                eventData: event.data as Record<string, unknown>,
+              },
+            ]);
+            break;
+          }
         }
       }
 
@@ -722,6 +811,8 @@ export function useConversationEntries(sessionId: string | null): {
       setRealtimeEntries([]);
       setStreamingEntry(null);
       streamingRef.current = null;
+      setReasoningEntry(null);
+      reasoningRef.current = null;
     }
   }, [sessionId]);
 
@@ -768,10 +859,15 @@ export function useConversationEntries(sessionId: string | null): {
       result.push(streamingEntry);
     }
 
+    // 5. Add reasoning streaming entry if present
+    if (reasoningEntry) {
+      result.push(reasoningEntry);
+    }
+
     // Sort by timestamp
     result.sort((a, b) => a.timestamp - b.timestamp);
     return result;
-  }, [messagesData, toolsData, realtimeEntries, streamingEntry])();
+  }, [messagesData, toolsData, realtimeEntries, streamingEntry, reasoningEntry])();
 
   return {
     entries,
