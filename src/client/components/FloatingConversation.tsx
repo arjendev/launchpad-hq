@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Badge, Button, CloseButton, Group, Paper, Text, Tooltip, Transition } from "@mantine/core";
+import { useEffect, useRef, useState } from "react";
+import { Badge, Button, Group, Paper, Text, Tooltip, Transition } from "@mantine/core";
 import { CopilotConversation } from "./CopilotConversation.js";
 import { Terminal } from "./Terminal.js";
 import { useAggregatedSession, useEndSession } from "../services/hooks.js";
@@ -45,6 +45,8 @@ export function FloatingConversation({
   const isSdkLike = resolvedSessionType === "copilot-sdk" || resolvedSessionType === "squad-sdk";
 
   const [controlPanelOpen, setControlPanelOpen] = useState(false);
+  const [confirmingEnd, setConfirmingEnd] = useState(false);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const sessionStatus = sessionData?.status ?? "idle";
 
@@ -57,11 +59,21 @@ export function FloatingConversation({
     onClose();
   };
 
-  const handleEndSession = () => {
+  const handleEndClick = () => {
+    if (!confirmingEnd) {
+      setConfirmingEnd(true);
+      // Auto-reset after 3 seconds if user doesn't confirm
+      confirmTimer.current = setTimeout(() => setConfirmingEnd(false), 3000);
+      return;
+    }
+    clearTimeout(confirmTimer.current);
     endSession.mutate(sessionId, {
       onSuccess: () => onClose(),
     });
   };
+
+  // Clean up confirm timer on unmount
+  useEffect(() => () => clearTimeout(confirmTimer.current), []);
 
   // Resume SDK/Squad sessions when the overlay mounts.
   // CLI sessions handle resume inside the Terminal component after WS join.
@@ -140,24 +152,32 @@ export function FloatingConversation({
                   ⚙️
                 </Button>
               )}
-              <Tooltip label="Detach (hide session)">
-                <CloseButton
-                  size="sm"
-                  aria-label="Detach"
-                  onClick={handleDetach}
-                  data-testid="floating-close"
-                />
-              </Tooltip>
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                color="red"
-                onClick={handleEndSession}
-                loading={endSession.isPending}
-                data-testid="end-session-button"
-              >
-                🛑 End
-              </Button>
+              <Button.Group>
+                <Tooltip label="Minimize — session keeps running in background">
+                  <Button
+                    size="compact-xs"
+                    variant="default"
+                    onClick={handleDetach}
+                    data-testid="floating-close"
+                    styles={{ root: { fontWeight: 500 } }}
+                  >
+                    Detach ↗
+                  </Button>
+                </Tooltip>
+                <Tooltip label={confirmingEnd ? "Click again to confirm" : "End session — stops the process"}>
+                  <Button
+                    size="compact-xs"
+                    variant={confirmingEnd ? "filled" : "light"}
+                    color="red"
+                    onClick={handleEndClick}
+                    loading={endSession.isPending}
+                    data-testid="end-session-button"
+                    styles={{ root: { fontWeight: 500 } }}
+                  >
+                    {confirmingEnd ? "Confirm? ■" : "End ■"}
+                  </Button>
+                </Tooltip>
+              </Button.Group>
             </Group>
           </Group>
 

@@ -58,9 +58,11 @@ test.describe("Session lifecycle", () => {
     // Wait for terminal data to flow
     await page.waitForTimeout(3000);
 
-    // The end button should be present and clickable
+    // The end button should be present — requires two clicks (confirmation)
     const endBtn = page.getByTestId("end-session-button");
     await expect(endBtn).toBeVisible();
+    await endBtn.click();
+    await expect(endBtn).toContainText("Confirm");
     await endBtn.click();
 
     // Overlay should disappear
@@ -90,8 +92,10 @@ test.describe("Session lifecycle", () => {
     const promptInput = page.getByTestId("prompt-input");
     await expect(promptInput).toBeVisible();
 
-    // End the session
+    // End the session (two-click confirmation)
     const endBtn = page.getByTestId("end-session-button");
+    await endBtn.click();
+    await expect(endBtn).toContainText("Confirm");
     await endBtn.click();
     await expect(closeBtn).not.toBeVisible({ timeout: 5_000 });
   });
@@ -114,6 +118,7 @@ test.describe("Session lifecycle", () => {
     await expect(page.getByText(/● idle|● active/).first()).toBeVisible();
     await expect(page.getByTestId("prompt-input")).toBeVisible({ timeout: 5_000 });
 
+    await page.getByTestId("end-session-button").click();
     await page.getByTestId("end-session-button").click();
     await expect(closeBtn).not.toBeVisible({ timeout: 5_000 });
   });
@@ -171,7 +176,8 @@ test.describe("Session lifecycle", () => {
     // Wait for data after resume
     await page.waitForTimeout(2000);
 
-    // Clean up
+    // Clean up (two-click confirmation)
+    await page.getByTestId("end-session-button").click();
     await page.getByTestId("end-session-button").click();
     await page.waitForTimeout(1000);
   });
