@@ -207,7 +207,8 @@ export type ConversationEntryType =
   | "tool"
   | "hq-tool"
   | "status"
-  | "error";
+  | "error"
+  | "event";
 
 export interface ConversationEntry {
   id: string;
@@ -219,6 +220,8 @@ export interface ConversationEntry {
   hqToolName?: string;
   hqToolArgs?: Record<string, unknown>;
   isStreaming?: boolean;
+  eventType?: string;
+  eventData?: Record<string, unknown>;
 }
 
 // ── Copilot session types (match server copilot/types.ts) ────

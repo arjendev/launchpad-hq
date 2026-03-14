@@ -226,6 +226,41 @@ const ErrorBanner = memo(function ErrorBanner({
   );
 });
 
+const EventCard = memo(function EventCard({ entry }: { entry: ConversationEntry }) {
+  const eventType = entry.eventType ?? "unknown";
+  const isSession = eventType.startsWith("session.");
+  const isAssistant = eventType.startsWith("assistant.");
+  const isTool = eventType.startsWith("tool.");
+  const isPermission = eventType.startsWith("permission.") || eventType.startsWith("elicitation.");
+
+  const color = isSession ? "blue" : isAssistant ? "grape" : isTool ? "orange" : isPermission ? "yellow" : "gray";
+
+  return (
+    <Paper
+      p="xs"
+      radius="sm"
+      withBorder
+      data-testid="event-card"
+      style={{
+        borderColor: `var(--mantine-color-${color}-4)`,
+        borderStyle: "dashed",
+        opacity: 0.85,
+        fontSize: "0.8rem",
+      }}
+    >
+      <Group gap={6} wrap="nowrap">
+        <Badge size="xs" variant="light" color={color} style={{ flexShrink: 0 }}>
+          {eventType}
+        </Badge>
+        <Text size="xs" c="dimmed" truncate style={{ flex: 1 }}>
+          {entry.content}
+          {entry.isStreaming && " ⏳"}
+        </Text>
+      </Group>
+    </Paper>
+  );
+});
+
 // ── Message renderer ───────────────────────────────────
 
 const ConversationMessage = memo(function ConversationMessage({
@@ -246,6 +281,8 @@ const ConversationMessage = memo(function ConversationMessage({
       return <StatusDivider entry={entry} />;
     case "error":
       return <ErrorBanner entry={entry} />;
+    case "event":
+      return <EventCard entry={entry} />;
     default:
       return null;
   }
