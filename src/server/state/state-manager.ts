@@ -5,12 +5,14 @@ import type {
   ProjectEntry,
   UserPreferences,
   EnrichmentData,
+  ProjectInbox,
   StateService,
 } from "./types.js";
 import {
   defaultProjectConfig,
   defaultUserPreferences,
   defaultEnrichmentData,
+  defaultProjectInbox,
 } from "./types.js";
 
 const FILES = {
@@ -78,6 +80,20 @@ export class StateManager implements StateService {
   async saveEnrichment(data: EnrichmentData): Promise<void> {
     data.updatedAt = new Date().toISOString();
     await this.writeState(FILES.enrichment, data);
+  }
+
+  private inboxPath(owner: string, repo: string): string {
+    return `inbox/${owner}/${repo}.json`;
+  }
+
+  async getInbox(owner: string, repo: string): Promise<ProjectInbox> {
+    const path = this.inboxPath(owner, repo);
+    return this.readState(path, () => defaultProjectInbox(`${owner}/${repo}`));
+  }
+
+  async saveInbox(owner: string, repo: string, inbox: ProjectInbox): Promise<void> {
+    const path = this.inboxPath(owner, repo);
+    await this.writeState(path, inbox);
   }
 
   /**

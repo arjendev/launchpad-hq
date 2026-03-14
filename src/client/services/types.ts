@@ -284,3 +284,28 @@ export interface AttentionCountResponse {
   total: number;
   bySeverity: Record<AttentionSeverity, number>;
 }
+
+// ── Inbox types (match server state/types.ts) ────
+
+export interface InboxMessage {
+  id: string;
+  projectId: string;
+  sessionId: string;
+  tool: "request_human_review" | "report_blocker";
+  args: Record<string, unknown>;
+  title: string;
+  status: "unread" | "read" | "archived";
+  createdAt: string;
+  readAt?: string;
+  archivedAt?: string;
+}
+
+export interface InboxListResponse {
+  messages: InboxMessage[];
+  total: number;
+  unread: number;
+}
+
+export interface InboxCountResponse {
+  unread: number;
+}
