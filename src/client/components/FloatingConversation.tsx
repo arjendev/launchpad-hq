@@ -1,5 +1,9 @@
-import { CloseButton, Group, Paper, Text, Transition } from "@mantine/core";
+import { Badge, CloseButton, Group, Paper, Text, Transition } from "@mantine/core";
 import { CopilotConversation } from "./CopilotConversation.js";
+import { Terminal } from "./Terminal.js";
+import { useAggregatedSession } from "../services/hooks.js";
+import { useSelectedProject } from "../contexts/ProjectContext.js";
+import { useDaemonForProject } from "../services/hooks.js";
 
 export interface FloatingConversationProps {
   sessionId: string;
@@ -10,6 +14,14 @@ export function FloatingConversation({
   sessionId,
   onClose,
 }: FloatingConversationProps) {
+  const { data: sessionData } = useAggregatedSession(sessionId);
+  const { selectedProject } = useSelectedProject();
+  const projectId = selectedProject
+    ? `${selectedProject.owner}/${selectedProject.repo}`
+    : null;
+  const { daemon } = useDaemonForProject(projectId ?? undefined);
+  const isCliSession = sessionData?.sessionType === "copilot-cli";
+
   return (
     <Transition mounted transition="slide-up" duration={250} timingFunction="ease">
       {(styles) => (
@@ -40,9 +52,22 @@ export function FloatingConversation({
               flexShrink: 0,
             }}
           >
-            <Text size="sm" fw={600} truncate style={{ flex: 1 }}>
-              Session {sessionId.slice(0, 8)}
-            </Text>
+            <Group gap="xs" style={{ flex: 1, minWidth: 0 }}>
+              <Text size="sm" fw={600} truncate>
+                Session {sessionId.slice(0, 8)}
+              </Text>
+              {sessionData?.sessionType && (
+                <Badge size="xs" variant="outline" color={
+                  sessionData.sessionType === "copilot-cli" ? "teal"
+                    : sessionData.sessionType === "squad-sdk" ? "violet"
+                    : "blue"
+                }>
+                  {sessionData.sessionType === "copilot-cli" ? "CLI"
+                    : sessionData.sessionType === "squad-sdk" ? "Squad"
+                    : "SDK"}
+                </Badge>
+              )}
+            </Group>
             <CloseButton
               size="sm"
               aria-label="Close conversation"
@@ -53,7 +78,11 @@ export function FloatingConversation({
 
           {/* Conversation body */}
           <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-            <CopilotConversation sessionId={sessionId} onClose={onClose} />
+            {isCliSession && daemon ? (
+              <Terminal daemonId={daemon.daemonId} onClose={onClose} />
+            ) : (
+              <CopilotConversation sessionId={sessionId} onClose={onClose} />
+            )}
           </div>
         </Paper>
       )}

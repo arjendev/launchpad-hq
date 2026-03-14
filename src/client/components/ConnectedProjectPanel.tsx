@@ -7,6 +7,7 @@ import {
   Divider,
   Group,
   Loader,
+  Menu,
   Modal,
   Paper,
   Stack,
@@ -64,6 +65,24 @@ const sessionStatusColor: Record<AggregatedSessionStatus, string> = {
   error: "red",
   ended: "gray",
 };
+
+function sessionTypeColor(type?: string): string {
+  switch (type) {
+    case "copilot-cli": return "teal";
+    case "copilot-sdk": return "blue";
+    case "squad-sdk": return "violet";
+    default: return "gray";
+  }
+}
+
+function sessionTypeLabel(type?: string): string {
+  switch (type) {
+    case "copilot-cli": return "CLI";
+    case "copilot-sdk": return "SDK";
+    case "squad-sdk": return "Squad";
+    default: return "SDK";
+  }
+}
 
 const severityColor: Record<AttentionSeverity, string> = {
   info: "blue",
@@ -187,6 +206,9 @@ function ResumeSessionModal({
                 <Badge size="xs" color={sessionStatusColor[s.status]} variant="dot">
                   {s.status}
                 </Badge>
+                <Badge size="xs" color={sessionTypeColor(s.sessionType)} variant="outline">
+                  {sessionTypeLabel(s.sessionType)}
+                </Badge>
                 <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
                   <Text size="sm" fw={500} truncate>
                     {s.summary || s.title || "Untitled"}
@@ -229,10 +251,11 @@ function CopilotSessionsSection({
   const isOnline = !!daemon;
   const [resumeModalOpen, setResumeModalOpen] = useState(false);
 
-  const handleCreate = async () => {
+  const handleCreate = async (sessionType?: string) => {
     const result = await createSession.mutateAsync({
       owner: project.owner,
       repo: project.repo,
+      sessionType,
     });
     if (result.sessionId) {
       onSelectSession?.(result.sessionId);
@@ -254,18 +277,32 @@ function CopilotSessionsSection({
   return (
     <Stack gap="xs">
       <Group gap="xs">
-        <Tooltip label={isOnline ? "Start a new Copilot session" : "Daemon offline"}>
-          <Button
-            variant="light"
-            size="xs"
-            style={{ flex: 1 }}
-            disabled={!isOnline}
-            loading={createSession.isPending}
-            onClick={handleCreate}
-          >
-            ➕ New Session
-          </Button>
-        </Tooltip>
+        <Menu shadow="md" width={200}>
+          <Menu.Target>
+            <Tooltip label={isOnline ? "Start a new Copilot session" : "Daemon offline"}>
+              <Button
+                variant="light"
+                size="xs"
+                style={{ flex: 1 }}
+                disabled={!isOnline}
+                loading={createSession.isPending}
+              >
+                ➕ New Session
+              </Button>
+            </Tooltip>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item onClick={() => handleCreate("copilot-sdk")}>
+              SDK Session
+            </Menu.Item>
+            <Menu.Item onClick={() => handleCreate("copilot-cli")}>
+              CLI Terminal
+            </Menu.Item>
+            <Menu.Item onClick={() => handleCreate("squad-sdk")}>
+              Squad Session
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
         <Tooltip label="Resume an idle or ended session">
           <Button
             variant="light"
