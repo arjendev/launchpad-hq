@@ -822,6 +822,8 @@ export function CopilotConversation({
 
   const sendPrompt = useSendPrompt();
   const abortSession = useAbortSession();
+  const { data: modelsData } = useListModels();
+  const setModel = useSetModel();
   const { data: agentCatalogData, isLoading: isAgentCatalogLoading } = useCopilotAgentCatalog(
     owner,
     repo,
@@ -891,6 +893,25 @@ export function CopilotConversation({
     isAgentCatalogLoading ||
     isCurrentAgentLoading ||
     setSessionAgent.isPending;
+
+  const modelOptions = useMemo(() => {
+    return (modelsData?.models ?? []).map((m) => ({
+      value: m.id,
+      label: m.name,
+    }));
+  }, [modelsData?.models]);
+
+  const currentModelId = sessionData?.model ?? "";
+
+  const handleModelChange = useCallback(
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
+      const nextModel = event.currentTarget.value;
+      if (nextModel && nextModel !== currentModelId) {
+        setModel.mutate({ sessionId, model: nextModel });
+      }
+    },
+    [sessionId, currentModelId, setModel],
+  );
 
   const handleSend = useCallback((mode?: PromptDeliveryMode) => {
     const text = promptText.trim();
@@ -1112,6 +1133,18 @@ export function CopilotConversation({
             size="sm"
             style={{ width: 150, flexShrink: 0 }}
           />
+          {modelOptions.length > 0 && (
+            <NativeSelect
+              aria-label="Model"
+              data-testid="session-model-select"
+              data={modelOptions}
+              value={currentModelId}
+              onChange={handleModelChange}
+              disabled={setModel.isPending}
+              size="sm"
+              style={{ width: 180, flexShrink: 0 }}
+            />
+          )}
           <TextInput
             placeholder={
               isProcessing
