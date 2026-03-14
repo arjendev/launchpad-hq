@@ -4,9 +4,10 @@
  * CLI entry point for launchpad-hq.
  *
  * Usage:
- *   launchpad-hq             — start HQ server (default)
- *   launchpad-hq --hq        — start HQ server (explicit)
- *   launchpad-hq --daemon    — start daemon mode
+ *   launchpad-hq               — start HQ server (default)
+ *   launchpad-hq --hq          — start HQ server (explicit)
+ *   launchpad-hq --daemon      — start daemon mode
+ *   launchpad-hq --daemon --watch — start daemon with auto-restart on file changes
  */
 
 // Global error handlers — installed early so any crash during startup is logged
@@ -22,8 +23,28 @@ process.on('unhandledRejection', (reason) => {
 
 const args = process.argv.slice(2);
 const isDaemon = args.includes('--daemon');
+const isWatch = args.includes('--watch');
 
-if (isDaemon) {
+if (isDaemon && isWatch) {
+  // Re-exec with Node's built-in --watch mode (Node 18+)
+  // This watches all imported files and restarts on change
+  const { spawn } = await import('node:child_process');
+
+  console.log('👀 Watch mode: daemon will restart on file changes');
+
+  const filteredArgs = process.argv.slice(1).filter(a => a !== '--watch');
+  const child = spawn(
+    process.execPath,
+    ['--watch', '--watch-preserve-output', ...filteredArgs],
+    { stdio: 'inherit' },
+  );
+
+  child.on('exit', (code) => process.exit(code ?? 0));
+
+  // Forward signals to child
+  process.on('SIGINT', () => child.kill('SIGINT'));
+  process.on('SIGTERM', () => child.kill('SIGTERM'));
+} else if (isDaemon) {
   try {
     // Dynamic import keeps HQ-only dependencies out of daemon memory
     const { startDaemon } = await import('./daemon/index.js');
