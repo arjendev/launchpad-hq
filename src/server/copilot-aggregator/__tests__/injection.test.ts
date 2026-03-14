@@ -66,14 +66,7 @@ describe("Copilot prompt injection pipeline", () => {
     it("sends prompt to daemon and records it in message history", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
-        {
-          sessionId: "s1",
-          startTime: new Date(1000),
-          modifiedTime: new Date(2000),
-          isRemote: false,
-        },
-      ]);
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -118,14 +111,7 @@ describe("Copilot prompt injection pipeline", () => {
     });
 
     it("returns 400 when prompt is empty string", async () => {
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
-        {
-          sessionId: "s1",
-          startTime: new Date(1000),
-          modifiedTime: new Date(2000),
-          isRemote: false,
-        },
-      ]);
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -138,14 +124,7 @@ describe("Copilot prompt injection pipeline", () => {
     });
 
     it("returns 400 when prompt field is missing", async () => {
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
-        {
-          sessionId: "s1",
-          startTime: new Date(1000),
-          modifiedTime: new Date(2000),
-          isRemote: false,
-        },
-      ]);
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -160,14 +139,7 @@ describe("Copilot prompt injection pipeline", () => {
       const ws = createMockSocket();
       ws.readyState = 3; // CLOSED
       server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
-        {
-          sessionId: "s1",
-          startTime: new Date(1000),
-          modifiedTime: new Date(2000),
-          isRemote: false,
-        },
-      ]);
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -179,17 +151,10 @@ describe("Copilot prompt injection pipeline", () => {
       expect(res.json().error).toBe("send_failed");
     });
 
-    it("returns 409 when session is currently active", async () => {
+    it("allows steering when session is currently active", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
-        {
-          sessionId: "s1",
-          startTime: new Date(1000),
-          modifiedTime: new Date(2000),
-          isRemote: false,
-        },
-      ]);
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
       // Drive session to active via event (status comes from events now)
       server.copilotAggregator.handleSessionEvent("d1", "s1", {
         type: "user.message", timestamp: new Date().toISOString(), data: {}, id: "e1", parentId: null,
@@ -198,14 +163,17 @@ describe("Copilot prompt injection pipeline", () => {
       const res = await server.inject({
         method: "POST",
         url: "/api/copilot/aggregated/sessions/s1/send",
-        payload: { prompt: "hello" },
+        payload: { prompt: "hello", mode: "immediate" },
       });
 
-      expect(res.statusCode).toBe(409);
-      expect(res.json().error).toBe("conflict");
-
-      // No message should have been sent to the daemon
-      expect(ws.sent).toHaveLength(0);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().ok).toBe(true);
+      expect(ws.sent).toHaveLength(1);
+      expect(JSON.parse(ws.sent[0]).payload).toMatchObject({
+        sessionId: "s1",
+        prompt: "hello",
+        mode: "immediate",
+      });
     });
   });
 
@@ -215,14 +183,7 @@ describe("Copilot prompt injection pipeline", () => {
     it("sends abort to the correct daemon", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
-        {
-          sessionId: "s1",
-          startTime: new Date(1000),
-          modifiedTime: new Date(2000),
-          isRemote: false,
-        },
-      ]);
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -252,27 +213,20 @@ describe("Copilot prompt injection pipeline", () => {
       expect(res.json().error).toBe("not_found");
     });
 
-    it("succeeds even when daemon is disconnected (cleans up aggregator)", async () => {
+    it("returns 502 when daemon is disconnected", async () => {
       const ws = createMockSocket();
       ws.readyState = 3; // CLOSED
       server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
-        {
-          sessionId: "s1",
-          startTime: new Date(1000),
-          modifiedTime: new Date(2000),
-          isRemote: false,
-        },
-      ]);
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
         url: "/api/copilot/aggregated/sessions/s1/abort",
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.json().ok).toBe(true);
-      expect(server.copilotAggregator.getSession("s1")).toBeUndefined();
+      expect(res.statusCode).toBe(502);
+      // Session still exists — abort failure doesn't destroy it
+      expect(server.copilotAggregator.getSession("s1")).toBeDefined();
     });
   });
 
@@ -282,14 +236,7 @@ describe("Copilot prompt injection pipeline", () => {
     it("records hq-injection source on injected prompts", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
-        {
-          sessionId: "s1",
-          startTime: new Date(1000),
-          modifiedTime: new Date(2000),
-          isRemote: false,
-        },
-      ]);
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
 
       // Inject a prompt
       await server.inject({
@@ -340,14 +287,7 @@ describe("Copilot prompt injection pipeline", () => {
 
   describe("session status lifecycle", () => {
     it("updates status to idle on session.start events (session is ready for input)", () => {
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
-        {
-          sessionId: "s1",
-          startTime: new Date(1000),
-          modifiedTime: new Date(2000),
-          isRemote: false,
-        },
-      ]);
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
 
       server.copilotAggregator.handleSessionEvent("d1", "s1", {
         type: "session.start",
@@ -360,14 +300,7 @@ describe("Copilot prompt injection pipeline", () => {
     });
 
     it("updates status to idle on session.idle events", () => {
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
-        {
-          sessionId: "s1",
-          startTime: new Date(1000),
-          modifiedTime: new Date(2000),
-          isRemote: false,
-        },
-      ]);
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
 
       server.copilotAggregator.handleSessionEvent("d1", "s1", {
         type: "session.idle",
@@ -380,14 +313,7 @@ describe("Copilot prompt injection pipeline", () => {
     });
 
     it("updates status to error on session.error events", () => {
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
-        {
-          sessionId: "s1",
-          startTime: new Date(1000),
-          modifiedTime: new Date(2000),
-          isRemote: false,
-        },
-      ]);
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
 
       server.copilotAggregator.handleSessionEvent("d1", "s1", {
         type: "session.error",
@@ -399,30 +325,24 @@ describe("Copilot prompt injection pipeline", () => {
       expect(session?.status).toBe("error");
     });
 
-    it("allows sending prompt after session transitions from active to idle", async () => {
+    it("supports steering while active and standard send after idle", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("d1", ws as never, makeDaemonInfo());
-      server.copilotAggregator.updateSessions("d1", "proj-1", [
-        {
-          sessionId: "s1",
-          startTime: new Date(1000),
-          modifiedTime: new Date(2000),
-          isRemote: false,
-        },
-      ]);
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
 
       // Drive session to active via event
       server.copilotAggregator.handleSessionEvent("d1", "s1", {
         type: "user.message", timestamp: new Date().toISOString(), data: {}, id: "e1", parentId: null,
       } as never);
 
-      // Session is active — should be rejected
+      // Session is active — steering should still be allowed
       const res1 = await server.inject({
         method: "POST",
         url: "/api/copilot/aggregated/sessions/s1/send",
-        payload: { prompt: "hello" },
+        payload: { prompt: "hello", mode: "immediate" },
       });
-      expect(res1.statusCode).toBe(409);
+      expect(res1.statusCode).toBe(200);
+      expect(JSON.parse(ws.sent[0]).payload.mode).toBe("immediate");
 
       // Session goes idle via event
       server.copilotAggregator.handleSessionEvent("d1", "s1", {
@@ -435,10 +355,14 @@ describe("Copilot prompt injection pipeline", () => {
       const res2 = await server.inject({
         method: "POST",
         url: "/api/copilot/aggregated/sessions/s1/send",
-        payload: { prompt: "hello" },
+        payload: { prompt: "hello again" },
       });
       expect(res2.statusCode).toBe(200);
       expect(res2.json().ok).toBe(true);
+      expect(JSON.parse(ws.sent[1]).payload).toMatchObject({
+        sessionId: "s1",
+        prompt: "hello again",
+      });
     });
   });
 });

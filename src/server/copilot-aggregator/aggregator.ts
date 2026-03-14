@@ -8,7 +8,12 @@ import type {
   CopilotMessage,
   CopilotHqToolName,
   AggregatedSession,
+  CopilotSessionMode,
   SessionType,
+  SessionActivity,
+  ActiveToolCall,
+  ActiveSubagent,
+  SessionPhase,
 } from "../../shared/protocol.js";
 
 // ---------------------------------------------------------------------------
@@ -71,6 +76,34 @@ function toEpochMs(ts: unknown): number {
   return Date.now();
 }
 
+const COPILOT_SESSION_MODES = new Set<CopilotSessionMode>(["interactive", "plan", "autopilot"]);
+
+function isCopilotSessionMode(value: unknown): value is CopilotSessionMode {
+  return typeof value === "string" && COPILOT_SESSION_MODES.has(value as CopilotSessionMode);
+}
+
+/** Create a fresh default activity state */
+function createDefaultActivity(): SessionActivity {
+  return {
+    phase: 'idle',
+    intent: null,
+    activeToolCalls: [],
+    activeSubagents: [],
+    backgroundTasks: [],
+    waitingState: null,
+    tokenUsage: null,
+    turnCount: 0,
+  };
+}
+
+/** Derive the high-level phase from activity state */
+function derivePhase(activity: SessionActivity): SessionPhase {
+  if (activity.waitingState) return 'waiting';
+  if (activity.activeSubagents.some(a => a.status === 'running')) return 'subagent';
+  if (activity.activeToolCalls.some(t => t.status === 'running')) return 'tool';
+  return 'idle';
+}
+
 // ---------------------------------------------------------------------------
 // Aggregator
 // ---------------------------------------------------------------------------
@@ -95,35 +128,54 @@ export class CopilotSessionAggregator extends EventEmitter {
 
   // ── Session updates ────────────────────────────────────
 
-  /** Called when a daemon sends copilot-session-list — SDK SessionMetadata[] */
+  /** Called when a daemon sends copilot-session-list — only update metadata for already-tracked sessions */
   updateSessions(
     daemonId: string,
-    projectId: string,
+    _projectId: string,
     sessions: SessionMetadata[],
   ): void {
-    const now = Date.now();
+    let changed = false;
 
     for (const info of sessions) {
-      if (this.tombstones.has(info.sessionId)) {
-        console.log(`[aggregator] Rejecting tombstoned session ${info.sessionId}`);
-        continue;
-      }
-
+      // Only update sessions already tracked by the aggregator (created or resumed by user action)
       const existing = this.sessions.get(info.sessionId);
-      const aggregated: InternalAggregatedSession = {
-        ...existing,
-        sessionId: info.sessionId,
-        sessionType: existing?.sessionType ?? 'copilot-sdk',
-        daemonId,
-        projectId,
-        status: existing?.status ?? 'idle',
-        summary: info.summary,
-        startedAt: toEpochMs(info.startTime),
-        updatedAt: now,
-      };
-      this.sessions.set(info.sessionId, aggregated);
+      if (!existing) continue;
+
+      // Update metadata from SDK (summary, timestamps)
+      if (info.summary && info.summary !== existing.summary) {
+        existing.summary = info.summary;
+        changed = true;
+      }
+      existing.daemonId = daemonId;
+      existing.updatedAt = Date.now();
     }
 
+    if (changed) {
+      this.emit("sessions-updated", this.getAllSessions());
+    }
+  }
+
+  /** Explicitly register a new session (from user create/resume action) */
+  trackNewSession(
+    daemonId: string,
+    projectId: string,
+    sessionId: string,
+    opts?: { sessionType?: SessionType; summary?: string; startedAt?: number },
+  ): void {
+    if (this.tombstones.has(sessionId)) return;
+    if (this.sessions.has(sessionId)) return; // already tracked
+
+    this.sessions.set(sessionId, {
+      sessionId,
+      sessionType: opts?.sessionType ?? 'copilot-sdk',
+      daemonId,
+      projectId,
+      status: 'idle',
+      startedAt: opts?.startedAt ?? Date.now(),
+      updatedAt: Date.now(),
+      summary: opts?.summary,
+      activity: createDefaultActivity(),
+    });
     this.emit("sessions-updated", this.getAllSessions());
   }
 
@@ -136,55 +188,17 @@ export class CopilotSessionAggregator extends EventEmitter {
     event: SessionEvent,
   ): void {
     const eventTs = toEpochMs(event.timestamp);
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.lastEvent = { type: event.type, timestamp: eventTs };
-      session.updatedAt = Date.now();
+    let session = this.sessions.get(sessionId);
 
-      // Backfill sessionType from event data if not already set
-      const eventData = event.data as Record<string, unknown>;
-      if (!session.sessionType && eventData?.sessionType) {
-        session.sessionType = eventData.sessionType as SessionType;
-      }
-
-      // Update session status based on lifecycle events (SDK event names)
-      if (
-        event.type === "session.idle" ||
-        event.type === "session.start" ||
-        event.type === "assistant.message"
-      ) {
-        session.status = "idle";
-      } else if (event.type === "session.error") {
-        session.status = "error";
-      } else if (
-        event.type === "user.message" ||
-        event.type === "assistant.streaming_delta" ||
-        event.type === "assistant.message_delta" ||
-        event.type === "tool.execution_start"
-      ) {
-        session.status = "active";
-      } else if (event.type === "session.shutdown") {
-        this.removeSession(sessionId);
-        return; // session gone — skip further emit
-      }
-
-      // Capture title and mode from enrichment events
-      if (event.type === "session.title_changed" && 'title' in event.data) {
-        session.title = event.data.title as string;
-      }
-      if (event.type === "session.mode_changed" && 'mode' in event.data) {
-        session.mode = event.data.mode as string;
-      }
-      if (event.type === "session.model_change" && 'model' in event.data) {
-        session.model = event.data.model as string;
-      }
-    } else if (event.type === "session.shutdown") {
-      // No stub to create for a session that's shutting down
+    if (event.type === "session.shutdown") {
+      if (session) this.removeSession(sessionId);
       return;
-    } else {
-      // Create a stub session for events without a prior session-list
+    }
+
+    // Create stub session if needed
+    if (!session) {
       const eventSessionType = (event.data as Record<string, unknown>)?.sessionType as SessionType | undefined;
-      this.sessions.set(sessionId, {
+      session = {
         sessionId,
         sessionType: eventSessionType ?? 'copilot-sdk',
         daemonId,
@@ -193,10 +207,302 @@ export class CopilotSessionAggregator extends EventEmitter {
         startedAt: eventTs,
         lastEvent: { type: event.type, timestamp: eventTs },
         updatedAt: Date.now(),
-      });
+        activity: createDefaultActivity(),
+      };
+      this.sessions.set(sessionId, session);
     }
 
+    session.lastEvent = { type: event.type, timestamp: eventTs };
+    session.updatedAt = Date.now();
+
+    // Backfill sessionType from event data if not already set
+    const eventData = event.data as Record<string, unknown>;
+    if (!session.sessionType && eventData?.sessionType) {
+      session.sessionType = eventData.sessionType as SessionType;
+    }
+
+    // Initialize activity if missing (e.g. old sessions)
+    if (!session.activity) {
+      session.activity = createDefaultActivity();
+    }
+
+    // Update session status based on lifecycle events
+    if (
+      event.type === "session.idle" ||
+      event.type === "session.start" ||
+      event.type === "assistant.message"
+    ) {
+      session.status = "idle";
+    } else if (event.type === "session.error") {
+      session.status = "error";
+    } else if (
+      event.type === "user.message" ||
+      event.type === "assistant.streaming_delta" ||
+      event.type === "assistant.message_delta" ||
+      event.type === "tool.execution_start"
+    ) {
+      session.status = "active";
+    }
+
+    // Capture title and mode from enrichment events
+    if (event.type === "session.title_changed" && 'title' in event.data) {
+      session.title = event.data.title as string;
+    }
+    if (event.type === "session.mode_changed" && 'mode' in event.data && isCopilotSessionMode(event.data.mode)) {
+      session.mode = event.data.mode;
+    }
+    if (event.type === "session.model_change" && 'model' in event.data) {
+      session.model = event.data.model as string;
+    }
+
+    // Enrich activity state
+    this.updateActivity(session, event, eventTs);
+
     this.emit("session-event", sessionId, event);
+  }
+
+  /** Update session activity state from an SDK event */
+  private updateActivity(
+    session: InternalAggregatedSession,
+    event: SessionEvent,
+    eventTs: number,
+  ): void {
+    const activity = session.activity;
+    const data = event.data as Record<string, unknown>;
+
+    switch (event.type) {
+      // ── Turn tracking ──
+      case "assistant.turn_start":
+        activity.turnCount++;
+        activity.phase = 'thinking';
+        // Clear tool calls from previous turn
+        activity.activeToolCalls = [];
+        break;
+
+      case "assistant.turn_end":
+        activity.phase = derivePhase(activity);
+        break;
+
+      // ── Intent ──
+      case "assistant.intent":
+        activity.intent = (data?.intent as string) ?? (data?.message as string) ?? null;
+        break;
+
+      // ── Tool calls ──
+      case "tool.execution_start": {
+        const toolId = (data?.toolCallId as string) ?? `tool-${eventTs}`;
+        const toolName = (data?.toolName as string) ?? (data?.name as string) ?? 'unknown';
+        // Check if this is a subagent's tool call
+        const agentId = data?.agentId as string | undefined;
+        if (agentId) {
+          const sub = activity.activeSubagents.find(a => a.id === agentId);
+          if (sub) {
+            sub.activeToolCalls.push({ id: toolId, name: toolName, status: 'running', startedAt: eventTs });
+            sub.recentEvents = sub.recentEvents.slice(-9).concat({ type: event.type, summary: `Running ${toolName}`, timestamp: eventTs });
+          }
+        } else {
+          activity.activeToolCalls.push({ id: toolId, name: toolName, status: 'running', startedAt: eventTs });
+        }
+        activity.phase = agentId ? 'subagent' : 'tool';
+        break;
+      }
+
+      case "tool.execution_complete": {
+        const toolId = (data?.toolCallId as string) ?? '';
+        const success = data?.success !== false;  // SDK uses `success: boolean`
+        const agentId = data?.agentId as string | undefined;
+        const updateTool = (calls: ActiveToolCall[]) => {
+          const idx = calls.findIndex(t => t.id === toolId);
+          if (idx >= 0) {
+            calls[idx].status = success ? 'completed' : 'failed';
+          }
+        };
+        if (agentId) {
+          const sub = activity.activeSubagents.find(a => a.id === agentId);
+          if (sub) {
+            updateTool(sub.activeToolCalls);
+            sub.activeToolCalls = sub.activeToolCalls.filter(t => t.status === 'running');
+          }
+        } else {
+          updateTool(activity.activeToolCalls);
+          activity.activeToolCalls = activity.activeToolCalls.filter(t => t.status === 'running');
+        }
+        activity.phase = derivePhase(activity);
+        break;
+      }
+
+      case "tool.execution_progress": {
+        const toolId = (data?.toolCallId as string) ?? '';
+        const progress = (data?.progressMessage as string) ?? (data?.progress as string) ?? '';
+        const agentId = data?.agentId as string | undefined;
+        const tools = agentId
+          ? activity.activeSubagents.find(a => a.id === agentId)?.activeToolCalls ?? []
+          : activity.activeToolCalls;
+        const tool = tools.find(t => t.id === toolId);
+        if (tool) tool.progress = progress;
+        break;
+      }
+
+      // ── Subagents ──
+      case "subagent.started": {
+        // SDK shape: { toolCallId, agentName, agentDisplayName, agentDescription }
+        const subId = (data?.toolCallId as string) ?? (data?.agentId as string) ?? `sub-${eventTs}`;
+        const subName = (data?.agentName as string) ?? (data?.name as string) ?? 'subagent';
+        const subDisplay = (data?.agentDisplayName as string) ?? (data?.displayName as string) ?? subName;
+        activity.activeSubagents.push({
+          id: subId,
+          name: subName,
+          displayName: subDisplay,
+          status: 'running',
+          startedAt: eventTs,
+          activeToolCalls: [],
+          recentEvents: [{ type: event.type, summary: `Started`, timestamp: eventTs }],
+        });
+        activity.phase = 'subagent';
+        break;
+      }
+
+      case "subagent.completed":
+      case "subagent.failed": {
+        // SDK shape: { toolCallId, agentName, agentDisplayName }
+        const subId = (data?.toolCallId as string) ?? (data?.agentId as string) ?? '';
+        const sub = activity.activeSubagents.find(a => a.id === subId);
+        if (sub) {
+          sub.status = event.type === "subagent.completed" ? 'completed' : 'failed';
+          sub.activeToolCalls = [];
+        }
+        // Remove completed/failed subagents from active list
+        activity.activeSubagents = activity.activeSubagents.filter(a => a.status === 'running');
+        activity.phase = derivePhase(activity);
+        break;
+      }
+
+      // ── Background tasks ──
+      case "session.idle": {
+        // Clear active state on idle
+        activity.activeToolCalls = [];
+        activity.waitingState = null;
+        activity.intent = null;
+        // SDK shape: { backgroundTasks?: { agents: [...], shells: [...] } }
+        const bgData = data?.backgroundTasks as { agents?: Array<{ agentId: string; agentType?: string; description?: string }>; shells?: Array<{ shellId: string; description?: string }> } | undefined;
+        const tasks: typeof activity.backgroundTasks = [];
+        if (bgData) {
+          if (Array.isArray(bgData.agents)) {
+            for (const a of bgData.agents) {
+              tasks.push({ id: a.agentId, description: a.description ?? a.agentType ?? 'Background agent', status: 'running' });
+            }
+          }
+          if (Array.isArray(bgData.shells)) {
+            for (const s of bgData.shells) {
+              tasks.push({ id: s.shellId, description: s.description ?? 'Background shell', status: 'running' });
+            }
+          }
+        }
+        activity.backgroundTasks = tasks;
+        activity.phase = tasks.length > 0 ? 'subagent' : 'idle';
+        break;
+      }
+
+      // ── Waiting states ──
+      case "user_input.requested":
+        activity.waitingState = {
+          type: 'user-input',
+          requestId: (data?.requestId as string) ?? '',
+          question: (data?.question as string) ?? (data?.message as string),
+          choices: data?.choices as string[] | undefined,
+        };
+        activity.phase = 'waiting';
+        break;
+
+      case "elicitation.requested":
+        activity.waitingState = {
+          type: 'elicitation',
+          requestId: (data?.requestId as string) ?? '',
+          question: (data?.question as string) ?? (data?.message as string),
+          choices: data?.choices as string[] | undefined,
+        };
+        activity.phase = 'waiting';
+        break;
+
+      case "exit_plan_mode.requested":
+        activity.waitingState = {
+          type: 'plan-exit',
+          requestId: (data?.requestId as string) ?? '',
+          question: 'The agent wants to exit plan mode and begin executing. Approve?',
+        };
+        activity.phase = 'waiting';
+        break;
+
+      case "permission.requested":
+        activity.waitingState = {
+          type: 'permission',
+          requestId: (data?.requestId as string) ?? '',
+          toolName: data?.toolName as string | undefined,
+          toolArgs: data?.toolArgs as Record<string, unknown> | undefined,
+        };
+        activity.phase = 'waiting';
+        break;
+
+      // Clear waiting on resolved events
+      case "user_input.completed":
+      case "elicitation.completed":
+      case "exit_plan_mode.completed":
+      case "permission.completed":
+        activity.waitingState = null;
+        activity.phase = derivePhase(activity);
+        break;
+
+      // ── Usage ──
+      case "session.usage_info": {
+        // SDK shape: { tokenLimit, currentTokens, messagesLength }
+        const used = (data?.currentTokens as number) ?? (data?.totalTokens as number);
+        const limit = (data?.tokenLimit as number) ?? undefined;
+        if (typeof used === 'number') {
+          activity.tokenUsage = { used, limit: limit ?? activity.tokenUsage?.limit };
+        }
+        break;
+      }
+
+      case "assistant.usage": {
+        // SDK shape: { model, inputTokens, outputTokens, cacheReadTokens, ... }
+        const input = (data?.inputTokens as number) ?? 0;
+        const output = (data?.outputTokens as number) ?? 0;
+        const total = input + output;
+        if (total > 0) {
+          activity.tokenUsage = {
+            used: total,
+            limit: activity.tokenUsage?.limit,
+          };
+        }
+        break;
+      }
+
+      // ── Subagent intent (if the SDK sends it with an agentId context) ──
+      case "assistant.message_delta":
+      case "assistant.streaming_delta": {
+        const agentId = data?.agentId as string | undefined;
+        if (agentId) {
+          const sub = activity.activeSubagents.find(a => a.id === agentId);
+          if (sub) {
+            sub.recentEvents = sub.recentEvents.slice(-9).concat({
+              type: event.type,
+              summary: 'Responding…',
+              timestamp: eventTs,
+            });
+          }
+        }
+        // phase stays active (already set by status handler)
+        break;
+      }
+
+      case "session.error":
+        activity.phase = 'error';
+        break;
+
+      default:
+        // No activity update needed
+        break;
+    }
   }
 
   /** Update the session type for a session */

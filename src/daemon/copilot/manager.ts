@@ -10,17 +10,26 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { approveAll, CopilotClient } from '@github/copilot-sdk';
 import type {
   ConnectionState,
+  CopilotSession,
   CustomAgentConfig,
+  MessageOptions,
+  ModelInfo,
+  ResumeSessionConfig,
+  SessionConfig,
   SessionEvent,
+  SessionLifecycleEvent,
   SessionMetadata,
   Tool,
 } from '@github/copilot-sdk';
 import type {
   CopilotAgentCatalogEntry,
+  CopilotSessionMode,
   DaemonToHqMessage,
   HqToDaemonMessage,
+  PromptDeliveryMode,
   SessionConfigWire,
 } from '../../shared/protocol.js';
 import { createHqTools } from './hq-tools.js';
@@ -32,27 +41,38 @@ import { buildSystemMessage } from './system-message.js';
 import { logIncoming, logOutgoing, logSdk } from '../logger.js';
 
 // ---------------------------------------------------------------------------
-// SDK dynamic import — safe when package is not installed
-// ---------------------------------------------------------------------------
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let CopilotClientClass: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let sdkApproveAll: any = null;
-
-try {
-  const sdk = await import('@github/copilot-sdk');
-  CopilotClientClass = sdk.CopilotClient;
-  sdkApproveAll = sdk.approveAll;
-} catch {
-  // SDK import failed — start() will warn and skip copilot features
-}
-
-// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export type SendToHq = (msg: DaemonToHqMessage) => void;
+
+type SessionRpc = CopilotSession['rpc'];
+type CopilotPlanState = Awaited<ReturnType<SessionRpc['plan']['read']>>;
+type CopilotCurrentAgentState = Awaited<ReturnType<SessionRpc['agent']['getCurrent']>>;
+type SharedSdkConfig = Pick<
+  SessionConfig,
+  'model' | 'streaming' | 'systemMessage' | 'tools' | 'onPermissionRequest' | 'customAgents'
+>;
+
+type CopilotSessionLike = Pick<
+  CopilotSession,
+  'sessionId' | 'send' | 'abort' | 'disconnect' | 'setModel' | 'on'
+> & {
+  rpc: SessionRpc;
+};
+
+interface CopilotClientLike {
+  start(): Promise<void>;
+  stop(): Promise<unknown>;
+  forceStop(): Promise<void>;
+  createSession(config: SessionConfig): Promise<CopilotSessionLike>;
+  resumeSession(sessionId: string, config: ResumeSessionConfig): Promise<CopilotSessionLike>;
+  deleteSession(sessionId: string): Promise<void>;
+  listModels(): Promise<ModelInfo[]>;
+  listSessions(): Promise<SessionMetadata[]>;
+  getState(): ConnectionState;
+  on?(handler: (event: SessionLifecycleEvent) => void): () => void;
+}
 
 export interface CopilotManagerOptions {
   /** Function to send messages to HQ over the daemon WebSocket */
@@ -66,12 +86,17 @@ export interface CopilotManagerOptions {
   /** Session-list poll interval in ms (default 30 000) */
   pollIntervalMs?: number;
   /** Override client for testing (duck-typed CopilotClient) */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  client?: any;
+  client?: CopilotClientLike;
   /** Discovered custom-agent definitions to expose to the SDK */
   customAgents?: CustomAgentConfig[];
   /** Agent catalog advertised to HQ for selection */
   agentCatalog?: CopilotAgentCatalogEntry[];
+}
+
+interface CurrentSessionAgentSelection {
+  agentId: string | null;
+  agentName: string | null;
+  agentDisplayName: string | null;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
@@ -96,11 +121,10 @@ function syntheticEvent(type: string, data: Record<string, unknown>): SessionEve
 // ---------------------------------------------------------------------------
 
 export class CopilotManager {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private client: any = null;
+  private client: CopilotClientLike;
   private sendToHq: SendToHq;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private activeSessions = new Map<string, any>();
+  private activeSessions = new Map<string, CopilotSessionLike>();
+  private sessionLoadPromises = new Map<string, Promise<CopilotSessionLike | null>>();
   private sessionUnsubscribers = new Map<string, () => void>();
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private pollIntervalMs: number;
@@ -110,7 +134,6 @@ export class CopilotManager {
   private hqTools: Tool[];
   private customAgents: CustomAgentConfig[];
   private agentCatalog = new Map<string, CopilotAgentCatalogEntry>();
-  private selectedAgentId = DEFAULT_COPILOT_AGENT_ID;
   private started = false;
 
   constructor(options: CopilotManagerOptions) {
@@ -134,16 +157,14 @@ export class CopilotManager {
       this.agentCatalog.set(defaultAgent.id, defaultAgent);
     }
 
-    if (options.client) {
-      this.client = options.client;
-    } else if (CopilotClientClass) {
-      this.client = new CopilotClientClass({
+    this.client =
+      options.client ??
+      new CopilotClient({
         cwd: options.cwd ?? process.cwd(),
         autoRestart: true,
         autoStart: false,
         logLevel: 'warning',
       });
-    }
   }
 
   /** Start the SDK client and begin polling sessions.
@@ -151,18 +172,12 @@ export class CopilotManager {
   async start(): Promise<void> {
     if (this.started) return;
 
-    if (!this.client) {
-      console.warn('⚠ Copilot SDK not available — copilot features disabled');
-      return;
-    }
-
     // Wire client-level lifecycle events (session created/deleted/updated).
     // Guard: skip events for sessions that already have a dedicated
     // session.on() listener (via trackSession) to prevent duplicate forwarding.
     if (typeof this.client.on === 'function') {
       this.lifecycleUnsub = this.client.on(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (event: any) => {
+        (event: SessionLifecycleEvent) => {
           if (event.sessionId && !this.activeSessions.has(event.sessionId)) {
             this.sendToHq({
               type: 'copilot-session-event',
@@ -256,6 +271,7 @@ export class CopilotManager {
           msg.payload.sessionId,
           msg.payload.prompt,
           msg.payload.attachments,
+          msg.payload.mode,
         );
         break;
 
@@ -277,6 +293,18 @@ export class CopilotManager {
 
       case 'copilot-set-mode':
         await this.handleSetMode(msg.payload.sessionId, msg.payload.mode);
+        break;
+
+      case 'copilot-get-agent':
+        await this.handleGetAgent(msg.payload.requestId, msg.payload.sessionId);
+        break;
+
+      case 'copilot-set-agent':
+        await this.handleSetAgent(
+          msg.payload.requestId,
+          msg.payload.sessionId,
+          msg.payload.agentId,
+        );
         break;
 
       case 'copilot-get-plan':
@@ -311,8 +339,7 @@ export class CopilotManager {
 
   /** Expose the current SDK connection state */
   get connectionState(): ConnectionState {
-    if (!this.client) return 'disconnected';
-    return this.client.getState() as ConnectionState;
+    return this.client.getState();
   }
 
   // -----------------------------------------------------------------------
@@ -324,13 +351,13 @@ export class CopilotManager {
     config?: SessionConfigWire,
   ): Promise<void> {
     try {
-      const selectedAgent = this.resolveSelectedAgent(config?.agentId);
-      const sdkConfig = this.buildSdkConfig(config);
+      const selectedAgent = this.resolveRequestedAgent(config?.agentId);
+      const sdkConfig: SessionConfig = this.buildSharedSdkConfig(config);
       const session = await this.client.createSession(sdkConfig);
       logSdk(`Session created: ${session.sessionId}`);
       this.trackSession(session, true);
       await this.applyAgentSelection(session, selectedAgent);
-      this.rememberSelectedAgent(selectedAgent.id);
+      const currentAgent = await this.getCurrentSessionAgent(session);
 
       // SDK will emit session.start via the event handler, but we also send
       // a synthetic event so HQ can correlate the requestId
@@ -343,9 +370,7 @@ export class CopilotManager {
           event: syntheticEvent('session.start', {
             requestId,
             sessionId: session.sessionId,
-            agentId: selectedAgent.id,
-            ...(selectedAgent.kind === 'custom' ? { agentName: selectedAgent.name } : {}),
-            ...(selectedAgent.displayName ? { agentDisplayName: selectedAgent.displayName } : {}),
+            ...this.toAgentEventData(currentAgent),
           }),
         },
       });
@@ -356,7 +381,11 @@ export class CopilotManager {
         payload: {
           projectId: this.projectId,
           sessionId: 'unknown',
-          event: syntheticEvent('session.error', { requestId, message: String(err) }),
+          event: syntheticEvent('session.error', {
+            requestId,
+            errorType: 'daemon',
+            message: String(err),
+          }),
         },
       });
     }
@@ -368,12 +397,28 @@ export class CopilotManager {
     config?: Partial<SessionConfigWire>,
   ): Promise<void> {
     try {
-      const selectedAgent = this.resolveSelectedAgent(config?.agentId);
-      const sdkConfig = this.buildSdkConfig(config as SessionConfigWire | undefined);
-      const session = await this.client.resumeSession(sessionId, sdkConfig);
-      this.trackSession(session, true);
-      await this.applyAgentSelection(session, selectedAgent);
-      this.rememberSelectedAgent(selectedAgent.id);
+      const trackedSession = this.activeSessions.get(sessionId);
+      const session =
+        trackedSession ??
+        await this.getOrAttachSession(sessionId, config, {
+          skipInitialStart: true,
+          throwOnError: true,
+          requireKnownSession: false,
+        });
+
+      if (!session) {
+        throw new Error(`Session not found: ${sessionId}`);
+      }
+
+      if (config?.model) {
+        await session.setModel(config.model);
+      }
+
+      if (config?.agentId !== undefined) {
+        const selectedAgent = this.resolveRequestedAgent(config.agentId);
+        await this.applyAgentSelection(session, selectedAgent);
+      }
+      const currentAgent = await this.getCurrentSessionAgent(session);
 
       this.sendToHq({
         type: 'copilot-session-event',
@@ -384,9 +429,7 @@ export class CopilotManager {
           event: syntheticEvent('session.start', {
             requestId,
             resumed: true,
-            agentId: selectedAgent.id,
-            ...(selectedAgent.kind === 'custom' ? { agentName: selectedAgent.name } : {}),
-            ...(selectedAgent.displayName ? { agentDisplayName: selectedAgent.displayName } : {}),
+            ...this.toAgentEventData(currentAgent),
           }),
         },
       });
@@ -397,7 +440,11 @@ export class CopilotManager {
         payload: {
           projectId: this.projectId,
           sessionId,
-          event: syntheticEvent('session.error', { requestId, message: String(err) }),
+          event: syntheticEvent('session.error', {
+            requestId,
+            errorType: 'daemon',
+            message: String(err),
+          }),
         },
       });
     }
@@ -406,9 +453,12 @@ export class CopilotManager {
   private async handleSendPrompt(
     sessionId: string,
     prompt: string,
-    attachments?: Array<{ type: string; path: string }>,
+    attachments?: MessageOptions['attachments'],
+    mode?: PromptDeliveryMode,
   ): Promise<void> {
-    const session = this.activeSessions.get(sessionId);
+    const session = await this.getOrAttachSession(sessionId, undefined, {
+      skipInitialStart: true,
+    });
     if (!session) {
       this.sendToHq({
         type: 'copilot-session-event',
@@ -424,7 +474,11 @@ export class CopilotManager {
 
     try {
       // Fire-and-forget: events stream back via session.on() handler
-      await session.send({ prompt, attachments });
+      await session.send({
+        prompt,
+        ...(attachments ? { attachments } : {}),
+        ...(mode ? { mode } : {}),
+      });
     } catch (err) {
       this.sendToHq({
         type: 'copilot-session-event',
@@ -452,7 +506,7 @@ export class CopilotManager {
     }
 
     // Always try to delete from SDK registry
-    if (this.client && this.started) {
+    if (this.started) {
       try {
         await this.client.deleteSession(sessionId);
       } catch {
@@ -467,13 +521,19 @@ export class CopilotManager {
       payload: {
         projectId: this.projectId,
         sessionId,
-        event: syntheticEvent('session.shutdown', { sessionId, reason: 'aborted' }),
+        event: syntheticEvent('session.shutdown', {
+          sessionId,
+          reason: 'aborted',
+          shutdownType: 'routine',
+        }),
       },
     });
   }
 
   private async handleSetModel(sessionId: string, model: string): Promise<void> {
-    const session = this.activeSessions.get(sessionId);
+    const session = await this.getOrAttachSession(sessionId, undefined, {
+      skipInitialStart: true,
+    });
     if (!session) return;
     try {
       await session.setModel(model);
@@ -483,7 +543,9 @@ export class CopilotManager {
   }
 
   private async handleGetMode(requestId: string, sessionId: string): Promise<void> {
-    const session = this.activeSessions.get(sessionId);
+    const session = await this.getOrAttachSession(sessionId, undefined, {
+      skipInitialStart: true,
+    });
     if (!session) return;
     try {
       const result = await session.rpc.mode.get();
@@ -497,21 +559,97 @@ export class CopilotManager {
     }
   }
 
-  private async handleSetMode(sessionId: string, mode: string): Promise<void> {
-    const session = this.activeSessions.get(sessionId);
+  private async handleSetMode(sessionId: string, mode: CopilotSessionMode): Promise<void> {
+    const session = await this.getOrAttachSession(sessionId, undefined, {
+      skipInitialStart: true,
+    });
     if (!session) return;
     try {
-      await session.rpc.mode.set({ mode: mode as 'interactive' | 'plan' | 'autopilot' });
+      await session.rpc.mode.set({ mode });
     } catch (err) {
       this.sendSessionError(sessionId, `setMode failed: ${String(err)}`);
     }
   }
 
+  private async handleGetAgent(requestId: string, sessionId: string): Promise<void> {
+    const session = await this.getOrAttachSession(sessionId, undefined, {
+      skipInitialStart: true,
+    });
+    if (!session) {
+      this.sendAgentResponse({
+        requestId,
+        sessionId,
+        agentId: null,
+        agentName: null,
+        error: `No active session: ${sessionId}`,
+      });
+      return;
+    }
+
+    try {
+      const currentAgent = await this.getCurrentSessionAgent(session);
+      this.sendAgentResponse({
+        requestId,
+        sessionId,
+        ...this.toAgentResponseData(currentAgent),
+      });
+    } catch (err) {
+      this.sendAgentResponse({
+        requestId,
+        sessionId,
+        agentId: null,
+        agentName: null,
+        error: `getAgent failed: ${String(err)}`,
+      });
+    }
+  }
+
+  private async handleSetAgent(
+    requestId: string,
+    sessionId: string,
+    agentId: string | null,
+  ): Promise<void> {
+    const session = await this.getOrAttachSession(sessionId, undefined, {
+      skipInitialStart: true,
+    });
+    if (!session) {
+      this.sendAgentResponse({
+        requestId,
+        sessionId,
+        agentId: null,
+        agentName: null,
+        error: `No active session: ${sessionId}`,
+      });
+      return;
+    }
+
+    try {
+      const selectedAgent = this.resolveRequestedAgent(agentId);
+      await this.applyAgentSelection(session, selectedAgent);
+      const currentAgent = await this.getCurrentSessionAgent(session);
+      this.sendAgentResponse({
+        requestId,
+        sessionId,
+        ...this.toAgentResponseData(currentAgent),
+      });
+    } catch (err) {
+      this.sendAgentResponse({
+        requestId,
+        sessionId,
+        agentId: null,
+        agentName: null,
+        error: `setAgent failed: ${String(err)}`,
+      });
+    }
+  }
+
   private async handleGetPlan(requestId: string, sessionId: string): Promise<void> {
-    const session = this.activeSessions.get(sessionId);
+    const session = await this.getOrAttachSession(sessionId, undefined, {
+      skipInitialStart: true,
+    });
     if (!session) return;
     try {
-      const plan = await session.rpc.plan.read();
+      const plan: CopilotPlanState = await session.rpc.plan.read();
       this.sendToHq({
         type: 'copilot-plan-response',
         timestamp: Date.now(),
@@ -523,7 +661,9 @@ export class CopilotManager {
   }
 
   private async handleUpdatePlan(sessionId: string, content: string): Promise<void> {
-    const session = this.activeSessions.get(sessionId);
+    const session = await this.getOrAttachSession(sessionId, undefined, {
+      skipInitialStart: true,
+    });
     if (!session) return;
     try {
       await session.rpc.plan.update({ content });
@@ -533,7 +673,9 @@ export class CopilotManager {
   }
 
   private async handleDeletePlan(sessionId: string): Promise<void> {
-    const session = this.activeSessions.get(sessionId);
+    const session = await this.getOrAttachSession(sessionId, undefined, {
+      skipInitialStart: true,
+    });
     if (!session) return;
     try {
       await session.rpc.plan.delete();
@@ -564,13 +706,17 @@ export class CopilotManager {
       payload: {
         projectId: this.projectId,
         sessionId,
-        event: syntheticEvent('session.shutdown', { sessionId, reason: 'disconnected' }),
+        event: syntheticEvent('session.shutdown', {
+          sessionId,
+          reason: 'disconnected',
+          shutdownType: 'routine',
+        }),
       },
     });
   }
 
   private async handleListModels(requestId: string): Promise<void> {
-    if (!this.client || !this.started) return;
+    if (!this.started) return;
     try {
       const models = await this.client.listModels();
       this.sendToHq({
@@ -584,6 +730,9 @@ export class CopilotManager {
   }
 
   private async handleDeleteSession(sessionId: string): Promise<void> {
+    // Track deleted session so it's filtered from future polls
+    this.deletedSessionIds.add(sessionId);
+
     // Disconnect locally if tracked
     const session = this.activeSessions.get(sessionId);
     if (session) {
@@ -596,7 +745,7 @@ export class CopilotManager {
     }
 
     // Delete from SDK registry (permanent)
-    if (this.client && this.started) {
+    if (this.started) {
       try {
         await this.client.deleteSession(sessionId);
       } catch {
@@ -610,7 +759,11 @@ export class CopilotManager {
       payload: {
         projectId: this.projectId,
         sessionId,
-        event: syntheticEvent('session.shutdown', { sessionId, reason: 'deleted' }),
+        event: syntheticEvent('session.shutdown', {
+          sessionId,
+          reason: 'deleted',
+          shutdownType: 'routine',
+        }),
       },
     });
   }
@@ -627,9 +780,97 @@ export class CopilotManager {
       payload: {
         projectId: this.projectId,
         sessionId,
-        event: syntheticEvent('session.error', { message }),
+        event: syntheticEvent('session.error', { errorType: 'daemon', message }),
       },
     });
+  }
+
+  private async getOrAttachSession(
+    sessionId: string,
+    config?: Partial<SessionConfigWire>,
+    options?: {
+      skipInitialStart?: boolean;
+      throwOnError?: boolean;
+      requireKnownSession?: boolean;
+    },
+  ): Promise<CopilotSessionLike | null> {
+    const trackedSession = this.activeSessions.get(sessionId);
+    if (trackedSession) {
+      return trackedSession;
+    }
+
+    const existingLoad = this.sessionLoadPromises.get(sessionId);
+    if (existingLoad) {
+      return existingLoad;
+    }
+
+    const loadPromise = (async () => {
+      const knownSession =
+        options?.requireKnownSession === false
+          ? true
+          : await this.findKnownSession(sessionId);
+      if (!knownSession) {
+        return null;
+      }
+
+      try {
+        const session = await this.client.resumeSession(
+          sessionId,
+          this.buildSharedSdkConfig(config),
+        );
+        this.trackSession(session, options?.skipInitialStart ?? true);
+        return session;
+      } catch (err) {
+        if (options?.throwOnError) {
+          throw err;
+        }
+        return null;
+      }
+    })();
+
+    this.sessionLoadPromises.set(sessionId, loadPromise);
+
+    try {
+      return await loadPromise;
+    } finally {
+      this.sessionLoadPromises.delete(sessionId);
+    }
+  }
+
+  private async findKnownSession(sessionId: string): Promise<SessionMetadata | null> {
+    if (!this.started) {
+      return null;
+    }
+
+    try {
+      const sessions = await this.client.listSessions();
+      return sessions.find((session) => session.sessionId === sessionId) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private sendAgentResponse(payload: {
+    requestId: string;
+    sessionId: string;
+    agentId: string | null;
+    agentName: string | null;
+    error?: string;
+  }): void {
+    this.sendToHq({
+      type: 'copilot-agent-response',
+      timestamp: Date.now(),
+      payload,
+    });
+  }
+
+  private shouldSuppressForwardedEvent(event: SessionEvent): boolean {
+    // The daemon currently auto-approves all tool permissions via `approveAll`.
+    // The SDK still emits a permission.requested event before that approval is
+    // applied, but surfacing it in HQ creates a bogus Allow/Deny prompt even
+    // though the session is already continuing. Keep later permission outcome
+    // events if they occur, but drop the non-actionable request event.
+    return event.type.startsWith('permission.request');
   }
 
   /**
@@ -639,8 +880,7 @@ export class CopilotManager {
    *   the SDK is suppressed because the caller (create/resume) already sent an
    *   explicit synthetic event carrying the requestId needed for correlation.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private trackSession(session: any, skipInitialStart = false): void {
+  private trackSession(session: CopilotSessionLike, skipInitialStart = false): void {
     // Clean up any previous listener for this sessionId to prevent leaks
     const oldUnsub = this.sessionUnsubscribers.get(session.sessionId);
     if (oldUnsub) oldUnsub();
@@ -658,6 +898,10 @@ export class CopilotManager {
         return;
       }
 
+      if (this.shouldSuppressForwardedEvent(event)) {
+        return;
+      }
+
       this.sendToHq({
         type: 'copilot-session-event',
         timestamp: Date.now(),
@@ -672,14 +916,19 @@ export class CopilotManager {
     this.sessionUnsubscribers.set(session.sessionId, unsub);
   }
 
+  /** Set of session IDs that failed to resume and were permanently deleted */
+  private deletedSessionIds = new Set<string>();
+
   private async pollSessions(requestId: string): Promise<void> {
-    if (!this.client || !this.started) return;
+    if (!this.started) return;
     try {
-      const sessions: SessionMetadata[] = await this.client.listSessions();
+      const sessions = await this.client.listSessions();
+      // Filter out sessions we've already deleted (SDK may still list them briefly)
+      const healthy = sessions.filter(s => !this.deletedSessionIds.has(s.sessionId));
       this.sendToHq({
         type: 'copilot-session-list',
         timestamp: Date.now(),
-        payload: { projectId: this.projectId, requestId, sessions },
+        payload: { projectId: this.projectId, requestId, sessions: healthy },
       });
     } catch (err) {
       console.warn(`⚠ Session poll failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -694,23 +943,29 @@ export class CopilotManager {
     });
   }
 
-  private resolveSelectedAgent(requestedAgentId?: string): CopilotAgentCatalogEntry {
+  private getDefaultAgentEntry(): CopilotAgentCatalogEntry {
+    const defaultAgent = this.agentCatalog.get(DEFAULT_COPILOT_AGENT_ID);
+    if (!defaultAgent) {
+      throw new Error('Default Copilot agent catalog entry is missing');
+    }
+    return defaultAgent;
+  }
+
+  private resolveRequestedAgent(requestedAgentId?: string | null): CopilotAgentCatalogEntry {
     const selectedAgent =
-      this.findAgentEntry(requestedAgentId ?? this.selectedAgentId) ??
-      this.agentCatalog.get(DEFAULT_COPILOT_AGENT_ID);
+      this.findAgentEntry(requestedAgentId) ??
+      (requestedAgentId === undefined || requestedAgentId === null
+        ? this.getDefaultAgentEntry()
+        : undefined);
 
     if (!selectedAgent) {
-      throw new Error(`Unknown Copilot agent selection: ${requestedAgentId ?? this.selectedAgentId}`);
+      throw new Error(`Unknown Copilot agent selection: ${requestedAgentId}`);
     }
 
     return selectedAgent;
   }
 
-  private rememberSelectedAgent(agentId: string): void {
-    this.selectedAgentId = agentId;
-  }
-
-  private findAgentEntry(agentIdOrName?: string): CopilotAgentCatalogEntry | undefined {
+  private findAgentEntry(agentIdOrName?: string | null): CopilotAgentCatalogEntry | undefined {
     if (!agentIdOrName) return undefined;
     if (this.agentCatalog.has(agentIdOrName)) {
       return this.agentCatalog.get(agentIdOrName);
@@ -726,8 +981,10 @@ export class CopilotManager {
     return undefined;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async applyAgentSelection(session: any, agent: CopilotAgentCatalogEntry): Promise<void> {
+  private async applyAgentSelection(
+    session: CopilotSessionLike,
+    agent: CopilotAgentCatalogEntry,
+  ): Promise<void> {
     const rpcAgent = session?.rpc?.agent;
 
     if (agent.kind === 'default') {
@@ -744,9 +1001,47 @@ export class CopilotManager {
     await rpcAgent.select({ name: agent.name });
   }
 
-  /** Build a full SDK SessionConfig from a wire config + HQ injections */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private buildSdkConfig(wire?: SessionConfigWire): any {
+  private async getCurrentSessionAgent(
+    session: CopilotSessionLike,
+  ): Promise<CurrentSessionAgentSelection> {
+    const result: CopilotCurrentAgentState = await session.rpc.agent.getCurrent();
+    const currentAgent = result.agent;
+    if (!currentAgent) {
+      return {
+        agentId: null,
+        agentName: null,
+        agentDisplayName: null,
+      };
+    }
+
+    const catalogEntry = this.findAgentEntry(currentAgent.name);
+    return {
+      agentId: catalogEntry?.kind === 'default' ? null : (catalogEntry?.id ?? currentAgent.name),
+      agentName: catalogEntry?.name ?? currentAgent.name,
+      agentDisplayName: catalogEntry?.displayName ?? currentAgent.displayName ?? null,
+    };
+  }
+
+  private toAgentEventData(agent: CurrentSessionAgentSelection): Record<string, unknown> {
+    return {
+      agentId: agent.agentId ?? DEFAULT_COPILOT_AGENT_ID,
+      ...(agent.agentName ? { agentName: agent.agentName } : {}),
+      ...(agent.agentDisplayName ? { agentDisplayName: agent.agentDisplayName } : {}),
+    };
+  }
+
+  private toAgentResponseData(agent: CurrentSessionAgentSelection): {
+    agentId: string | null;
+    agentName: string | null;
+  } {
+    return {
+      agentId: agent.agentId,
+      agentName: agent.agentDisplayName ?? agent.agentName,
+    };
+  }
+
+  /** Build a typed SDK config from a wire config + HQ injections */
+  private buildSharedSdkConfig(wire?: Partial<SessionConfigWire>): SharedSdkConfig {
     const config = wire ?? {};
     return {
       ...(config.model && { model: config.model }),
@@ -754,7 +1049,7 @@ export class CopilotManager {
       systemMessage: config.systemMessage ?? buildSystemMessage(this.projectId, this.projectName),
       tools: [...this.hqTools],
       ...(this.customAgents.length > 0 ? { customAgents: this.customAgents } : {}),
-      onPermissionRequest: sdkApproveAll,
+      onPermissionRequest: approveAll,
     };
   }
 }

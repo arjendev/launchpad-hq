@@ -732,26 +732,60 @@ describe("Daemon REST routes", () => {
   it("GET /api/daemons/:id/copilot/agents returns catalog with remembered preference", async () => {
     const ws = createMockSocket();
     const info: DaemonInfo & {
-      copilotSdkAgents: Array<{ name: string; displayName: string; description: string }>;
+      copilotSdkAgents: Array<{
+        id: string;
+        name: string;
+        displayName: string;
+        description: string;
+        userInvocable: boolean;
+      }>;
     } = {
       ...makeDaemonInfo({ projectId: "test/repo1" }),
       copilotSdkAgents: [
-        { name: "reviewer", displayName: "Reviewer", description: "Reviews changes" },
-        { name: "planner", displayName: "Planner", description: "Plans work" },
+        {
+          id: "github:reviewer",
+          name: "reviewer",
+          displayName: "Reviewer",
+          description: "Reviews changes",
+          userInvocable: true,
+        },
+        {
+          id: "github:planner",
+          name: "planner",
+          displayName: "Planner",
+          description: "Plans work",
+          userInvocable: true,
+        },
       ],
     };
     registry.register("test/repo1", ws as never, info);
-    stateService.getProjectDefaultCopilotAgent.mockResolvedValue("reviewer");
+    stateService.getProjectDefaultCopilotAgent.mockResolvedValue("github:reviewer");
 
     const res = await server.inject({ method: "GET", url: "/api/daemons/test/repo1/copilot/agents" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
       projectId: "test/repo1",
       daemonOnline: true,
-      preferredAgent: "reviewer",
+      preferredAgent: "github:reviewer",
       agents: [
-        { name: "reviewer", displayName: "Reviewer", description: "Reviews changes" },
-        { name: "planner", displayName: "Planner", description: "Plans work" },
+        {
+          id: "github:reviewer",
+          name: "reviewer",
+          displayName: "Reviewer",
+          description: "Reviews changes",
+          kind: "custom",
+          source: "github-agent-file",
+          userInvocable: true,
+        },
+        {
+          id: "github:planner",
+          name: "planner",
+          displayName: "Planner",
+          description: "Plans work",
+          kind: "custom",
+          source: "github-agent-file",
+          userInvocable: true,
+        },
       ],
     });
   });
@@ -776,8 +810,22 @@ describe("Daemon REST routes", () => {
       daemonOnline: true,
       preferredAgent: "planner",
       agents: [
-        { name: "reviewer", displayName: "reviewer", description: "" },
-        { name: "planner", displayName: "planner", description: "" },
+        {
+          id: "reviewer",
+          name: "reviewer",
+          displayName: "reviewer",
+          description: "",
+          kind: "custom",
+          source: "github-agent-file",
+        },
+        {
+          id: "planner",
+          name: "planner",
+          displayName: "planner",
+          description: "",
+          kind: "custom",
+          source: "github-agent-file",
+        },
       ],
     });
   });

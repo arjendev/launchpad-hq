@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import type { MessageOptions } from '@github/copilot-sdk';
 import { CopilotManager } from '../manager.js';
 import { DEFAULT_COPILOT_AGENT_ID } from '../agent-catalog.js';
 import type {
@@ -35,6 +36,7 @@ class TestSdkSession {
     content: null,
     path: null,
   };
+  lastSendOptions: MessageOptions | null = null;
 
   /** Session-scoped RPC — mirrors SDK createSessionRpc() shape */
   readonly rpc = {
@@ -87,7 +89,8 @@ class TestSdkSession {
     this.setAvailableAgents(availableAgents);
   }
 
-  async send(options: { prompt: string }): Promise<string> {
+  async send(options: MessageOptions): Promise<string> {
+    this.lastSendOptions = options;
     const msgId = randomUUID();
     this.dispatch({ type: 'user.message', data: { content: options.prompt } });
     this.dispatch({ type: 'assistant.streaming_delta', data: { delta: 'Test response' } });
@@ -121,6 +124,10 @@ class TestSdkSession {
     return this.availableAgents.get(this._selectedAgentName) ?? null;
   }
 
+  emitForTest(type: string, data: Record<string, unknown>): void {
+    this.dispatch({ type, data });
+  }
+
   private dispatch(partial: { type: string; data: Record<string, unknown> }): void {
     const event = {
       id: randomUUID(),
@@ -142,6 +149,7 @@ class TestCopilotClient {
   private lifecycleHandlers: Array<(event: unknown) => void> = [];
   lastCreateSessionConfig: TestSessionConfig | null = null;
   lastResumeSessionConfig: TestSessionConfig | null = null;
+  resumeSessionCallCount = 0;
   deletedSessionIds: string[] = [];
 
   getState(): string { return this._state; }
@@ -171,6 +179,7 @@ class TestCopilotClient {
   }
 
   async resumeSession(sessionId: string, config?: TestSessionConfig): Promise<TestSdkSession> {
+    this.resumeSessionCallCount += 1;
     this.lastResumeSessionConfig = config;
     const availableAgents = toAgentSummaries(config?.customAgents);
     const existing = this.sessions.get(sessionId);
@@ -413,6 +422,52 @@ describe('CopilotManager', () => {
       expect(startEvent!.payload.event.data.resumed).toBe(true);
       expect(startEvent!.payload.sessionId).toBe('test-session-001');
     });
+
+    it('does not call the SDK resume API for an already tracked session', async () => {
+      const client = new TestCopilotClient();
+      const resumeManager = new CopilotManager({
+        sendToHq,
+        client,
+        pollIntervalMs: 60_000,
+      });
+
+      try {
+        await resumeManager.start();
+        sent = [];
+
+        await resumeManager.handleMessage({
+          type: 'copilot-create-session',
+          timestamp: Date.now(),
+          payload: { requestId: 'req-resume-live-1' },
+        });
+
+        const startEvent = sent.find(
+          (m) =>
+            m.type === 'copilot-session-event' &&
+            m.payload.event.type === 'session.start',
+        );
+        const sessionId = startEvent!.payload.sessionId;
+        const resumeCallsBefore = client.resumeSessionCallCount;
+        sent = [];
+
+        await resumeManager.handleMessage({
+          type: 'copilot-resume-session',
+          timestamp: Date.now(),
+          payload: { requestId: 'req-resume-live-2', sessionId },
+        });
+
+        expect(client.resumeSessionCallCount).toBe(resumeCallsBefore);
+        const resumedEvent = sent.find(
+          (m) =>
+            m.type === 'copilot-session-event' &&
+            m.payload.event.type === 'session.start',
+        );
+        expect(resumedEvent).toBeDefined();
+        expect(resumedEvent!.payload.event.data.resumed).toBe(true);
+      } finally {
+        await resumeManager.stop();
+      }
+    });
   });
 
   describe('custom agent selection', () => {
@@ -469,7 +524,7 @@ describe('CopilotManager', () => {
       }
     });
 
-    it('remembers the chosen agent for later sessions in the same project', async () => {
+    it('does not reuse a previous session agent for later sessions', async () => {
       const { client, agentManager } = buildAgentManager();
 
       try {
@@ -492,125 +547,141 @@ describe('CopilotManager', () => {
           payload: { requestId: 'req-agent-remember-2' },
         });
 
-        const rememberedStart = sent.find(
-          (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'session.start',
-        );
-        expect(rememberedStart).toBeDefined();
-        expect(rememberedStart!.payload.event.data.agentId).toBe(SQUAD_AGENT.id);
-
-        const session = client.getSession(rememberedStart!.payload.sessionId);
-        expect(session?.currentAgentName).toBe('squad');
-      } finally {
-        await agentManager.stop();
-      }
-    });
-
-    it('does not remember a failed agent selection for later sessions', async () => {
-      const { client, agentManager } = buildAgentManager();
-      let failNextSelection = true;
-
-      vi.spyOn(client, 'createSession').mockImplementation(async (config) => {
-        const session = await TestCopilotClient.prototype.createSession.call(client, config);
-        if (failNextSelection) {
-          failNextSelection = false;
-          session.rpc.agent.select = async () => {
-            throw new Error('agent selection failed');
-          };
-        }
-        return session;
-      });
-
-      try {
-        await agentManager.start();
-        sent = [];
-
-        await agentManager.handleMessage({
-          type: 'copilot-create-session',
-          timestamp: Date.now(),
-          payload: {
-            requestId: 'req-agent-failure-1',
-            config: { agentId: SQUAD_AGENT.id },
-          },
-        });
-
-        const failureEvent = sent.find(
-          (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'session.error',
-        );
-        expect(failureEvent).toBeDefined();
-        expect(String(failureEvent!.payload.event.data.message)).toContain('agent selection failed');
-
-        sent = [];
-
-        await agentManager.handleMessage({
-          type: 'copilot-create-session',
-          timestamp: Date.now(),
-          payload: { requestId: 'req-agent-failure-2' },
-        });
-
-        const rememberedStart = sent.find(
-          (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'session.start',
-        );
-        expect(rememberedStart).toBeDefined();
-        expect(rememberedStart!.payload.event.data.agentId).toBe(DEFAULT_COPILOT_AGENT_ID);
-
-        const session = client.getSession(rememberedStart!.payload.sessionId);
-        expect(session?.currentAgentName).toBeNull();
-      } finally {
-        await agentManager.stop();
-      }
-    });
-
-    it('can switch back to the plain session option and remember it', async () => {
-      const { client, agentManager } = buildAgentManager();
-
-      try {
-        await agentManager.start();
-
-        await agentManager.handleMessage({
-          type: 'copilot-create-session',
-          timestamp: Date.now(),
-          payload: {
-            requestId: 'req-agent-default-1',
-            config: { agentId: SQUAD_AGENT.id },
-          },
-        });
-
-        sent = [];
-
-        await agentManager.handleMessage({
-          type: 'copilot-create-session',
-          timestamp: Date.now(),
-          payload: {
-            requestId: 'req-agent-default-2',
-            config: { agentId: DEFAULT_COPILOT_AGENT_ID },
-          },
-        });
-
         const defaultStart = sent.find(
           (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'session.start',
         );
         expect(defaultStart).toBeDefined();
         expect(defaultStart!.payload.event.data.agentId).toBe(DEFAULT_COPILOT_AGENT_ID);
 
-        const plainSession = client.getSession(defaultStart!.payload.sessionId);
-        expect(plainSession?.currentAgentName).toBeNull();
+        const session = client.getSession(defaultStart!.payload.sessionId);
+        expect(session?.currentAgentName).toBeNull();
+      } finally {
+        await agentManager.stop();
+      }
+    });
 
+    it('can query and switch the agent for an active session', async () => {
+      const { client, agentManager } = buildAgentManager();
+      try {
+        await agentManager.start();
         sent = [];
 
         await agentManager.handleMessage({
           type: 'copilot-create-session',
           timestamp: Date.now(),
-          payload: { requestId: 'req-agent-default-3' },
+          payload: { requestId: 'req-agent-switch-1' },
         });
 
-        const rememberedPlainStart = sent.find(
+        const startEvent = sent.find(
           (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'session.start',
         );
-        expect(rememberedPlainStart).toBeDefined();
-        expect(rememberedPlainStart!.payload.event.data.agentId).toBe(DEFAULT_COPILOT_AGENT_ID);
+        const sessionId = startEvent!.payload.sessionId;
+        sent = [];
 
-        const rememberedPlainSession = client.getSession(rememberedPlainStart!.payload.sessionId);
-        expect(rememberedPlainSession?.currentAgentName).toBeNull();
+        await agentManager.handleMessage({
+          type: 'copilot-get-agent',
+          timestamp: Date.now(),
+          payload: { requestId: 'req-agent-switch-get-1', sessionId },
+        });
+
+        const defaultAgentResponse = sent.find(
+          (msg) => msg.type === 'copilot-agent-response',
+        );
+        expect(defaultAgentResponse).toBeDefined();
+        expect(defaultAgentResponse!.payload).toMatchObject({
+          requestId: 'req-agent-switch-get-1',
+          sessionId,
+          agentId: null,
+          agentName: null,
+        });
+
+        sent = [];
+
+        await agentManager.handleMessage({
+          type: 'copilot-set-agent',
+          timestamp: Date.now(),
+          payload: {
+            requestId: 'req-agent-switch-set-1',
+            sessionId,
+            agentId: SQUAD_AGENT.id,
+          },
+        });
+
+        const switchedAgentResponse = sent.find(
+          (msg) => msg.type === 'copilot-agent-response',
+        );
+        expect(switchedAgentResponse).toBeDefined();
+        expect(switchedAgentResponse!.payload).toMatchObject({
+          requestId: 'req-agent-switch-set-1',
+          sessionId,
+          agentId: SQUAD_AGENT.id,
+          agentName: 'Squad',
+        });
+        expect(client.getSession(sessionId)?.currentAgentName).toBe('squad');
+
+        const selectedEvent = sent.find(
+          (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'subagent.selected',
+        );
+        expect(selectedEvent).toBeDefined();
+
+        sent = [];
+
+        await agentManager.handleMessage({
+          type: 'copilot-set-agent',
+          timestamp: Date.now(),
+          payload: {
+            requestId: 'req-agent-switch-set-2',
+            sessionId,
+            agentId: null,
+          },
+        });
+
+        const plainAgentResponse = sent.find(
+          (msg) => msg.type === 'copilot-agent-response',
+        );
+        expect(plainAgentResponse).toBeDefined();
+        expect(plainAgentResponse!.payload).toMatchObject({
+          requestId: 'req-agent-switch-set-2',
+          sessionId,
+          agentId: null,
+          agentName: null,
+        });
+        expect(client.getSession(sessionId)?.currentAgentName).toBeNull();
+      } finally {
+        await agentManager.stop();
+      }
+    });
+
+    it('reattaches a known session before switching its agent', async () => {
+      const { client, agentManager } = buildAgentManager();
+
+      try {
+        await agentManager.start();
+        sent = [];
+
+        await agentManager.handleMessage({
+          type: 'copilot-set-agent',
+          timestamp: Date.now(),
+          payload: {
+            requestId: 'req-agent-lazy-set',
+            sessionId: 'test-session-001',
+            agentId: SQUAD_AGENT.id,
+          },
+        });
+
+        expect(client.resumeSessionCallCount).toBe(1);
+        expect(client.getSession('test-session-001')?.currentAgentName).toBe('squad');
+
+        const switchedAgentResponse = sent.find(
+          (msg) => msg.type === 'copilot-agent-response',
+        );
+        expect(switchedAgentResponse).toBeDefined();
+        expect(switchedAgentResponse!.payload).toMatchObject({
+          requestId: 'req-agent-lazy-set',
+          sessionId: 'test-session-001',
+          agentId: SQUAD_AGENT.id,
+          agentName: 'Squad',
+        });
       } finally {
         await agentManager.stop();
       }
@@ -643,6 +714,36 @@ describe('CopilotManager', () => {
         expect(resumeStart).toBeDefined();
         expect(resumeStart!.payload.event.data.resumed).toBe(true);
         expect(resumeStart!.payload.event.data.agentId).toBe(SQUAD_AGENT.id);
+      } finally {
+        await agentManager.stop();
+      }
+    });
+
+    it('preserves the session agent when resuming without an explicit override', async () => {
+      const { client, agentManager } = buildAgentManager();
+
+      try {
+        await agentManager.start();
+        const existing = await client.createSession({ customAgents: [SQUAD_AGENT_CONFIG] });
+        await existing.rpc.agent.select({ name: 'squad' });
+        sent = [];
+
+        await agentManager.handleMessage({
+          type: 'copilot-resume-session',
+          timestamp: Date.now(),
+          payload: {
+            requestId: 'req-agent-resume-preserve',
+            sessionId: existing.sessionId,
+          },
+        });
+
+        const resumeStart = sent.find(
+          (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'session.start',
+        );
+        expect(resumeStart).toBeDefined();
+        expect(resumeStart!.payload.event.data.resumed).toBe(true);
+        expect(resumeStart!.payload.event.data.agentId).toBe(SQUAD_AGENT.id);
+        expect(existing.currentAgentName).toBe('squad');
       } finally {
         await agentManager.stop();
       }
@@ -684,6 +785,48 @@ describe('CopilotManager', () => {
       expect(eventTypes).toContain('session.idle');
     });
 
+    it('forwards prompt delivery mode to the SDK session', async () => {
+      const client = new TestCopilotClient();
+      const typedManager = new CopilotManager({
+        sendToHq,
+        client,
+        pollIntervalMs: 60_000,
+      });
+
+      try {
+        await typedManager.start();
+        sent = [];
+
+        await typedManager.handleMessage({
+          type: 'copilot-create-session',
+          timestamp: Date.now(),
+          payload: { requestId: 'req-mode-1' },
+        });
+
+        const startEvent = sent.find(
+          (m) =>
+            m.type === 'copilot-session-event' &&
+            m.payload.event.type === 'session.start',
+        );
+        const sessionId = startEvent!.payload.sessionId;
+        const session = client.getSession(sessionId);
+        sent = [];
+
+        await typedManager.handleMessage({
+          type: 'copilot-send-prompt',
+          timestamp: Date.now(),
+          payload: { sessionId, prompt: 'Steer this', mode: 'immediate' },
+        });
+
+        expect(session?.lastSendOptions).toMatchObject({
+          prompt: 'Steer this',
+          mode: 'immediate',
+        });
+      } finally {
+        await typedManager.stop();
+      }
+    });
+
     it('sends error event for unknown session', async () => {
       await manager.start();
       sent = [];
@@ -701,6 +844,33 @@ describe('CopilotManager', () => {
       );
       expect(errorEvent).toBeDefined();
       expect(errorEvent!.payload.sessionId).toBe('nonexistent');
+    });
+
+    it('reattaches a known session before sending a prompt', async () => {
+      const client = new TestCopilotClient();
+      const typedManager = new CopilotManager({
+        sendToHq,
+        client,
+        pollIntervalMs: 60_000,
+      });
+
+      try {
+        await typedManager.start();
+        sent = [];
+
+        await typedManager.handleMessage({
+          type: 'copilot-send-prompt',
+          timestamp: Date.now(),
+          payload: { sessionId: 'test-session-001', prompt: 'Hello again' },
+        });
+
+        expect(client.resumeSessionCallCount).toBe(1);
+        expect(client.getSession('test-session-001')?.lastSendOptions).toMatchObject({
+          prompt: 'Hello again',
+        });
+      } finally {
+        await typedManager.stop();
+      }
     });
   });
 
@@ -851,6 +1021,57 @@ describe('CopilotManager', () => {
       const types = forwarded.map(m => m.payload.event.type);
       expect(types).toContain('tool.execution_start');
       expect(types).toContain('assistant.streaming_delta');
+    });
+
+    it('suppresses auto-approved permission request events', async () => {
+      const client = new TestCopilotClient();
+      const permissionManager = new CopilotManager({
+        sendToHq,
+        client,
+        pollIntervalMs: 60_000,
+      });
+
+      try {
+        await permissionManager.start();
+        sent = [];
+
+        await permissionManager.handleMessage({
+          type: 'copilot-create-session',
+          timestamp: Date.now(),
+          payload: { requestId: 'req-permission-1' },
+        });
+
+        const startEvent = sent.find(
+          (m) =>
+            m.type === 'copilot-session-event' &&
+            m.payload.event.type === 'session.start',
+        );
+        const sessionId = startEvent!.payload.sessionId;
+        const session = client.getSession(sessionId);
+        expect(session).toBeDefined();
+
+        sent = [];
+        session!.emitForTest('permission.requested', {
+          requestId: 'perm-1',
+          toolName: 'edit_file',
+          toolArgs: { path: 'src/example.ts' },
+        });
+        session!.emitForTest('permission.completed', {
+          requestId: 'perm-1',
+          granted: true,
+        });
+
+        const forwardedTypes = sent
+          .filter(
+            (m) => m.type === 'copilot-session-event' && m.payload.sessionId === sessionId,
+          )
+          .map((m) => m.payload.event.type);
+
+        expect(forwardedTypes).not.toContain('permission.requested');
+        expect(forwardedTypes).toContain('permission.completed');
+      } finally {
+        await permissionManager.stop();
+      }
     });
   });
 

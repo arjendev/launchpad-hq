@@ -33,8 +33,13 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
   // ── Daemon copilot message routing ────────────────────
   // Events emitted by DaemonWsHandler.routeMessage() with signature (daemonId, payload)
 
-  registry.on("copilot:session-list" as never, (daemonId: string, payload: { projectId: string; sessions: SessionMetadata[] }) => {
+  registry.on("copilot:session-list" as never, (daemonId: string, payload: { projectId: string; requestId?: string; sessions: SessionMetadata[] }) => {
     aggregator.updateSessions(daemonId, payload.projectId, payload.sessions);
+
+    // Resolve any pending request-response (e.g. from the resume-picker endpoint)
+    if (payload.requestId) {
+      aggregator.resolveRequest(payload.requestId, { sessions: payload.sessions });
+    }
   });
 
   registry.on("copilot:session-event" as never, (daemonId: string, payload: { projectId: string; sessionId: string; sessionType?: SessionType; event: SessionEvent }) => {
@@ -43,6 +48,32 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
     // Track session type if provided
     if (payload.sessionType) {
       aggregator.setSessionType(payload.sessionId, payload.sessionType);
+    }
+
+    // Persist assistant messages to conversation history so they survive refresh
+    if (payload.event.type === "assistant.message") {
+      const data = payload.event.data as { content?: string; parentToolCallId?: string };
+      const content = data.content?.trim();
+      if (content) {
+        aggregator.appendMessages(payload.sessionId, [{
+          role: "assistant",
+          content,
+          timestamp: new Date(payload.event.timestamp).getTime(),
+        }]);
+      }
+    }
+
+    // Permanently delete corrupted/incompatible sessions from the SDK
+    if (payload.event.type === "session.error") {
+      const errMsg = String((payload.event.data as Record<string, unknown>)?.message ?? "");
+      if (errMsg.includes("corrupted") || errMsg.includes("incompatible")) {
+        fastify.log.warn(`Deleting corrupted SDK session ${payload.sessionId}: ${errMsg}`);
+        registry.sendToDaemon(daemonId, {
+          type: "copilot-delete-session",
+          timestamp: Date.now(),
+          payload: { sessionId: payload.sessionId },
+        });
+      }
     }
 
     // If the event carries a requestId, resolve any pending request-response
@@ -87,6 +118,27 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
   registry.on("copilot:mode-response" as never, (_daemonId: string, payload: { requestId: string; sessionId: string; mode: string }) => {
     aggregator.resolveRequest(payload.requestId, { mode: payload.mode });
   });
+
+  registry.on(
+    "copilot:agent-response" as never,
+    (
+      _daemonId: string,
+      payload: {
+        requestId: string;
+        sessionId: string;
+        agentId: string | null;
+        agentName: string | null;
+        error?: string;
+      },
+    ) => {
+      aggregator.resolveRequest(payload.requestId, {
+        sessionId: payload.sessionId,
+        agentId: payload.agentId,
+        agentName: payload.agentName,
+        ...(payload.error ? { error: payload.error } : {}),
+      });
+    },
+  );
 
   registry.on("copilot:plan-response" as never, (_daemonId: string, payload: { requestId: string; sessionId: string; plan: { exists: boolean; content: string | null; path: string | null } }) => {
     aggregator.resolveRequest(payload.requestId, { plan: payload.plan });

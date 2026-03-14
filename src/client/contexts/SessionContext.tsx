@@ -14,6 +14,10 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
+function shouldDisconnectOnDeselect(session: AggregatedSession | null): boolean {
+  return session?.sessionType === "copilot-cli";
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [selectedSession, setSelectedSession] = useState<AggregatedSession | null>(null);
   const { selectedProject } = useSelectedProject();
@@ -23,7 +27,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // Track previous project to detect changes
   const prevProjectRef = useRef(selectedProject);
 
-  // When selectedProject changes, detach current session and clear selection
+  // When the project changes, only CLI sessions need an explicit detach.
+  // SDK sessions should keep running in the background.
   useEffect(() => {
     const prev = prevProjectRef.current;
     prevProjectRef.current = selectedProject;
@@ -33,7 +38,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       prev?.repo !== selectedProject?.repo;
 
     if (changed && selectedSession) {
-      disconnectSession.mutate(selectedSession.sessionId);
+      if (shouldDisconnectOnDeselect(selectedSession)) {
+        disconnectSession.mutate(selectedSession.sessionId);
+      }
       setSelectedSession(null);
     }
   }, [selectedProject]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -48,8 +55,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // No-op if re-selecting the same session (avoids duplicate resume)
       if (session && current?.sessionId === session.sessionId) return;
 
-      // Disconnect outgoing session (all types) to clean up daemon-side listeners
-      if (current) {
+      // Only CLI sessions need an explicit daemon-side detach when the UI switches away.
+      if (current && shouldDisconnectOnDeselect(current)) {
         disconnectSession.mutate(current.sessionId);
       }
 

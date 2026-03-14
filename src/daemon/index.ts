@@ -13,7 +13,6 @@ import { DaemonState } from './state.js';
 import { setupDaemonTerminal, DaemonTerminalManager } from './terminal/index.js';
 import { CopilotManager, discoverCopilotAgents } from './copilot/index.js';
 import { CliSessionManager } from './copilot-cli/index.js';
-import { SquadSessionManager } from './squad/index.js';
 import { logIncoming, logOutgoing } from './logger.js';
 
 export interface DaemonProcess {
@@ -22,7 +21,6 @@ export interface DaemonProcess {
   terminalManager: DaemonTerminalManager;
   copilot: CopilotManager;
   cliSessions: CliSessionManager;
-  squadSessions: SquadSessionManager;
   shutdown: () => void;
 }
 
@@ -136,18 +134,10 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     cwd: process.cwd(),
   });
 
-  const squadSessions = new SquadSessionManager({
-    sendToHq: (msg) => client.send(msg),
-    projectId: config.projectId,
-  });
-
   addCapability(daemonInfo, 'copilot-sdk');
   addCapability(daemonInfo, 'copilot-cli');
   if (discoveredAgents.customAgents.length > 0) {
     addCapability(daemonInfo, 'copilot-custom-agents');
-  }
-  if (squadSessions.isAvailable()) {
-    addCapability(daemonInfo, 'squad-sdk');
   }
 
   client.on('message', async (msg) => {
@@ -156,10 +146,6 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     // Try CLI session manager first (handles its own sessions + copilot-cli type)
     const handledByCli = await cliSessions.handleMessage(msg);
     if (handledByCli) return;
-
-    // Try Squad session manager (handles squad-sdk type)
-    const handledBySquad = await squadSessions.handleMessage(msg);
-    if (handledBySquad) return;
 
     // Fall through to default CopilotManager (copilot-sdk type)
     if (msg.type.startsWith('copilot-')) {
@@ -184,14 +170,13 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     console.log('\n⏏ Daemon shutting down…');
     void copilot.stop().catch(() => {});
     void cliSessions.stop().catch(() => {});
-    void squadSessions.stop().catch(() => {});
     terminalCleanup();
     state.setOnline(false);
     client.disconnect();
     console.log('👋 Daemon stopped.');
   }
 
-  return { client, state, terminalManager, copilot, cliSessions, squadSessions, shutdown };
+  return { client, state, terminalManager, copilot, cliSessions, shutdown };
 }
 
 function addCapability(daemonInfo: DaemonInfo, capability: string): void {

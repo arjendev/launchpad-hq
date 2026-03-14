@@ -86,10 +86,8 @@ describe("Copilot session routes", () => {
     });
 
     it("returns aggregated sessions after update", async () => {
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-        { sessionId: "s2", startTime: new Date(1000), modifiedTime: new Date(3000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s2");
 
       const res = await server.inject({
         method: "GET",
@@ -108,9 +106,7 @@ describe("Copilot session routes", () => {
 
   describe("GET /api/copilot/aggregated/sessions/:sessionId", () => {
     it("returns session detail", async () => {
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "GET",
@@ -138,9 +134,7 @@ describe("Copilot session routes", () => {
 
   describe("GET /api/copilot/aggregated/sessions/:sessionId/messages", () => {
     it("returns message history for a session", async () => {
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
       server.copilotAggregator.appendMessages("s1", [
         { role: "user", content: "hello", timestamp: 1000 },
         { role: "assistant", content: "hi!", timestamp: 2000 },
@@ -177,9 +171,7 @@ describe("Copilot session routes", () => {
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
       // Seed session (must be idle to accept a new prompt)
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -199,9 +191,7 @@ describe("Copilot session routes", () => {
     });
 
     it("returns 400 when prompt is missing", async () => {
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -229,9 +219,7 @@ describe("Copilot session routes", () => {
       ws.readyState = 3; // CLOSED
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -250,9 +238,7 @@ describe("Copilot session routes", () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -282,9 +268,7 @@ describe("Copilot session routes", () => {
 
   describe("GET /api/copilot/aggregated/sessions/:sessionId/tools", () => {
     it("returns tool invocation history for a session", async () => {
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
       server.copilotAggregator.handleToolInvocation(
         "s1", "proj-1", "report_progress",
         { status: "working", summary: "Making progress" }, 3000,
@@ -308,9 +292,7 @@ describe("Copilot session routes", () => {
     });
 
     it("returns empty invocations for session with no tools used", async () => {
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "GET",
@@ -367,9 +349,6 @@ describe("Copilot session routes", () => {
     it("lets an explicit agent selection override the remembered preference", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
-      (
-        server.stateService.getProjectDefaultCopilotAgent as ReturnType<typeof vi.fn>
-      ).mockResolvedValue("reviewer");
 
       const resPromise = server.inject({
         method: "POST",
@@ -380,13 +359,41 @@ describe("Copilot session routes", () => {
       await new Promise((r) => setTimeout(r, 10));
 
       const sentMsg = JSON.parse(ws.sent[0]);
-      expect(sentMsg.payload.config).toEqual({ agent: "planner" });
+      expect(sentMsg.payload.config).toEqual({ agentId: "planner" });
 
       server.copilotAggregator.resolveRequest(sentMsg.payload.requestId, { sessionId: "new-sess-agent" });
 
       const res = await resPromise;
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ ok: true, sessionId: "new-sess-agent", sessionType: "copilot-sdk" });
+    });
+
+    it("starts new SDK sessions on the default agent when none is provided", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
+
+      const resPromise = server.inject({
+        method: "POST",
+        url: "/api/daemons/test/repo1/copilot/sessions",
+        payload: {},
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const sentMsg = JSON.parse(ws.sent[0]);
+      expect(sentMsg.payload.config).toBeUndefined();
+
+      server.copilotAggregator.resolveRequest(sentMsg.payload.requestId, {
+        sessionId: "new-sess-default",
+      });
+
+      const res = await resPromise;
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        ok: true,
+        sessionId: "new-sess-default",
+        sessionType: "copilot-sdk",
+      });
     });
 
     it("returns 404 for unknown daemon", async () => {
@@ -418,9 +425,7 @@ describe("Copilot session routes", () => {
 
   describe("session field stripping", () => {
     it("GET sessions does not include daemonId or projectId", async () => {
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "GET",
@@ -435,9 +440,7 @@ describe("Copilot session routes", () => {
     });
 
     it("GET session detail does not include daemonId or projectId", async () => {
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "GET",
@@ -454,13 +457,11 @@ describe("Copilot session routes", () => {
   // ── POST /api/copilot/aggregated/sessions/:sessionId/resume ──
 
   describe("POST /api/copilot/aggregated/sessions/:sessionId/resume", () => {
-    it("sends disconnect then resume message to daemon", async () => {
+    it("sends a resume message to the daemon", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -471,13 +472,8 @@ describe("Copilot session routes", () => {
       expect(res.statusCode).toBe(200);
       expect(res.json().ok).toBe(true);
 
-      // Disconnect sent first to clean up stale listeners, then resume
-      expect(ws.sent).toHaveLength(2);
-      const disconnectMsg = JSON.parse(ws.sent[0]);
-      expect(disconnectMsg.type).toBe("copilot-disconnect-session");
-      expect(disconnectMsg.payload.sessionId).toBe("s1");
-
-      const resumeMsg = JSON.parse(ws.sent[1]);
+      expect(ws.sent).toHaveLength(1);
+      const resumeMsg = JSON.parse(ws.sent[0]);
       expect(resumeMsg.type).toBe("copilot-resume-session");
       expect(resumeMsg.payload.sessionId).toBe("s1");
       expect(resumeMsg.payload.config).toEqual({ model: "gpt-4o" });
@@ -502,9 +498,7 @@ describe("Copilot session routes", () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -521,9 +515,7 @@ describe("Copilot session routes", () => {
     });
 
     it("returns 400 when model is missing", async () => {
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -542,9 +534,7 @@ describe("Copilot session routes", () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -561,9 +551,7 @@ describe("Copilot session routes", () => {
     });
 
     it("returns 400 when mode is missing", async () => {
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -582,9 +570,7 @@ describe("Copilot session routes", () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       // Simulate daemon response in background
       const responsePromise = server.inject({
@@ -615,6 +601,72 @@ describe("Copilot session routes", () => {
     });
   });
 
+  // ── Agent routes ───────────────────────────────────────
+
+  describe("session agent routes", () => {
+    it("GET /api/copilot/aggregated/sessions/:sessionId/agent queries the daemon", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
+
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
+
+      const responsePromise = server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions/s1/agent",
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const msg = JSON.parse(ws.sent[0]);
+      expect(msg.type).toBe("copilot-get-agent");
+      server.copilotAggregator.resolveRequest(msg.payload.requestId, {
+        sessionId: "s1",
+        agentId: "planner",
+        agentName: "Planner",
+      });
+
+      const res = await responsePromise;
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        sessionId: "s1",
+        agentId: "planner",
+        agentName: "Planner",
+      });
+    });
+
+    it("POST /api/copilot/aggregated/sessions/:sessionId/agent switches the daemon agent", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
+
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
+
+      const responsePromise = server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/s1/agent",
+        payload: { agentId: "planner" },
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const msg = JSON.parse(ws.sent[0]);
+      expect(msg.type).toBe("copilot-set-agent");
+      expect(msg.payload.agentId).toBe("planner");
+      server.copilotAggregator.resolveRequest(msg.payload.requestId, {
+        sessionId: "s1",
+        agentId: "planner",
+        agentName: "Planner",
+      });
+
+      const res = await responsePromise;
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        sessionId: "s1",
+        agentId: "planner",
+        agentName: "Planner",
+      });
+    });
+  });
+
   // ── Plan routes ───────────────────────────────────────
 
   describe("plan routes", () => {
@@ -622,9 +674,7 @@ describe("Copilot session routes", () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",
@@ -642,9 +692,7 @@ describe("Copilot session routes", () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "DELETE",
@@ -661,9 +709,7 @@ describe("Copilot session routes", () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const responsePromise = server.inject({
         method: "GET",
@@ -691,9 +737,7 @@ describe("Copilot session routes", () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
-      server.copilotAggregator.updateSessions("test/repo1", "proj-1", [
-        { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-      ]);
+      server.copilotAggregator.trackNewSession("test/repo1", "proj-1", "s1");
 
       const res = await server.inject({
         method: "POST",

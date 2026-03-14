@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { randomUUID } from 'node:crypto';
+import type { MessageOptions } from '@github/copilot-sdk';
 import { CopilotManager } from '../manager.js';
 import type { DaemonToHqMessage, SessionEvent } from '../../../shared/protocol.js';
 
@@ -14,16 +14,33 @@ import type { DaemonToHqMessage, SessionEvent } from '../../../shared/protocol.j
 class LifecycleTestSession {
   readonly sessionId: string;
   private handlers: Array<(event: SessionEvent) => void> = [];
+  readonly rpc = {
+    mode: {
+      get: async () => ({ mode: 'interactive' as const }),
+      set: async (params: { mode: 'interactive' | 'plan' | 'autopilot' }) => ({ mode: params.mode }),
+    },
+    plan: {
+      read: async () => ({ exists: false, content: null, path: null }),
+      update: async () => ({}),
+      delete: async () => ({}),
+    },
+    agent: {
+      getCurrent: async () => ({ agent: null }),
+      select: async () => ({}),
+      deselect: async () => ({}),
+    },
+  };
 
   constructor(sessionId: string) {
     this.sessionId = sessionId;
   }
 
-  async send(): Promise<string> { return 'msg-id'; }
+  async send(_options: MessageOptions): Promise<string> { return 'msg-id'; }
   async abort(): Promise<void> { /* does NOT remove from registry */ }
   async disconnect(): Promise<void> { this.handlers = []; }
   async destroy(): Promise<void> { await this.disconnect(); }
   async getMessages(): Promise<SessionEvent[]> { return []; }
+  async setModel(): Promise<void> { /* no-op */ }
   on(handler: (event: SessionEvent) => void): () => void {
     this.handlers.push(handler);
     return () => { this.handlers = this.handlers.filter(h => h !== handler); };
@@ -75,6 +92,11 @@ class LifecycleTestClient {
   async listSessions(): Promise<Array<{ sessionId: string; startTime: Date; modifiedTime: Date; isRemote: boolean }>> {
     this.calls.push({ method: 'listSessions', args: [] });
     return Array.from(this.registry.values());
+  }
+
+  async listModels(): Promise<Array<{ id: string; name: string; capabilities: unknown }>> {
+    this.calls.push({ method: 'listModels', args: [] });
+    return [];
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

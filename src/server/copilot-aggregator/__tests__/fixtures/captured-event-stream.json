@@ -1,0 +1,23 @@
+[
+  {"type":"session.title_changed","data":{"title":"hey brand, say pong!"},"timestamp":"2026-03-14T17:52:53.000Z","id":"evt-1","parentId":null},
+  {"type":"pending_messages.modified","data":{},"timestamp":"2026-03-14T17:52:54.000Z","id":"evt-2","parentId":"evt-1"},
+  {"type":"session.tools_updated","data":{"model":"claude-opus-4.6"},"timestamp":"2026-03-14T17:52:54.100Z","id":"evt-3","parentId":"evt-2"},
+  {"type":"user.message","data":{"content":"Read the VISION.md file and give me a 1-sentence summary"},"timestamp":"2026-03-14T17:52:54.918Z","id":"evt-4","parentId":"evt-3"},
+  {"type":"assistant.turn_start","data":{"turnId":"0","interactionId":"int-1"},"timestamp":"2026-03-14T17:52:55.000Z","id":"evt-5","parentId":"evt-4"},
+  {"type":"session.usage_info","data":{"tokenLimit":168000,"currentTokens":48641,"messagesLength":8},"timestamp":"2026-03-14T17:52:55.100Z","id":"evt-6","parentId":"evt-5","ephemeral":true},
+  {"type":"assistant.usage","data":{"model":"claude-opus-4.6","inputTokens":55220,"outputTokens":135},"timestamp":"2026-03-14T17:52:60.000Z","id":"evt-7","parentId":"evt-6","ephemeral":true},
+  {"type":"assistant.message","data":{"messageId":"msg-1","content":"\n\n","toolRequests":[{"toolCallId":"tool-1","name":"report_intent","arguments":{"intent":"Reading VISION.md"},"type":"function"},{"toolCallId":"tool-2","name":"glob","arguments":{"pattern":"**/VISION.md"},"type":"function"}]},"timestamp":"2026-03-14T17:52:60.100Z","id":"evt-8","parentId":"evt-7"},
+  {"type":"assistant.reasoning","data":{"reasoningId":"reason-1","content":"encrypted-reasoning-content"},"timestamp":"2026-03-14T17:52:60.200Z","id":"evt-9","parentId":"evt-8"},
+  {"type":"tool.execution_start","data":{"toolCallId":"tool-1","toolName":"report_intent","arguments":{"intent":"Reading VISION.md"}},"timestamp":"2026-03-14T17:52:61.000Z","id":"evt-10","parentId":"evt-9"},
+  {"type":"tool.execution_start","data":{"toolCallId":"tool-2","toolName":"glob","arguments":{"pattern":"**/VISION.md"}},"timestamp":"2026-03-14T17:52:61.050Z","id":"evt-11","parentId":"evt-10"},
+  {"type":"tool.execution_complete","data":{"toolCallId":"tool-1","success":true,"result":{"content":"Intent logged"}},"timestamp":"2026-03-14T17:52:61.200Z","id":"evt-12","parentId":"evt-11"},
+  {"type":"permission.completed","data":{"requestId":"perm-1","result":{"kind":"approved"}},"timestamp":"2026-03-14T17:52:61.300Z","id":"evt-13","parentId":"evt-12"},
+  {"type":"tool.execution_complete","data":{"toolCallId":"tool-2","success":true,"result":{"content":"No files matched the pattern."}},"timestamp":"2026-03-14T17:52:61.400Z","id":"evt-14","parentId":"evt-13"},
+  {"type":"assistant.turn_end","data":{"turnId":"0"},"timestamp":"2026-03-14T17:52:62.000Z","id":"evt-15","parentId":"evt-14"},
+  {"type":"assistant.turn_start","data":{"turnId":"1","interactionId":"int-1"},"timestamp":"2026-03-14T17:52:62.100Z","id":"evt-16","parentId":"evt-15"},
+  {"type":"session.usage_info","data":{"tokenLimit":168000,"currentTokens":48828,"messagesLength":11},"timestamp":"2026-03-14T17:52:62.200Z","id":"evt-17","parentId":"evt-16","ephemeral":true},
+  {"type":"assistant.usage","data":{"model":"claude-opus-4.6","inputTokens":55422,"outputTokens":97},"timestamp":"2026-03-14T17:52:67.000Z","id":"evt-18","parentId":"evt-17","ephemeral":true},
+  {"type":"assistant.message","data":{"messageId":"msg-2","content":"No VISION.md file exists in the repo. Did you mean one of the existing files?"},"timestamp":"2026-03-14T17:52:67.100Z","id":"evt-19","parentId":"evt-18"},
+  {"type":"assistant.turn_end","data":{"turnId":"1"},"timestamp":"2026-03-14T17:52:67.200Z","id":"evt-20","parentId":"evt-19"},
+  {"type":"session.idle","data":{},"timestamp":"2026-03-14T17:52:67.300Z","id":"evt-21","parentId":"evt-20"}
+]

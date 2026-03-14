@@ -1,6 +1,6 @@
 /**
  * Resizable bottom panel that hosts either a Terminal (CLI sessions)
- * or a CopilotConversation (SDK / Squad sessions).
+ * or a CopilotConversation (SDK sessions).
  *
  * VS Code–style horizontal split: drag the top handle to resize.
  * Wraps the existing Terminal component without modifying it.
@@ -104,7 +104,7 @@ export function ResizableTerminalPanel({
 
   // ── End-session confirm pattern ───────────────────────
   const [confirmingEnd, setConfirmingEnd] = useState(false);
-  const confirmTimer = useRef<ReturnType<typeof setTimeout>>();
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const handleEndClick = () => {
     if (!confirmingEnd) {
@@ -134,15 +134,11 @@ export function ResizableTerminalPanel({
   const typeBadgeColor =
     resolvedSessionType === "copilot-cli"
       ? "teal"
-      : resolvedSessionType === "squad-sdk"
-        ? "violet"
-        : "blue";
+      : "blue";
   const typeBadgeLabel =
     resolvedSessionType === "copilot-cli"
       ? "CLI"
-      : resolvedSessionType === "squad-sdk"
-        ? "Squad"
-        : "SDK";
+      : "SDK";
 
   // ── Render ────────────────────────────────────────────
   return (
@@ -200,6 +196,14 @@ export function ResizableTerminalPanel({
           )}
         </Group>
         <Group gap={4} wrap="nowrap">
+          {sessionData?.activity?.tokenUsage && (
+            <Tooltip label="Token usage" withArrow>
+              <Badge size="xs" variant="light" color="gray">
+                🪙 {sessionData.activity.tokenUsage.used.toLocaleString()}
+                {sessionData.activity.tokenUsage.limit ? ` / ${sessionData.activity.tokenUsage.limit.toLocaleString()}` : ""}
+              </Badge>
+            </Tooltip>
+          )}
           <Badge
             size="xs"
             variant="dot"
