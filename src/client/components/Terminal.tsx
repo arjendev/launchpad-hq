@@ -179,6 +179,8 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
     const timer = setTimeout(() => {
       fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(activeTerminalId)}/resume`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
       }).catch(() => {});
     }, 100);
     return () => clearTimeout(timer);
