@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge, Button, Group, Text, Tooltip } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import { Terminal } from "./Terminal.js";
 import { CopilotConversation } from "./CopilotConversation.js";
 import { useAggregatedSession, useEndSession } from "../services/hooks.js";
@@ -58,6 +59,7 @@ export function ResizableTerminalPanel({
   defaultHeight = 300,
   minHeight = 100,
 }: ResizableTerminalPanelProps) {
+  const isMobile = useMediaQuery("(max-width: 768px)");
   const { data: sessionData } = useAggregatedSession(sessionId);
   const endSession = useEndSession();
 
@@ -71,6 +73,11 @@ export function ResizableTerminalPanel({
   const startY = useRef(0);
   const startH = useRef(0);
 
+  // On mobile, fill available space
+  useEffect(() => {
+    if (isMobile) setHeight(defaultHeight);
+  }, [isMobile, defaultHeight]);
+
   const onDragStart = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -81,11 +88,26 @@ export function ResizableTerminalPanel({
     [height],
   );
 
+  const onTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      dragging.current = true;
+      startY.current = e.touches[0].clientY;
+      startH.current = height;
+    },
+    [height],
+  );
+
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!dragging.current) return;
-      // Dragging handle up → clientY decreases → panel grows
       const delta = startY.current - e.clientY;
+      const maxH = window.innerHeight * 0.85;
+      setHeight(Math.min(maxH, Math.max(minHeight, startH.current + delta)));
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!dragging.current) return;
+      const delta = startY.current - e.touches[0].clientY;
       const maxH = window.innerHeight * 0.85;
       setHeight(Math.min(maxH, Math.max(minHeight, startH.current + delta)));
     };
@@ -96,9 +118,13 @@ export function ResizableTerminalPanel({
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("touchend", onUp);
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onUp);
     };
   }, [minHeight]);
 
@@ -145,7 +171,7 @@ export function ResizableTerminalPanel({
     <div
       data-testid="resizable-terminal-panel"
       style={{
-        height,
+        height: isMobile ? "100%" : height,
         display: "flex",
         flexDirection: "column",
         borderTop: "1px solid var(--lp-border)",
@@ -158,12 +184,17 @@ export function ResizableTerminalPanel({
       <div
         data-testid="drag-handle"
         onMouseDown={onDragStart}
+        onTouchStart={onTouchStart}
         style={{
-          height: 5,
+          height: isMobile ? 12 : 5,
           cursor: "row-resize",
+          touchAction: "none",
           background: "var(--lp-border)",
           flexShrink: 0,
           transition: "background 0.15s ease",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
         onMouseEnter={(e) => {
           (e.currentTarget as HTMLDivElement).style.background = "var(--lp-accent)";
@@ -171,7 +202,17 @@ export function ResizableTerminalPanel({
         onMouseLeave={(e) => {
           (e.currentTarget as HTMLDivElement).style.background = "var(--lp-border)";
         }}
-      />
+      >
+        {isMobile && (
+          <div style={{
+            width: 32,
+            height: 4,
+            borderRadius: 2,
+            background: "var(--lp-text-secondary)",
+            opacity: 0.5,
+          }} />
+        )}
+      </div>
 
       {/* ── Header bar ──────────────────────────────────── */}
       <Group
