@@ -8,11 +8,13 @@ import { useDaemonForProject } from "../services/hooks.js";
 
 export interface FloatingConversationProps {
   sessionId: string;
+  sessionType?: string;
   onClose: () => void;
 }
 
 export function FloatingConversation({
   sessionId,
+  sessionType: propSessionType,
   onClose,
 }: FloatingConversationProps) {
   const { data: sessionData } = useAggregatedSession(sessionId);
@@ -21,7 +23,9 @@ export function FloatingConversation({
     ? `${selectedProject.owner}/${selectedProject.repo}`
     : null;
   const { daemon } = useDaemonForProject(projectId ?? undefined);
-  const isCliSession = sessionData?.sessionType === "copilot-cli";
+  // Use prop first (immediate), fall back to query (lazy)
+  const resolvedSessionType = propSessionType ?? sessionData?.sessionType;
+  const isCliSession = resolvedSessionType === "copilot-cli";
 
   // Resume CLI session on attach (replays any buffered output)
   useEffect(() => {
@@ -75,14 +79,14 @@ export function FloatingConversation({
               <Text size="sm" fw={600} truncate>
                 Session {sessionId.slice(0, 8)}
               </Text>
-              {sessionData?.sessionType && (
+              {resolvedSessionType && (
                 <Badge size="xs" variant="outline" color={
-                  sessionData.sessionType === "copilot-cli" ? "teal"
-                    : sessionData.sessionType === "squad-sdk" ? "violet"
+                  resolvedSessionType === "copilot-cli" ? "teal"
+                    : resolvedSessionType === "squad-sdk" ? "violet"
                     : "blue"
                 }>
-                  {sessionData.sessionType === "copilot-cli" ? "CLI"
-                    : sessionData.sessionType === "squad-sdk" ? "Squad"
+                  {resolvedSessionType === "copilot-cli" ? "CLI"
+                    : resolvedSessionType === "squad-sdk" ? "Squad"
                     : "SDK"}
                 </Badge>
               )}
@@ -100,7 +104,7 @@ export function FloatingConversation({
             {isCliSession && daemon ? (
               <Terminal daemonId={daemon.daemonId} terminalId={sessionId} onClose={handleClose} />
             ) : (
-              <CopilotConversation sessionId={sessionId} sessionType={sessionData?.sessionType} onClose={handleClose} />
+              <CopilotConversation sessionId={sessionId} sessionType={resolvedSessionType} onClose={handleClose} />
             )}
           </div>
         </Paper>

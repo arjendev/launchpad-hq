@@ -141,6 +141,12 @@ export class CopilotSessionAggregator extends EventEmitter {
       session.lastEvent = { type: event.type, timestamp: eventTs };
       session.updatedAt = Date.now();
 
+      // Backfill sessionType from event data if not already set
+      const eventData = event.data as Record<string, unknown>;
+      if (!session.sessionType && eventData?.sessionType) {
+        session.sessionType = eventData.sessionType as SessionType;
+      }
+
       // Update session status based on lifecycle events (SDK event names)
       if (
         event.type === "session.idle" ||
@@ -177,9 +183,10 @@ export class CopilotSessionAggregator extends EventEmitter {
       return;
     } else {
       // Create a stub session for events without a prior session-list
+      const eventSessionType = (event.data as Record<string, unknown>)?.sessionType as SessionType | undefined;
       this.sessions.set(sessionId, {
         sessionId,
-        sessionType: 'copilot-sdk',
+        sessionType: eventSessionType ?? 'copilot-sdk',
         daemonId,
         projectId: daemonId,
         status: "idle",

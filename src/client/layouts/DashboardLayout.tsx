@@ -11,6 +11,7 @@ import { FloatingConversation } from "../components/FloatingConversation";
 export function DashboardLayout() {
   const isSmallScreen = useMediaQuery("(max-width: 768px)");
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionType, setActiveSessionType] = useState<string | undefined>();
 
   return (
     <AppShell header={{ height: 50 }} padding={0}>
@@ -63,7 +64,10 @@ export function DashboardLayout() {
                 : undefined,
             }}
           >
-            <ConnectedProjectPanel onOpenConversation={setActiveSessionId} />
+            <ConnectedProjectPanel onOpenConversation={(sessionId, sessionType) => {
+              setActiveSessionId(sessionId);
+              setActiveSessionType(sessionType);
+            }} />
           </ScrollArea>
         </Flex>
       </AppShell.Main>
@@ -72,7 +76,11 @@ export function DashboardLayout() {
       {activeSessionId && (
         <FloatingConversation
           sessionId={activeSessionId}
-          onClose={() => setActiveSessionId(null)}
+          sessionType={activeSessionType}
+          onClose={() => {
+            setActiveSessionId(null);
+            setActiveSessionType(undefined);
+          }}
         />
       )}
     </AppShell>
