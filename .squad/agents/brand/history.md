@@ -259,6 +259,12 @@ Key decisions:
 - **Deleted components:** FloatingConversation, ConnectedProjectPanel, TerminalOverlay — removed files + all imports + associated test files.
 - **Test impact:** Removed ConnectedProjectPanel.test.tsx and TerminalOverlay.test.tsx. Updated App.test.tsx to test BacklogList instead of KanbanBoard/ConnectedProjectPanel. Updated CopilotConversation.test.tsx comment references. All 738 tests passing, build clean.
 
+### 2026-03-14: Copilot SDK agent picker remembers per-project choice
+- **Hooks/types:** Added `CopilotAgentCatalogResponse`, `CopilotAgentPreferenceResponse`, `useCopilotAgentCatalog(owner, repo)`, `useCopilotAgentPreference(owner, repo)`, and `useUpdateCopilotAgentPreference()` so discovered SDK agents and saved project choice stay separate.
+- **UI pattern:** `SessionList` now shows a persistent `SDK: <choice>` badge beside the New button. The primary `Copilot SDK` action uses the remembered choice immediately, while alternate agent entries both switch the preference optimistically and create the session without waiting.
+- **Payload:** `useCreateSession()` now forwards `agentId` only for Copilot SDK creates. `Default` remains the plain session path with no extra coordinator-facing flags in the UI.
+- **Tests/validation:** Expanded `SessionList.test.tsx` for remembered choice display, remembered create, switching back to `Default`, and picking a discovered agent. Changed-file lint, targeted client tests, full `npm run test`, and `npm run build` all passed. Full `npm run typecheck` is still blocked by the unrelated `useRef()` error in `src/client/components/ResizableTerminalPanel.tsx`.
+
 ## Session: UI Redesign — Progressive Depth Navigation (2026-03-14)
 
 **Delivered:** 7 agents across 11 tasks. ResizableTerminalPanel, SessionList + SessionContext, InboxPanel, progressive-depth DashboardLayout, BacklogList, component cleanup. Build passing, 738 tests green.

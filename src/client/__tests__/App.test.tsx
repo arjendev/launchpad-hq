@@ -3,14 +3,13 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { render } from "../../test-utils/client.js";
 import { ProjectList } from "../components/ProjectList";
-import { KanbanBoard } from "../components/KanbanBoard";
-import { ConnectedProjectPanel } from "../components/ConnectedProjectPanel";
+import { BacklogList } from "../components/BacklogList";
 
 // Mock fetch globally
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
-// Mock ProjectContext so ConnectedProjectPanel can render standalone
+// Mock ProjectContext
 vi.mock("../contexts/ProjectContext.js", () => ({
   useSelectedProject: () => ({
     selectedProject: null,
@@ -96,18 +95,11 @@ describe("ProjectList", () => {
   });
 });
 
-describe("KanbanBoard", () => {
+describe("BacklogList", () => {
   it("renders empty state when no project is selected", () => {
-    render(<KanbanBoard />);
+    render(<BacklogList />);
     expect(
-      screen.getByText("Select a project from the sidebar"),
+      screen.getByText("Select a project to view backlog"),
     ).toBeInTheDocument();
-  });
-});
-
-describe("ConnectedProjectPanel", () => {
-  it("renders the panel heading", () => {
-    render(<ConnectedProjectPanel />);
-    expect(screen.getByText("Connected Project")).toBeInTheDocument();
   });
 });

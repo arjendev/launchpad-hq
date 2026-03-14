@@ -321,4 +321,104 @@ describe("StateManager", () => {
       expect(result).toBeUndefined();
     });
   });
+
+  describe("getProjectDefaultCopilotAgent()", () => {
+    it("returns the stored agent for a project", async () => {
+      const { manager, cache } = createMocks();
+
+      const stored: ProjectConfig = {
+        version: 1,
+        projects: [
+          makeProject({
+            owner: "acme",
+            repo: "api",
+            defaultCopilotSdkAgent: "reviewer",
+          }),
+        ],
+      };
+      cache.read.mockResolvedValue({
+        content: JSON.stringify(stored),
+        sha: "sha-1",
+      });
+
+      await expect(
+        manager.getProjectDefaultCopilotAgent("acme", "api"),
+      ).resolves.toBe("reviewer");
+    });
+
+    it("returns null when a project uses the default agent", async () => {
+      const { manager, cache } = createMocks();
+
+      const stored: ProjectConfig = {
+        version: 1,
+        projects: [makeProject({ owner: "acme", repo: "api" })],
+      };
+      cache.read.mockResolvedValue({
+        content: JSON.stringify(stored),
+        sha: "sha-1",
+      });
+
+      await expect(
+        manager.getProjectDefaultCopilotAgent("acme", "api"),
+      ).resolves.toBeNull();
+    });
+
+    it("returns undefined for an unknown project", async () => {
+      const { manager } = createMocks();
+
+      await expect(
+        manager.getProjectDefaultCopilotAgent("acme", "missing"),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  describe("updateProjectDefaultCopilotAgent()", () => {
+    it("persists a custom agent selection", async () => {
+      const { manager, cache } = createMocks();
+
+      const stored: ProjectConfig = {
+        version: 1,
+        projects: [makeProject({ owner: "acme", repo: "api" })],
+      };
+      cache.read.mockResolvedValue({
+        content: JSON.stringify(stored),
+        sha: "sha-1",
+      });
+
+      const updated = await manager.updateProjectDefaultCopilotAgent(
+        "acme",
+        "api",
+        "reviewer",
+      );
+
+      expect(updated?.defaultCopilotSdkAgent).toBe("reviewer");
+    });
+
+    it("persists null when reverting to the default agent", async () => {
+      const { manager, cache } = createMocks();
+
+      const stored: ProjectConfig = {
+        version: 1,
+        projects: [
+          makeProject({
+            owner: "acme",
+            repo: "api",
+            defaultCopilotSdkAgent: "reviewer",
+          }),
+        ],
+      };
+      cache.read.mockResolvedValue({
+        content: JSON.stringify(stored),
+        sha: "sha-1",
+      });
+
+      const updated = await manager.updateProjectDefaultCopilotAgent(
+        "acme",
+        "api",
+        null,
+      );
+
+      expect(updated?.defaultCopilotSdkAgent).toBeNull();
+    });
+  });
 });

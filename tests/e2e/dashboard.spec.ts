@@ -12,19 +12,19 @@ test.describe("Dashboard smoke tests", () => {
     expect(errors).toEqual([]);
   });
 
-  test("three-pane layout renders", async ({ page }) => {
+  test("progressive-depth layout renders", async ({ page }) => {
     await page.goto("/");
 
-    // Project list panel
+    // Project list column
     await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
 
-    // Kanban area — shows placeholder when no project is selected
-    await expect(
-      page.getByText("Select a project from the sidebar"),
-    ).toBeVisible();
+    // Session list column
+    await expect(page.getByText("Sessions")).toBeVisible();
 
-    // Right panel
-    await expect(page.getByRole("heading", { name: "Connected Project" })).toBeVisible();
+    // Main area — empty state when no project selected
+    await expect(
+      page.getByText("Select a project to get started"),
+    ).toBeVisible();
   });
 
   test("no uncaught exceptions in first 5 seconds after load", async ({

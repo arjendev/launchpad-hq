@@ -2,6 +2,8 @@ import type { FastifyPluginAsync } from "fastify";
 import type { SessionConfigWire, SessionType } from "../../shared/protocol.js";
 import { randomUUID } from "node:crypto";
 
+type CreateSessionConfig = SessionConfigWire & { agent?: string | null };
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -427,10 +429,11 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
   /** POST /api/daemons/:owner/:repo/copilot/sessions — Create new session on a specific daemon */
   server.post<{
     Params: { owner: string; repo: string };
-    Body: { model?: string; sessionType?: SessionType };
+    Body: { model?: string; sessionType?: SessionType; agent?: string | null };
   }>("/api/daemons/:owner/:repo/copilot/sessions", async (request, reply) => {
     const id = `${request.params.owner}/${request.params.repo}`;
     const { model, sessionType } = request.body ?? {};
+    const rawAgent = (request.body as { agent?: unknown } | undefined)?.agent;
 
     const daemon = server.daemonRegistry.getDaemon(id);
     if (!daemon) {
@@ -439,14 +442,50 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         .send({ error: "not_found", message: "Daemon not found" });
     }
 
+    if (rawAgent !== undefined && rawAgent !== null && typeof rawAgent !== "string") {
+      return reply
+        .status(400)
+        .send({ error: "bad_request", message: "'agent' must be a string or null" });
+    }
+
+    const explicitAgent =
+      typeof rawAgent === "string" ? rawAgent.trim() : rawAgent;
+
+    if (explicitAgent === "") {
+      return reply
+        .status(400)
+        .send({ error: "bad_request", message: "'agent' cannot be an empty string. Use null for the default agent." });
+    }
+
+    const effectiveSessionType = sessionType ?? "copilot-sdk";
+    const rememberedAgent =
+      effectiveSessionType === "copilot-sdk" && rawAgent === undefined
+        ? await server.stateService.getProjectDefaultCopilotAgent(
+            request.params.owner,
+            request.params.repo,
+          )
+        : undefined;
+
+    const config: CreateSessionConfig = {};
+    if (model) {
+      config.model = model;
+    }
+    if (effectiveSessionType === "copilot-sdk") {
+      if (rawAgent !== undefined) {
+        config.agent = explicitAgent;
+      } else if (rememberedAgent) {
+        config.agent = rememberedAgent;
+      }
+    }
+
     const requestId = randomUUID();
     const sent = server.daemonRegistry.sendToDaemon(id, {
       type: "copilot-create-session",
       timestamp: Date.now(),
       payload: {
         requestId,
-        sessionType,
-        config: model ? { model } : undefined,
+        sessionType: effectiveSessionType,
+        config: Object.keys(config).length > 0 ? config : undefined,
       },
     });
 
@@ -456,7 +495,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
 
     try {
       const result = await server.copilotAggregator.waitForResponse<{ sessionId: string }>(requestId);
-      return reply.send({ ok: true, sessionId: result.sessionId, sessionType: sessionType ?? 'copilot-sdk' });
+      return reply.send({ ok: true, sessionId: result.sessionId, sessionType: effectiveSessionType });
     } catch {
       return reply
         .status(504)

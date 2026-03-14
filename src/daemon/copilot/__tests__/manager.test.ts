@@ -1,7 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { CopilotManager } from '../manager.js';
-import type { DaemonToHqMessage, HqToDaemonMessage, SessionEvent } from '../../../shared/protocol.js';
+import { DEFAULT_COPILOT_AGENT_ID } from '../agent-catalog.js';
+import type {
+  CopilotAgentCatalogEntry,
+  DaemonToHqMessage,
+  HqToDaemonMessage,
+  SessionEvent,
+} from '../../../shared/protocol.js';
+
+type TestAgentSummary = { name: string; displayName: string; description: string };
+type TestCustomAgentConfig = {
+  name: string;
+  displayName?: string;
+  description?: string;
+};
+type TestSessionConfig = {
+  customAgents?: TestCustomAgentConfig[];
+} & Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
 // Mock SDK session — duck-typed to match CopilotSession from the SDK
@@ -10,6 +26,8 @@ import type { DaemonToHqMessage, HqToDaemonMessage, SessionEvent } from '../../.
 class TestSdkSession {
   readonly sessionId: string;
   private handlers: Array<(event: SessionEvent) => void> = [];
+  private availableAgents = new Map<string, TestAgentSummary>();
+  private _selectedAgentName: string | null = null;
   private _model = 'gpt-4';
   private _mode: 'interactive' | 'plan' | 'autopilot' = 'interactive';
   private _plan: { exists: boolean; content: string | null; path: string | null } = {
@@ -38,10 +56,35 @@ class TestSdkSession {
         return {};
       },
     },
+    agent: {
+      list: async () => ({ agents: Array.from(this.availableAgents.values()) }),
+      getCurrent: async () => ({ agent: this.getSelectedAgent() }),
+      select: async (params: { name: string }) => {
+        const agent = this.availableAgents.get(params.name);
+        if (!agent) {
+          throw new Error(`Unknown custom agent: ${params.name}`);
+        }
+        this._selectedAgentName = agent.name;
+        this.dispatch({
+          type: 'subagent.selected',
+          data: {
+            agentName: agent.name,
+            agentDisplayName: agent.displayName,
+            tools: null,
+          },
+        });
+        return { agent };
+      },
+      deselect: async () => {
+        this._selectedAgentName = null;
+        return {};
+      },
+    },
   };
 
-  constructor(sessionId: string) {
+  constructor(sessionId: string, availableAgents: TestAgentSummary[] = []) {
     this.sessionId = sessionId;
+    this.setAvailableAgents(availableAgents);
   }
 
   async send(options: { prompt: string }): Promise<string> {
@@ -67,6 +110,16 @@ class TestSdkSession {
 
   async setModel(model: string): Promise<void> { this._model = model; }
   get currentModel(): string { return this._model; }
+  get currentAgentName(): string | null { return this._selectedAgentName; }
+
+  setAvailableAgents(availableAgents: TestAgentSummary[]): void {
+    this.availableAgents = new Map(availableAgents.map((agent) => [agent.name, agent]));
+  }
+
+  private getSelectedAgent(): TestAgentSummary | null {
+    if (!this._selectedAgentName) return null;
+    return this.availableAgents.get(this._selectedAgentName) ?? null;
+  }
 
   private dispatch(partial: { type: string; data: Record<string, unknown> }): void {
     const event = {
@@ -87,6 +140,9 @@ class TestCopilotClient {
   private _state: string = 'disconnected';
   private sessions = new Map<string, TestSdkSession>();
   private lifecycleHandlers: Array<(event: unknown) => void> = [];
+  lastCreateSessionConfig: TestSessionConfig | null = null;
+  lastResumeSessionConfig: TestSessionConfig | null = null;
+  deletedSessionIds: string[] = [];
 
   getState(): string { return this._state; }
 
@@ -106,24 +162,31 @@ class TestCopilotClient {
     this._state = 'disconnected';
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async createSession(_config: any): Promise<TestSdkSession> {
+  async createSession(config: TestSessionConfig): Promise<TestSdkSession> {
+    this.lastCreateSessionConfig = config;
     const id = `test-${randomUUID().slice(0, 8)}`;
-    const session = new TestSdkSession(id);
+    const session = new TestSdkSession(id, toAgentSummaries(config?.customAgents));
     this.sessions.set(id, session);
     return session;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async resumeSession(sessionId: string, _config?: any): Promise<TestSdkSession> {
+  async resumeSession(sessionId: string, config?: TestSessionConfig): Promise<TestSdkSession> {
+    this.lastResumeSessionConfig = config;
+    const availableAgents = toAgentSummaries(config?.customAgents);
     const existing = this.sessions.get(sessionId);
-    if (existing) return existing;
-    const session = new TestSdkSession(sessionId);
+    if (existing) {
+      existing.setAvailableAgents(availableAgents);
+      return existing;
+    }
+    const session = new TestSdkSession(sessionId, availableAgents);
     this.sessions.set(sessionId, session);
     return session;
   }
 
-  async deleteSession(_sessionId: string): Promise<void> { /* no-op */ }
+  async deleteSession(sessionId: string): Promise<void> {
+    this.deletedSessionIds.push(sessionId);
+    this.sessions.delete(sessionId);
+  }
 
   async listModels(): Promise<Array<{ id: string; name: string; capabilities: unknown }>> {
     return [
@@ -143,6 +206,10 @@ class TestCopilotClient {
     this.lifecycleHandlers.push(handler);
     return () => { this.lifecycleHandlers = this.lifecycleHandlers.filter((h) => h !== handler); };
   }
+
+  getSession(sessionId: string): TestSdkSession | undefined {
+    return this.sessions.get(sessionId);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +221,46 @@ class FailingCopilotClient extends TestCopilotClient {
     throw new Error('Copilot CLI not found in PATH');
   }
 }
+
+function toAgentSummaries(
+  customAgents?: TestCustomAgentConfig[],
+): TestAgentSummary[] {
+  return (customAgents ?? []).map((agent) => ({
+    name: String(agent.name),
+    displayName: typeof agent.displayName === 'string' ? agent.displayName : String(agent.name),
+    description: typeof agent.description === 'string' ? agent.description : '',
+  }));
+}
+
+const DEFAULT_AGENT: CopilotAgentCatalogEntry = {
+  id: DEFAULT_COPILOT_AGENT_ID,
+  name: 'default',
+  displayName: 'Plain session',
+  description: 'Standard Copilot session without a custom agent persona.',
+  kind: 'default',
+  source: 'builtin',
+  userInvocable: true,
+};
+
+const SQUAD_AGENT: CopilotAgentCatalogEntry = {
+  id: 'github:squad',
+  name: 'squad',
+  displayName: 'Squad',
+  description: 'Your AI team.',
+  kind: 'custom',
+  source: 'github-agent-file',
+  path: '.github/agents/squad.agent.md',
+  model: 'gpt-5.4',
+  tools: ['read', 'edit'],
+  userInvocable: true,
+};
+
+const SQUAD_AGENT_CONFIG = {
+  name: 'squad',
+  displayName: 'Squad',
+  description: 'Your AI team.',
+  prompt: 'Coordinate specialists.',
+};
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -305,6 +412,240 @@ describe('CopilotManager', () => {
       expect(startEvent).toBeDefined();
       expect(startEvent!.payload.event.data.resumed).toBe(true);
       expect(startEvent!.payload.sessionId).toBe('test-session-001');
+    });
+  });
+
+  describe('custom agent selection', () => {
+    function buildAgentManager() {
+      const client = new TestCopilotClient();
+      const agentManager = new CopilotManager({
+        sendToHq,
+        client,
+        pollIntervalMs: 60_000,
+        projectId: 'test-project',
+        projectName: 'Test Project',
+        agentCatalog: [DEFAULT_AGENT, SQUAD_AGENT],
+        customAgents: [SQUAD_AGENT_CONFIG],
+      });
+
+      return { client, agentManager };
+    }
+
+    it('passes discovered custom agents to createSession and selects the requested agent', async () => {
+      const { client, agentManager } = buildAgentManager();
+
+      try {
+        await agentManager.start();
+        sent = [];
+
+        await agentManager.handleMessage({
+          type: 'copilot-create-session',
+          timestamp: Date.now(),
+          payload: {
+            requestId: 'req-agent-1',
+            config: { agentId: SQUAD_AGENT.id },
+          },
+        });
+
+        expect(client.lastCreateSessionConfig.customAgents).toHaveLength(1);
+        expect(client.lastCreateSessionConfig.customAgents[0].name).toBe('squad');
+
+        const startEvent = sent.find(
+          (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'session.start',
+        );
+        expect(startEvent).toBeDefined();
+        expect(startEvent!.payload.event.data.agentId).toBe(SQUAD_AGENT.id);
+        expect(startEvent!.payload.event.data.agentName).toBe('squad');
+
+        const session = client.getSession(startEvent!.payload.sessionId);
+        expect(session?.currentAgentName).toBe('squad');
+
+        const selectedEvent = sent.find(
+          (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'subagent.selected',
+        );
+        expect(selectedEvent).toBeDefined();
+      } finally {
+        await agentManager.stop();
+      }
+    });
+
+    it('remembers the chosen agent for later sessions in the same project', async () => {
+      const { client, agentManager } = buildAgentManager();
+
+      try {
+        await agentManager.start();
+
+        await agentManager.handleMessage({
+          type: 'copilot-create-session',
+          timestamp: Date.now(),
+          payload: {
+            requestId: 'req-agent-remember-1',
+            config: { agentId: SQUAD_AGENT.id },
+          },
+        });
+
+        sent = [];
+
+        await agentManager.handleMessage({
+          type: 'copilot-create-session',
+          timestamp: Date.now(),
+          payload: { requestId: 'req-agent-remember-2' },
+        });
+
+        const rememberedStart = sent.find(
+          (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'session.start',
+        );
+        expect(rememberedStart).toBeDefined();
+        expect(rememberedStart!.payload.event.data.agentId).toBe(SQUAD_AGENT.id);
+
+        const session = client.getSession(rememberedStart!.payload.sessionId);
+        expect(session?.currentAgentName).toBe('squad');
+      } finally {
+        await agentManager.stop();
+      }
+    });
+
+    it('does not remember a failed agent selection for later sessions', async () => {
+      const { client, agentManager } = buildAgentManager();
+      let failNextSelection = true;
+
+      vi.spyOn(client, 'createSession').mockImplementation(async (config) => {
+        const session = await TestCopilotClient.prototype.createSession.call(client, config);
+        if (failNextSelection) {
+          failNextSelection = false;
+          session.rpc.agent.select = async () => {
+            throw new Error('agent selection failed');
+          };
+        }
+        return session;
+      });
+
+      try {
+        await agentManager.start();
+        sent = [];
+
+        await agentManager.handleMessage({
+          type: 'copilot-create-session',
+          timestamp: Date.now(),
+          payload: {
+            requestId: 'req-agent-failure-1',
+            config: { agentId: SQUAD_AGENT.id },
+          },
+        });
+
+        const failureEvent = sent.find(
+          (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'session.error',
+        );
+        expect(failureEvent).toBeDefined();
+        expect(String(failureEvent!.payload.event.data.message)).toContain('agent selection failed');
+
+        sent = [];
+
+        await agentManager.handleMessage({
+          type: 'copilot-create-session',
+          timestamp: Date.now(),
+          payload: { requestId: 'req-agent-failure-2' },
+        });
+
+        const rememberedStart = sent.find(
+          (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'session.start',
+        );
+        expect(rememberedStart).toBeDefined();
+        expect(rememberedStart!.payload.event.data.agentId).toBe(DEFAULT_COPILOT_AGENT_ID);
+
+        const session = client.getSession(rememberedStart!.payload.sessionId);
+        expect(session?.currentAgentName).toBeNull();
+      } finally {
+        await agentManager.stop();
+      }
+    });
+
+    it('can switch back to the plain session option and remember it', async () => {
+      const { client, agentManager } = buildAgentManager();
+
+      try {
+        await agentManager.start();
+
+        await agentManager.handleMessage({
+          type: 'copilot-create-session',
+          timestamp: Date.now(),
+          payload: {
+            requestId: 'req-agent-default-1',
+            config: { agentId: SQUAD_AGENT.id },
+          },
+        });
+
+        sent = [];
+
+        await agentManager.handleMessage({
+          type: 'copilot-create-session',
+          timestamp: Date.now(),
+          payload: {
+            requestId: 'req-agent-default-2',
+            config: { agentId: DEFAULT_COPILOT_AGENT_ID },
+          },
+        });
+
+        const defaultStart = sent.find(
+          (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'session.start',
+        );
+        expect(defaultStart).toBeDefined();
+        expect(defaultStart!.payload.event.data.agentId).toBe(DEFAULT_COPILOT_AGENT_ID);
+
+        const plainSession = client.getSession(defaultStart!.payload.sessionId);
+        expect(plainSession?.currentAgentName).toBeNull();
+
+        sent = [];
+
+        await agentManager.handleMessage({
+          type: 'copilot-create-session',
+          timestamp: Date.now(),
+          payload: { requestId: 'req-agent-default-3' },
+        });
+
+        const rememberedPlainStart = sent.find(
+          (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'session.start',
+        );
+        expect(rememberedPlainStart).toBeDefined();
+        expect(rememberedPlainStart!.payload.event.data.agentId).toBe(DEFAULT_COPILOT_AGENT_ID);
+
+        const rememberedPlainSession = client.getSession(rememberedPlainStart!.payload.sessionId);
+        expect(rememberedPlainSession?.currentAgentName).toBeNull();
+      } finally {
+        await agentManager.stop();
+      }
+    });
+
+    it('applies the selected agent when resuming a session', async () => {
+      const { client, agentManager } = buildAgentManager();
+
+      try {
+        await agentManager.start();
+        const existing = await client.createSession({ customAgents: [SQUAD_AGENT_CONFIG] });
+        sent = [];
+
+        await agentManager.handleMessage({
+          type: 'copilot-resume-session',
+          timestamp: Date.now(),
+          payload: {
+            requestId: 'req-agent-resume',
+            sessionId: existing.sessionId,
+            config: { agentId: SQUAD_AGENT.id },
+          },
+        });
+
+        expect(client.lastResumeSessionConfig.customAgents).toHaveLength(1);
+        expect(existing.currentAgentName).toBe('squad');
+
+        const resumeStart = sent.find(
+          (msg) => msg.type === 'copilot-session-event' && msg.payload.event.type === 'session.start',
+        );
+        expect(resumeStart).toBeDefined();
+        expect(resumeStart!.payload.event.data.resumed).toBe(true);
+        expect(resumeStart!.payload.event.data.agentId).toBe(SQUAD_AGENT.id);
+      } finally {
+        await agentManager.stop();
+      }
     });
   });
 

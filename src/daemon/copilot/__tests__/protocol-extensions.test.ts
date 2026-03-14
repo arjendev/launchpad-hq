@@ -6,6 +6,8 @@ import type {
   SessionMetadata,
 } from '@github/copilot-sdk';
 import type {
+  CopilotAgentCatalogEntry,
+  CopilotAgentCatalogMessage,
   SessionConfigWire,
   ToolDefinitionWire,
   CopilotSdkStateMessage,
@@ -47,11 +49,13 @@ describe('Copilot SDK protocol (big-bang refactor)', () => {
       };
       const config: SessionConfigWire = {
         model: 'gpt-4',
+        agentId: 'github:squad',
         systemMessage: { mode: 'append', content: 'Be helpful' },
         tools: [tool],
         streaming: true,
       };
       expect(config.model).toBe('gpt-4');
+      expect(config.agentId).toBe('github:squad');
       expect(config.tools).toHaveLength(1);
     });
 
@@ -119,6 +123,37 @@ describe('Copilot SDK protocol (big-bang refactor)', () => {
       };
       expect(msg.type).toBe('copilot-session-event');
       expect(msg.payload.event.type).toBe('session.idle');
+    });
+  });
+
+  describe('Daemon → HQ: copilot-agent-catalog', () => {
+    it('advertises selectable agents for the project', () => {
+      const agents: CopilotAgentCatalogEntry[] = [
+        {
+          id: 'builtin:default',
+          name: 'default',
+          displayName: 'Plain session',
+          description: 'Standard Copilot session.',
+          kind: 'default',
+          source: 'builtin',
+        },
+        {
+          id: 'github:squad',
+          name: 'squad',
+          displayName: 'Squad',
+          description: 'Coordinates repo specialists.',
+          kind: 'custom',
+          source: 'github-agent-file',
+          path: '.github/agents/squad.agent.md',
+        },
+      ];
+      const msg: CopilotAgentCatalogMessage = {
+        type: 'copilot-agent-catalog',
+        timestamp: now,
+        payload: { projectId: 'proj-1', agents },
+      };
+      expect(msg.type).toBe('copilot-agent-catalog');
+      expect(msg.payload.agents[1].id).toBe('github:squad');
     });
   });
 
@@ -252,11 +287,12 @@ describe('Copilot SDK protocol (big-bang refactor)', () => {
       const types: DaemonToHqMessage['type'][] = [
         'copilot-session-list',
         'copilot-session-event',
+        'copilot-agent-catalog',
         'copilot-sdk-state',
         'copilot-models-list',
         'copilot-auth-status',
       ];
-      expect(types).toHaveLength(5);
+      expect(types).toHaveLength(6);
     });
 
     it('HqToDaemonMessage includes copilot command types', () => {
@@ -295,6 +331,7 @@ describe('Copilot SDK protocol (big-bang refactor)', () => {
         'copilot-sdk-state',
         'copilot-session-list',
         'copilot-session-event',
+        'copilot-agent-catalog',
         'copilot-models-list',
         'copilot-auth-status',
         'copilot-create-session',
@@ -303,7 +340,7 @@ describe('Copilot SDK protocol (big-bang refactor)', () => {
         'copilot-abort-session',
         'copilot-list-sessions',
       ];
-      expect(newTypes).toHaveLength(10);
+      expect(newTypes).toHaveLength(11);
     });
   });
 });

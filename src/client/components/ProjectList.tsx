@@ -12,7 +12,7 @@ import {
   Title,
   UnstyledButton,
 } from "@mantine/core";
-import { useDashboard, useRemoveProject } from "../services/hooks.js";
+import { useDashboard, useRemoveProject, useInboxCount } from "../services/hooks.js";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { AddProjectDialog } from "./AddProjectDialog.js";
 import type { DashboardProject } from "../services/types.js";
@@ -63,6 +63,8 @@ function ProjectItem({
   onRemove: () => void;
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const { data: inboxData } = useInboxCount(project.owner, project.repo);
+  const unread = inboxData?.unread ?? 0;
 
   return (
     <UnstyledButton
@@ -94,6 +96,11 @@ function ProjectItem({
             <Text size="sm" fw={500} truncate>
               {project.owner}/{project.repo}
             </Text>
+            {unread > 0 && (
+              <Badge size="xs" color="red" variant="filled">
+                {unread}
+              </Badge>
+            )}
             <Text
               component="span"
               size="xs"

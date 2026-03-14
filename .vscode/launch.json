@@ -2,16 +2,17 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Server (Debug)",
+      "name": "Server (Launch)",
       "type": "node",
-      "request": "attach",
-      "port": 9229,
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx",
+      "args": ["${workspaceFolder}/src/server/index.ts"],
       "restart": true,
-      "preLaunchTask": "dev:server",
-      "skipFiles": ["<node_internals>/**"]
+      "skipFiles": ["<node_internals>/**"],
+      "console": "integratedTerminal"
     },
     {
-      "name": "Client (Debug)",
+      "name": "Client (Launch)",
       "type": "chrome",
       "request": "launch",
       "url": "http://localhost:5173",
@@ -19,19 +20,11 @@
       "sourceMaps": true,
       "preLaunchTask": "dev:client"
     },
-    {
-      "name": "Server (Attach)",
-      "type": "node",
-      "request": "attach",
-      "port": 9229,
-      "restart": true,
-      "skipFiles": ["<node_internals>/**"]
-    }
   ],
   "compounds": [
     {
       "name": "Full Stack",
-      "configurations": ["Server (Debug)", "Client (Debug)"],
+      "configurations": ["Server (Launch)", "Client (Launch)"],
       "stopAll": true
     }
   ]

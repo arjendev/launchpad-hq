@@ -74,6 +74,32 @@ function makeDaemonInfo(overrides?: Partial<DaemonInfo>): DaemonInfo {
   };
 }
 
+function createMockStateService(initialPreferences: Record<string, string | null> = { "test/repo1": null }) {
+  const preferences = new Map(Object.entries(initialPreferences));
+
+  return {
+    getProjectDefaultCopilotAgent: vi.fn().mockImplementation(async (owner: string, repo: string) => {
+      const key = `${owner}/${repo}`;
+      return preferences.has(key) ? preferences.get(key) ?? null : undefined;
+    }),
+    updateProjectDefaultCopilotAgent: vi.fn().mockImplementation(async (owner: string, repo: string, agent: string | null) => {
+      const key = `${owner}/${repo}`;
+      if (!preferences.has(key)) return undefined;
+      preferences.set(key, agent);
+      return {
+        owner,
+        repo,
+        addedAt: "2026-01-01T00:00:00Z",
+        runtimeTarget: "local",
+        initialized: true,
+        daemonToken: "test-token",
+        workState: "working",
+        defaultCopilotSdkAgent: agent,
+      };
+    }),
+  };
+}
+
 // --- DaemonRegistry tests ---
 
 describe("DaemonRegistry", () => {
@@ -535,6 +561,66 @@ describe("DaemonWsHandler", () => {
     );
   });
 
+  it("routes copilot-agent-catalog to registry and browser clients", async () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    const challenge = JSON.parse(ws.sent[0]);
+    ws.simulateMessage(JSON.stringify({
+      type: "auth-response",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
+    }));
+    await tick();
+    ws.simulateMessage(JSON.stringify({
+      type: "register",
+      timestamp: Date.now(),
+      payload: makeDaemonInfo(),
+    }));
+
+    const emitSpy = vi.spyOn(registry, "emit");
+    ws.simulateMessage(JSON.stringify({
+      type: "copilot-agent-catalog",
+      timestamp: Date.now(),
+      payload: {
+        projectId: "proj-1",
+        agents: [
+          {
+            id: "builtin:default",
+            name: "default",
+            displayName: "Plain session",
+            description: "Standard Copilot session.",
+            kind: "default",
+            source: "builtin",
+          },
+          {
+            id: "github:squad",
+            name: "squad",
+            displayName: "Squad",
+            description: "Coordinates specialists.",
+            kind: "custom",
+            source: "github-agent-file",
+            path: ".github/agents/squad.agent.md",
+          },
+        ],
+      },
+    }));
+
+    expect(emitSpy).toHaveBeenCalledWith(
+      "copilot:agent-catalog",
+      expect.anything(),
+      expect.objectContaining({ projectId: "proj-1" }),
+    );
+    expect(broadcast).toHaveBeenCalledWith("copilot", expect.objectContaining({
+      type: "copilot:agent-catalog",
+      projectId: "proj-1",
+      agents: expect.arrayContaining([
+        expect.objectContaining({ id: "github:squad" }),
+      ]),
+    }));
+  });
+
   it("handles disconnect and broadcasts to browsers", async () => {
     const handler = createHandler();
     const ws = createMockSocket();
@@ -599,11 +685,14 @@ describe("DaemonWsHandler", () => {
 describe("Daemon REST routes", () => {
   let server: FastifyInstance;
   let registry: DaemonRegistry;
+  let stateService: ReturnType<typeof createMockStateService>;
 
   beforeEach(async () => {
     server = await createTestServer();
     registry = new DaemonRegistry();
+    stateService = createMockStateService();
     server.decorate("daemonRegistry", registry);
+    server.decorate("stateService", stateService as never);
     await server.register(daemonRoutes);
   });
 
@@ -638,6 +727,59 @@ describe("Daemon REST routes", () => {
     const body = res.json();
     expect(body.projectName).toBe("Beta");
     expect(body.protocolVersion).toBe("1.0.0");
+  });
+
+  it("GET /api/daemons/:id/copilot/agents returns catalog with remembered preference", async () => {
+    const ws = createMockSocket();
+    const info: DaemonInfo & {
+      copilotSdkAgents: Array<{ name: string; displayName: string; description: string }>;
+    } = {
+      ...makeDaemonInfo({ projectId: "test/repo1" }),
+      copilotSdkAgents: [
+        { name: "reviewer", displayName: "Reviewer", description: "Reviews changes" },
+        { name: "planner", displayName: "Planner", description: "Plans work" },
+      ],
+    };
+    registry.register("test/repo1", ws as never, info);
+    stateService.getProjectDefaultCopilotAgent.mockResolvedValue("reviewer");
+
+    const res = await server.inject({ method: "GET", url: "/api/daemons/test/repo1/copilot/agents" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      projectId: "test/repo1",
+      daemonOnline: true,
+      preferredAgent: "reviewer",
+      agents: [
+        { name: "reviewer", displayName: "Reviewer", description: "Reviews changes" },
+        { name: "planner", displayName: "Planner", description: "Plans work" },
+      ],
+    });
+  });
+
+  it("PUT /api/daemons/:id/copilot/agents updates the remembered preference", async () => {
+    const ws = createMockSocket();
+    const info: DaemonInfo & { copilotAgents: string[] } = {
+      ...makeDaemonInfo({ projectId: "test/repo1" }),
+      copilotAgents: ["reviewer", "planner"],
+    };
+    registry.register("test/repo1", ws as never, info);
+
+    const res = await server.inject({
+      method: "PUT",
+      url: "/api/daemons/test/repo1/copilot/agents",
+      payload: { preferredAgent: "planner" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      ok: true,
+      projectId: "test/repo1",
+      daemonOnline: true,
+      preferredAgent: "planner",
+      agents: [
+        { name: "reviewer", displayName: "reviewer", description: "" },
+        { name: "planner", displayName: "planner", description: "" },
+      ],
+    });
   });
 
   it("GET /api/daemons/:id returns 404 for unknown", async () => {

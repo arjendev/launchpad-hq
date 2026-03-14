@@ -24,6 +24,8 @@ import type {
   ModeResponse,
   PlanResponse,
   ModelsResponse,
+  CopilotAgentCatalogResponse,
+  CopilotAgentPreferenceResponse,
 } from "./types.js";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -162,7 +164,7 @@ export function useDaemonForProject(projectId: string | undefined): {
 // ── Aggregated Copilot Sessions ────────────────────────
 
 /** Fetch aggregated copilot sessions across all daemons, polling every 5 seconds. */
-export function useAggregatedSessions(projectId?: string): {
+export function useAggregatedSessions(_projectId?: string): {
   sessions: AggregatedSession[];
   isLoading: boolean;
   isError: boolean;
@@ -204,7 +206,11 @@ export function useCopilotSessions(): {
   const query = useQuery<CopilotSessionSummary[]>({
     queryKey: ["copilot-sessions"],
     queryFn: async () => {
-      const res = await fetchJson<{ sessions: CopilotSessionSummary[]; count: number; adapter: string }>("/api/copilot/sessions");
+      const res = await fetchJson<{
+        sessions: CopilotSessionSummary[];
+        count: number;
+        adapter: string;
+      }>("/api/copilot/sessions");
       return res.sessions;
     },
     refetchInterval: 30_000,
@@ -248,9 +254,7 @@ export function useCopilotSession(sessionId: string | null) {
   return useQuery<CopilotSession>({
     queryKey: ["copilot-session", sessionId],
     queryFn: () =>
-      fetchJson<CopilotSession>(
-        `/api/copilot/sessions/${encodeURIComponent(sessionId!)}`,
-      ),
+      fetchJson<CopilotSession>(`/api/copilot/sessions/${encodeURIComponent(sessionId!)}`),
     enabled: !!sessionId,
   });
 }
@@ -261,8 +265,7 @@ export function useCopilotSession(sessionId: string | null) {
 export function useAttentionItems() {
   return useQuery<{ items: AttentionItem[] }>({
     queryKey: ["attention"],
-    queryFn: () =>
-      fetchJson<{ items: AttentionItem[] }>("/api/attention?dismissed=false"),
+    queryFn: () => fetchJson<{ items: AttentionItem[] }>("/api/attention?dismissed=false"),
     refetchInterval: 30_000,
   });
 }
@@ -352,19 +355,31 @@ export function useCreateSession() {
   return useMutation<
     { ok: boolean; sessionId: string; sessionType?: string },
     Error,
-    { owner: string; repo: string; model?: string; sessionType?: string }
+    {
+      owner: string;
+      repo: string;
+      model?: string;
+      sessionType?: string;
+      agentId?: string | null;
+    }
   >({
-    mutationFn: ({ owner, repo, model, sessionType }) =>
-      fetchJson("/api/daemons/" +
-        encodeURIComponent(owner) + "/" +
-        encodeURIComponent(repo) + "/copilot/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...(model ? { model } : {}),
-          ...(sessionType ? { sessionType } : {}),
-        }),
-      }),
+    mutationFn: ({ owner, repo, model, sessionType, agentId }) =>
+      fetchJson(
+        "/api/daemons/" +
+          encodeURIComponent(owner) +
+          "/" +
+          encodeURIComponent(repo) +
+          "/copilot/sessions",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(model ? { model } : {}),
+            ...(sessionType ? { sessionType } : {}),
+            ...(sessionType === "copilot-sdk" && agentId ? { agentId } : {}),
+          }),
+        },
+      ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["aggregated-sessions"] });
       void qc.invalidateQueries({ queryKey: ["copilot-sessions"] });
@@ -542,6 +557,93 @@ export function useListModels() {
   });
 }
 
+/** List available Copilot SDK agents for a specific project daemon. */
+export function useCopilotAgentCatalog(owner: string | undefined, repo: string | undefined) {
+  return useQuery<CopilotAgentCatalogResponse>({
+    queryKey: ["copilot-agent-catalog", owner, repo],
+    queryFn: () =>
+      fetchJson<CopilotAgentCatalogResponse>(
+        `/api/daemons/${encodeURIComponent(owner!)}/${encodeURIComponent(repo!)}/copilot/agents`,
+      ),
+    enabled: !!owner && !!repo,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+}
+
+/** Read the remembered Copilot SDK agent for a project. */
+export function useCopilotAgentPreference(owner: string | undefined, repo: string | undefined) {
+  return useQuery<CopilotAgentPreferenceResponse>({
+    queryKey: ["copilot-agent-preference", owner, repo],
+    queryFn: () =>
+      fetchJson<CopilotAgentPreferenceResponse>(
+        `/api/projects/${encodeURIComponent(owner!)}/${encodeURIComponent(repo!)}/preferences/copilot-agent`,
+      ),
+    enabled: !!owner && !!repo,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Update the remembered Copilot SDK agent for a project. */
+export function useUpdateCopilotAgentPreference() {
+  const qc = useQueryClient();
+
+  return useMutation<
+    CopilotAgentPreferenceResponse,
+    Error,
+    {
+      owner: string;
+      repo: string;
+      agentId: string | null;
+      agentName?: string | null;
+    },
+    {
+      previousPreference?: CopilotAgentPreferenceResponse;
+      queryKey: readonly [string, string, string];
+    }
+  >({
+    mutationFn: ({ owner, repo, agentId }) =>
+      fetchJson<CopilotAgentPreferenceResponse>(
+        `/api/projects/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/preferences/copilot-agent`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agentId }),
+        },
+      ),
+    onMutate: async ({ owner, repo, agentId, agentName }) => {
+      const queryKey = ["copilot-agent-preference", owner, repo] as const;
+      await qc.cancelQueries({ queryKey });
+
+      const previousPreference = qc.getQueryData<CopilotAgentPreferenceResponse>(queryKey);
+
+      qc.setQueryData<CopilotAgentPreferenceResponse>(queryKey, {
+        agentId,
+        agentName: agentId ? (agentName ?? previousPreference?.agentName ?? agentId) : null,
+      });
+
+      return { previousPreference, queryKey };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousPreference) {
+        qc.setQueryData(context.queryKey, context.previousPreference);
+        return;
+      }
+      if (context) {
+        qc.removeQueries({ queryKey: context.queryKey, exact: true });
+      }
+    },
+    onSuccess: (data, { owner, repo }) => {
+      qc.setQueryData(["copilot-agent-preference", owner, repo], data);
+    },
+    onSettled: (_data, _error, { owner, repo }) => {
+      void qc.invalidateQueries({
+        queryKey: ["copilot-agent-preference", owner, repo],
+      });
+    },
+  });
+}
+
 /**
  * Merges REST messages + real-time WebSocket events into a unified
  * ConversationEntry[] for the conversation viewer.
@@ -550,33 +652,60 @@ export function useListModels() {
 
 function formatEventContent(eventType: string, data: Record<string, unknown>): string {
   switch (eventType) {
-    case "session.start": return "Session started";
-    case "session.resume": return "Session resumed";
-    case "session.shutdown": return "Session ended";
-    case "session.title_changed": return `Title: ${data.title ?? ""}`;
-    case "session.model_change": return `Model changed to ${data.model ?? "unknown"}`;
-    case "session.mode_changed": return `Mode: ${data.mode ?? "unknown"}`;
-    case "session.plan_changed": return "Plan updated";
-    case "session.task_complete": return "Task complete";
-    case "session.compaction_start": return "Compacting context…";
-    case "session.compaction_complete": return "Context compacted";
-    case "session.truncation": return "Context truncated";
-    case "session.info": return String(data.message ?? data.content ?? "Info");
-    case "session.warning": return String(data.message ?? data.content ?? "Warning");
-    case "session.usage_info": return `Tokens: ${JSON.stringify(data)}`;
-    case "assistant.turn_start": return "Turn started";
-    case "assistant.turn_end": return "Turn ended";
-    case "assistant.reasoning": return String(data.content ?? data.reasoning ?? "Reasoning…");
-    case "assistant.reasoning_delta": return String(data.deltaContent ?? "");
-    case "assistant.intent": return `Intent: ${data.intent ?? ""}`;
-    case "assistant.usage": return `Usage: ${JSON.stringify(data)}`;
-    case "tool.execution_partial_result": return `Partial: ${data.result ?? ""}`;
-    case "tool.execution_progress": return `Progress: ${data.message ?? ""}`;
-    case "permission.requested": return `Permission needed: ${data.tool ?? data.action ?? ""}`;
-    case "permission.completed": return `Permission ${data.granted ? "granted" : "denied"}`;
-    case "elicitation.requested": return `Question: ${data.message ?? ""}`;
-    case "elicitation.completed": return `Answer: ${data.response ?? ""}`;
-    case "abort": return "Aborted";
+    case "session.start":
+      return "Session started";
+    case "session.resume":
+      return "Session resumed";
+    case "session.shutdown":
+      return "Session ended";
+    case "session.title_changed":
+      return `Title: ${data.title ?? ""}`;
+    case "session.model_change":
+      return `Model changed to ${data.model ?? "unknown"}`;
+    case "session.mode_changed":
+      return `Mode: ${data.mode ?? "unknown"}`;
+    case "session.plan_changed":
+      return "Plan updated";
+    case "session.task_complete":
+      return "Task complete";
+    case "session.compaction_start":
+      return "Compacting context…";
+    case "session.compaction_complete":
+      return "Context compacted";
+    case "session.truncation":
+      return "Context truncated";
+    case "session.info":
+      return String(data.message ?? data.content ?? "Info");
+    case "session.warning":
+      return String(data.message ?? data.content ?? "Warning");
+    case "session.usage_info":
+      return `Tokens: ${JSON.stringify(data)}`;
+    case "assistant.turn_start":
+      return "Turn started";
+    case "assistant.turn_end":
+      return "Turn ended";
+    case "assistant.reasoning":
+      return String(data.content ?? data.reasoning ?? "Reasoning…");
+    case "assistant.reasoning_delta":
+      return String(data.deltaContent ?? "");
+    case "assistant.intent":
+      return `Intent: ${data.intent ?? ""}`;
+    case "assistant.usage":
+      return `Usage: ${JSON.stringify(data)}`;
+    case "tool.execution_partial_result":
+      return `Partial: ${data.result ?? ""}`;
+    case "tool.execution_progress":
+      return `Progress: ${data.message ?? ""}`;
+    case "permission.requested":
+      return `Permission needed: ${data.tool ?? data.action ?? ""}`;
+    case "permission.completed":
+      return `Permission ${data.granted ? "granted" : "denied"}`;
+    case "elicitation.requested":
+      return `Question: ${data.message ?? ""}`;
+    case "elicitation.completed":
+      return `Answer: ${data.response ?? ""}`;
+    case "abort":
+      return "Aborted";
     // Squad-specific events
     case "squad.agent.spawned":
       return `🤖 Agent spawned: ${data.agentName ?? data.agent ?? "unknown"}`;
@@ -622,8 +751,12 @@ export function useConversationEntries(sessionId: string | null): {
   sessionStatus: AggregatedSession["status"] | null;
 } {
   const qc = useQueryClient();
-  const { data: messagesData, isLoading: messagesLoading, isError: messagesError, error: messagesErr } =
-    useSessionMessages(sessionId);
+  const {
+    data: messagesData,
+    isLoading: messagesLoading,
+    isError: messagesError,
+    error: messagesErr,
+  } = useSessionMessages(sessionId);
   const { data: toolsData } = useSessionTools(sessionId);
   const { data: session } = useAggregatedSession(sessionId);
 
@@ -660,7 +793,7 @@ export function useConversationEntries(sessionId: string | null): {
       if (wsEvent.sessionId !== sessionId) return;
 
       // Event logging for debugging
-      console.log('[LaunchpadHQ Event]', wsEvent.type, wsEvent);
+      console.log("[LaunchpadHQ Event]", wsEvent.type, wsEvent);
 
       if (wsEvent.type === "copilot:session-event" && wsEvent.event) {
         const event = wsEvent.event;
@@ -668,15 +801,9 @@ export function useConversationEntries(sessionId: string | null): {
 
         switch (event.type) {
           case "user.message":
-            setRealtimeEntries((prev) => [
-              ...prev,
-              {
-                id: `rt-user-${ts}`,
-                type: "user",
-                content: event.data.content ?? "",
-                timestamp: ts,
-              },
-            ]);
+            // User prompts sent from HQ are written to canonical REST history in the
+            // send endpoint before the daemon echoes `user.message`. Rendering both
+            // sources produces duplicate user rows with different timestamps.
             void qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
             break;
 
@@ -730,9 +857,9 @@ export function useConversationEntries(sessionId: string | null): {
 
           case "tool.execution_complete":
             setRealtimeEntries((prev) => {
-              const idx = [...prev].reverse().findIndex(
-                (e) => e.type === "tool" && e.toolStatus === "running",
-              );
+              const idx = [...prev]
+                .reverse()
+                .findIndex((e) => e.type === "tool" && e.toolStatus === "running");
               if (idx >= 0) {
                 const realIdx = prev.length - 1 - idx;
                 const updated = [...prev];
@@ -1017,11 +1144,7 @@ export function useInbox(owner?: string, repo?: string, sessionId?: string | nul
 /** Mutation to mark an inbox message as read or archived. */
 export function useUpdateInboxMessage(owner?: string, repo?: string) {
   const qc = useQueryClient();
-  return useMutation<
-    InboxMessage,
-    Error,
-    { id: string; status: "read" | "archived" }
-  >({
+  return useMutation<InboxMessage, Error, { id: string; status: "read" | "archived" }>({
     mutationFn: ({ id, status }) =>
       fetchJson<InboxMessage>(
         `/api/projects/${encodeURIComponent(owner!)}/${encodeURIComponent(repo!)}/inbox/${encodeURIComponent(id)}`,

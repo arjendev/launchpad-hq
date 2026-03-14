@@ -5,6 +5,7 @@ import { MantineProvider } from "@mantine/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { ProjectProvider } from "./contexts/ProjectContext";
+import { SessionProvider } from "./contexts/SessionContext";
 import { WebSocketProvider } from "./contexts/WebSocketContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { router } from "./router";
@@ -22,7 +23,9 @@ export function App() {
         <ThemeProvider>
           <WebSocketProvider>
             <ProjectProvider>
-              <RouterProvider router={router} />
+              <SessionProvider>
+                <RouterProvider router={router} />
+              </SessionProvider>
             </ProjectProvider>
           </WebSocketProvider>
         </ThemeProvider>

@@ -9,6 +9,8 @@ export interface ProjectEntry {
   initialized: boolean;
   daemonToken: string;
   workState: WorkState;
+  /** Null/undefined means "use the default Copilot SDK agent". */
+  defaultCopilotSdkAgent?: string | null;
 }
 
 /** Stored in config.json inside launchpad-state repo. */
@@ -62,7 +64,18 @@ export interface StateService {
   updateProjectState(
     owner: string,
     repo: string,
-    updates: Partial<Pick<ProjectEntry, "initialized" | "workState">>,
+    updates: Partial<Pick<ProjectEntry, "initialized" | "workState" | "defaultCopilotSdkAgent">>,
+  ): Promise<ProjectEntry | undefined>;
+  /** Read the remembered Copilot SDK agent for a project. */
+  getProjectDefaultCopilotAgent(
+    owner: string,
+    repo: string,
+  ): Promise<string | null | undefined>;
+  /** Update the remembered Copilot SDK agent for a project. */
+  updateProjectDefaultCopilotAgent(
+    owner: string,
+    repo: string,
+    agent: string | null,
   ): Promise<ProjectEntry | undefined>;
   /** Load a project's inbox from the state repo. */
   getInbox(owner: string, repo: string): Promise<ProjectInbox>;

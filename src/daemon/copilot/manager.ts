@@ -12,16 +12,22 @@
 import { randomUUID } from 'node:crypto';
 import type {
   ConnectionState,
+  CustomAgentConfig,
   SessionEvent,
   SessionMetadata,
   Tool,
 } from '@github/copilot-sdk';
 import type {
+  CopilotAgentCatalogEntry,
   DaemonToHqMessage,
   HqToDaemonMessage,
   SessionConfigWire,
 } from '../../shared/protocol.js';
 import { createHqTools } from './hq-tools.js';
+import {
+  DEFAULT_COPILOT_AGENT_ID,
+  createDefaultCopilotAgentCatalogEntry,
+} from './agent-catalog.js';
 import { buildSystemMessage } from './system-message.js';
 import { logIncoming, logOutgoing, logSdk } from '../logger.js';
 
@@ -62,6 +68,10 @@ export interface CopilotManagerOptions {
   /** Override client for testing (duck-typed CopilotClient) */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   client?: any;
+  /** Discovered custom-agent definitions to expose to the SDK */
+  customAgents?: CustomAgentConfig[];
+  /** Agent catalog advertised to HQ for selection */
+  agentCatalog?: CopilotAgentCatalogEntry[];
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
@@ -98,6 +108,9 @@ export class CopilotManager {
   private projectId: string;
   private projectName?: string;
   private hqTools: Tool[];
+  private customAgents: CustomAgentConfig[];
+  private agentCatalog = new Map<string, CopilotAgentCatalogEntry>();
+  private selectedAgentId = DEFAULT_COPILOT_AGENT_ID;
   private started = false;
 
   constructor(options: CopilotManagerOptions) {
@@ -111,6 +124,15 @@ export class CopilotManager {
     this.projectName = options.projectName;
 
     this.hqTools = createHqTools(this.sendToHq, this.projectId);
+    this.customAgents = options.customAgents ?? [];
+
+    for (const agent of options.agentCatalog ?? []) {
+      this.agentCatalog.set(agent.id, agent);
+    }
+    if (!this.agentCatalog.has(DEFAULT_COPILOT_AGENT_ID)) {
+      const defaultAgent = createDefaultCopilotAgentCatalogEntry();
+      this.agentCatalog.set(defaultAgent.id, defaultAgent);
+    }
 
     if (options.client) {
       this.client = options.client;
@@ -302,10 +324,13 @@ export class CopilotManager {
     config?: SessionConfigWire,
   ): Promise<void> {
     try {
+      const selectedAgent = this.resolveSelectedAgent(config?.agentId);
       const sdkConfig = this.buildSdkConfig(config);
       const session = await this.client.createSession(sdkConfig);
       logSdk(`Session created: ${session.sessionId}`);
       this.trackSession(session, true);
+      await this.applyAgentSelection(session, selectedAgent);
+      this.rememberSelectedAgent(selectedAgent.id);
 
       // SDK will emit session.start via the event handler, but we also send
       // a synthetic event so HQ can correlate the requestId
@@ -315,7 +340,13 @@ export class CopilotManager {
         payload: {
           projectId: this.projectId,
           sessionId: session.sessionId,
-          event: syntheticEvent('session.start', { requestId, sessionId: session.sessionId }),
+          event: syntheticEvent('session.start', {
+            requestId,
+            sessionId: session.sessionId,
+            agentId: selectedAgent.id,
+            ...(selectedAgent.kind === 'custom' ? { agentName: selectedAgent.name } : {}),
+            ...(selectedAgent.displayName ? { agentDisplayName: selectedAgent.displayName } : {}),
+          }),
         },
       });
     } catch (err) {
@@ -337,9 +368,12 @@ export class CopilotManager {
     config?: Partial<SessionConfigWire>,
   ): Promise<void> {
     try {
+      const selectedAgent = this.resolveSelectedAgent(config?.agentId);
       const sdkConfig = this.buildSdkConfig(config as SessionConfigWire | undefined);
       const session = await this.client.resumeSession(sessionId, sdkConfig);
-      this.trackSession(session);
+      this.trackSession(session, true);
+      await this.applyAgentSelection(session, selectedAgent);
+      this.rememberSelectedAgent(selectedAgent.id);
 
       this.sendToHq({
         type: 'copilot-session-event',
@@ -347,7 +381,13 @@ export class CopilotManager {
         payload: {
           projectId: this.projectId,
           sessionId: session.sessionId,
-          event: syntheticEvent('session.start', { requestId, resumed: true }),
+          event: syntheticEvent('session.start', {
+            requestId,
+            resumed: true,
+            agentId: selectedAgent.id,
+            ...(selectedAgent.kind === 'custom' ? { agentName: selectedAgent.name } : {}),
+            ...(selectedAgent.displayName ? { agentDisplayName: selectedAgent.displayName } : {}),
+          }),
         },
       });
     } catch (err) {
@@ -654,6 +694,56 @@ export class CopilotManager {
     });
   }
 
+  private resolveSelectedAgent(requestedAgentId?: string): CopilotAgentCatalogEntry {
+    const selectedAgent =
+      this.findAgentEntry(requestedAgentId ?? this.selectedAgentId) ??
+      this.agentCatalog.get(DEFAULT_COPILOT_AGENT_ID);
+
+    if (!selectedAgent) {
+      throw new Error(`Unknown Copilot agent selection: ${requestedAgentId ?? this.selectedAgentId}`);
+    }
+
+    return selectedAgent;
+  }
+
+  private rememberSelectedAgent(agentId: string): void {
+    this.selectedAgentId = agentId;
+  }
+
+  private findAgentEntry(agentIdOrName?: string): CopilotAgentCatalogEntry | undefined {
+    if (!agentIdOrName) return undefined;
+    if (this.agentCatalog.has(agentIdOrName)) {
+      return this.agentCatalog.get(agentIdOrName);
+    }
+    if (agentIdOrName === 'default' || agentIdOrName === 'plain') {
+      return this.agentCatalog.get(DEFAULT_COPILOT_AGENT_ID);
+    }
+    for (const agent of this.agentCatalog.values()) {
+      if (agent.name === agentIdOrName) {
+        return agent;
+      }
+    }
+    return undefined;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async applyAgentSelection(session: any, agent: CopilotAgentCatalogEntry): Promise<void> {
+    const rpcAgent = session?.rpc?.agent;
+
+    if (agent.kind === 'default') {
+      if (typeof rpcAgent?.deselect === 'function') {
+        await rpcAgent.deselect();
+      }
+      return;
+    }
+
+    if (typeof rpcAgent?.select !== 'function') {
+      throw new Error('Installed Copilot SDK does not support session.rpc.agent.select()');
+    }
+
+    await rpcAgent.select({ name: agent.name });
+  }
+
   /** Build a full SDK SessionConfig from a wire config + HQ injections */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private buildSdkConfig(wire?: SessionConfigWire): any {
@@ -663,6 +753,7 @@ export class CopilotManager {
       ...(config.streaming !== undefined && { streaming: config.streaming }),
       systemMessage: config.systemMessage ?? buildSystemMessage(this.projectId, this.projectName),
       tools: [...this.hqTools],
+      ...(this.customAgents.length > 0 ? { customAgents: this.customAgents } : {}),
       onPermissionRequest: sdkApproveAll,
     };
   }

@@ -11,7 +11,7 @@ import { loadDaemonConfig, type DaemonConfig } from './config.js';
 import { DaemonWebSocketClient } from './client.js';
 import { DaemonState } from './state.js';
 import { setupDaemonTerminal, DaemonTerminalManager } from './terminal/index.js';
-import { CopilotManager } from './copilot/index.js';
+import { CopilotManager, discoverCopilotAgents } from './copilot/index.js';
 import { CliSessionManager } from './copilot-cli/index.js';
 import { SquadSessionManager } from './squad/index.js';
 import { logIncoming, logOutgoing } from './logger.js';
@@ -31,6 +31,7 @@ export interface DaemonProcess {
  */
 export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProcess {
   const config = loadDaemonConfig(configOverrides);
+  const discoveredAgents = discoverCopilotAgents(process.cwd());
 
   const client = new DaemonWebSocketClient({
     hqUrl: config.hqUrl,
@@ -47,6 +48,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     capabilities: [],
     version: '0.1.0',
     protocolVersion: PROTOCOL_VERSION,
+    agentCatalog: discoveredAgents.catalog,
   };
 
   // --- Connection lifecycle ---
@@ -59,6 +61,20 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     console.log('✅ Authenticated with HQ');
     logOutgoing('register', daemonInfo);
     client.sendRegistration(daemonInfo);
+    if (daemonInfo.agentCatalog?.length) {
+      logOutgoing('copilot-agent-catalog', {
+        projectId: config.projectId,
+        agents: daemonInfo.agentCatalog,
+      });
+      client.send({
+        type: 'copilot-agent-catalog',
+        timestamp: Date.now(),
+        payload: {
+          projectId: config.projectId,
+          agents: daemonInfo.agentCatalog,
+        },
+      });
+    }
     state.update({ daemonOnline: true, initialized: true });
   });
 
@@ -100,7 +116,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
   // Attempt to load node-pty (non-blocking — terminals won't work if unavailable)
   terminalManager.init().then((available) => {
     if (available) {
-      daemonInfo.capabilities.push('terminal');
+      addCapability(daemonInfo, 'terminal');
     }
   });
 
@@ -109,6 +125,9 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
   const copilot = new CopilotManager({
     sendToHq: (msg) => client.send(msg),
     projectId: config.projectId,
+    projectName: config.projectName,
+    agentCatalog: discoveredAgents.catalog,
+    customAgents: discoveredAgents.customAgents,
   });
 
   const cliSessions = new CliSessionManager({
@@ -121,6 +140,15 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     sendToHq: (msg) => client.send(msg),
     projectId: config.projectId,
   });
+
+  addCapability(daemonInfo, 'copilot-sdk');
+  addCapability(daemonInfo, 'copilot-cli');
+  if (discoveredAgents.customAgents.length > 0) {
+    addCapability(daemonInfo, 'copilot-custom-agents');
+  }
+  if (squadSessions.isAvailable()) {
+    addCapability(daemonInfo, 'squad-sdk');
+  }
 
   client.on('message', async (msg) => {
     if (!msg.type.startsWith('copilot-') && !msg.type.startsWith('terminal-')) return;
@@ -143,13 +171,6 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     void copilot.start().catch((err) => {
       console.error(`⚠ Copilot SDK start failed: ${err}`);
     });
-
-    // Report capabilities
-    daemonInfo.capabilities.push('copilot-sdk');
-    daemonInfo.capabilities.push('copilot-cli');
-    if (squadSessions.isAvailable()) {
-      daemonInfo.capabilities.push('squad-sdk');
-    }
   });
 
   // --- Start connection ---
@@ -171,6 +192,12 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
   }
 
   return { client, state, terminalManager, copilot, cliSessions, squadSessions, shutdown };
+}
+
+function addCapability(daemonInfo: DaemonInfo, capability: string): void {
+  if (!daemonInfo.capabilities.includes(capability)) {
+    daemonInfo.capabilities.push(capability);
+  }
 }
 
 /** Detect the runtime environment */

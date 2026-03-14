@@ -13,9 +13,9 @@ async function selectLaunchpadProject(page: import("@playwright/test").Page) {
   const projectCard = page.getByText("arjendev/launchpa").first();
   await expect(projectCard).toBeVisible({ timeout: 10_000 });
   await projectCard.click();
-  await expect(
-    page.getByText("New Session").first(),
-  ).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("button", { name: /new/i }).first()).toBeVisible({
+    timeout: 10_000,
+  });
 }
 
 test.describe("SDK session duplicate events", () => {
@@ -34,12 +34,12 @@ test.describe("SDK session duplicate events", () => {
     await selectLaunchpadProject(page);
 
     // Create a new SDK session
-    await page.getByText("New Session").first().click();
-    await page.getByText("SDK Session").click();
+    await page.getByRole("button", { name: /new/i }).first().click();
+    await page.getByText("Copilot SDK").click();
 
-    // Wait for the session overlay to appear
-    const closeBtn = page.locator('[data-testid="floating-close"]');
-    await expect(closeBtn).toBeVisible({ timeout: 15_000 });
+    // Wait for the inline session panel to appear
+    const sessionPanel = page.getByTestId("resizable-terminal-panel");
+    await expect(sessionPanel).toBeVisible({ timeout: 15_000 });
 
     // Wait for "No messages yet" or prompt area to be ready
     const promptInput = page.getByTestId("prompt-input");
@@ -152,7 +152,7 @@ test.describe("SDK session duplicate events", () => {
     }
 
     // Clean up — end the session
-    const endBtn = page.getByTestId("end-session-button");
+    const endBtn = page.getByTestId("panel-end-session");
     if (await endBtn.isVisible().catch(() => false)) {
       await endBtn.click();
       // Confirm if needed

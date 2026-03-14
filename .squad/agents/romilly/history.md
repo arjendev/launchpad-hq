@@ -33,6 +33,7 @@
 - **Silent catch anti-pattern:** `CopilotManager.pollSessions` was swallowing errors silently. Added `console.warn` for visibility. Silent catches hide production issues — always log at minimum warn level.
 - **Duplicate SDK events root cause:** Four contributing factors: (1) `selectSession` called `resumeSession` unconditionally — even re-selecting the same session fired another resume, accumulating daemon-side event listeners. (2) Only CLI sessions were disconnected on switch-away — SDK sessions never got cleanup. (3) WebSocket client `createSocket()` didn't null old socket handlers, allowing brief duplicate message dispatch during reconnect. (4) Realtime conversation entries lacked id-based dedup. Fix: guard same-session resume, disconnect all types on switch, null old WS handlers, add id-based dedup.
 - **Resume route pattern — disconnect-before-resume:** Server-side safeguard: the resume endpoint now sends `copilot-disconnect-session` before `copilot-resume-session`. This ensures clean daemon state regardless of client behavior. Belt-and-suspenders against stale event listeners.
+- **Project-scoped SDK agent preference:** Persist the remembered Copilot SDK agent on each `ProjectEntry` as `defaultCopilotSdkAgent`, with `null` meaning "use the default agent". Expose a project-scoped GET/PUT route that merges this stored preference with whatever agent catalog the daemon advertises, and only inject `config.agent` into create-session when the caller explicitly chose one or a remembered non-null preference exists.
 
 ### 2026-03-13: Phase 1 Summary
 

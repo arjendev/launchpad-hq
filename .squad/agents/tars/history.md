@@ -127,6 +127,13 @@ Key achievements:
 - Proper ws.terminate() error handling on CONNECTING state
 - TypeScript path imports work correctly with updated tsconfig rootDir
 
+### 2026-03-14: Copilot Custom Agent Discovery & Selection
+- Daemon startup now scans `.github/agents/*.agent.md`, parses YAML frontmatter + markdown body, and produces both HQ-facing catalog entries and SDK `customAgents` runtime definitions.
+- Always include a builtin plain-session entry (`builtin:default`) in the catalog so HQ can keep a no-agent option alongside discovered custom agents.
+- `CopilotManager` remembers the chosen `agentId` per project in memory, injects discovered `customAgents` into every create/resume call, and activates the selection through `session.rpc.agent.select()` / `deselect()`.
+- Agent catalogs are advertised twice: persisted in `register.agentCatalog` for daemon metadata and pushed live via `copilot-agent-catalog` for HQ/browser updates.
+- Validation for this feature: `npm run build:server`, focused Vitest coverage for daemon/protocol/registry files, `npm run build`, and `npm run test`.
+
 ### 2026-03-14: Copilot SDK Auto-Fallback & Daemon Startup Robustness
 - **Root cause:** Daemon crashed in project devcontainers when `@github/copilot-sdk` was not installed and `LAUNCHPAD_COPILOT_MOCK` was not set — `assertSdk()` threw, and stdout buffers didn't flush so logs appeared empty
 - **Fix 1 — Auto-fallback:** `sdk-adapter.ts` now exports `isSdkAvailable()`. `CopilotManager` constructor checks it: if SDK unavailable, falls back to `MockCopilotAdapter` with a `console.warn()` — daemon never crashes due to missing SDK

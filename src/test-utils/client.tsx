@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach } from "vitest";
 import type { ReactNode } from "react";
 import { ProjectProvider } from "../client/contexts/ProjectContext.js";
+import { SessionProvider } from "../client/contexts/SessionContext.js";
 import { WebSocketProvider } from "../client/contexts/WebSocketContext.js";
 import { ThemeProvider } from "../client/contexts/ThemeContext.js";
 
@@ -27,7 +28,9 @@ function TestProviders({ children }: { children: ReactNode }) {
       <MantineProvider defaultColorScheme="light">
         <ThemeProvider>
           <WebSocketProvider url="ws://localhost:0/ws">
-            <ProjectProvider>{children}</ProjectProvider>
+            <ProjectProvider>
+              <SessionProvider>{children}</SessionProvider>
+            </ProjectProvider>
           </WebSocketProvider>
         </ThemeProvider>
       </MantineProvider>
