@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
-import { useSubscription } from "../contexts/WebSocketContext.js";
+import { useSubscription, useWebSocket } from "../contexts/WebSocketContext.js";
 import type {
   DashboardResponse,
   AddProjectRequest,
@@ -545,168 +545,174 @@ export function useConversationEntries(sessionId: string | null): {
   // Accumulate real-time events
   const [realtimeEntries, setRealtimeEntries] = useState<ConversationEntry[]>([]);
 
-  // Subscribe to WebSocket copilot events
-  const { data: wsEvent } = useSubscription<{
-    type: string;
-    sessionId?: string;
-    event?: CopilotSessionEvent;
-    // tool invocation fields
-    tool?: string;
-    args?: Record<string, unknown>;
-    timestamp?: number;
-  }>("copilot");
+  // Subscribe directly to WebSocket copilot channel to avoid event batching loss.
+  // Using useSubscription (which stores only the latest event in useState) causes
+  // React 18 to batch rapid SDK events, losing intermediate assistant replies.
+  const { subscribe } = useWebSocket();
 
-  const prevWsRef = useRef<typeof wsEvent>(null);
   useEffect(() => {
-    if (!wsEvent || wsEvent === prevWsRef.current || !sessionId) return;
-    prevWsRef.current = wsEvent;
+    if (!sessionId) return;
 
-    // Only process events for our session
-    if (wsEvent.sessionId !== sessionId) return;
+    const unsub = subscribe("copilot", (msg) => {
+      const wsEvent = msg.payload as {
+        type: string;
+        sessionId?: string;
+        event?: CopilotSessionEvent;
+        tool?: string;
+        args?: Record<string, unknown>;
+        timestamp?: number;
+      };
 
-    // Event logging for debugging
-    console.log('[LaunchpadHQ Event]', wsEvent.type, wsEvent);
+      // Only process events for our session
+      if (wsEvent.sessionId !== sessionId) return;
 
-    if (wsEvent.type === "copilot:session-event" && wsEvent.event) {
-      const event = wsEvent.event;
-      const ts = new Date(event.timestamp).getTime();
+      // Event logging for debugging
+      console.log('[LaunchpadHQ Event]', wsEvent.type, wsEvent);
 
-      switch (event.type) {
-        case "user.message":
-          setRealtimeEntries((prev) => [
-            ...prev,
-            {
-              id: `rt-user-${ts}`,
-              type: "user",
-              content: event.data.content ?? "",
-              timestamp: ts,
-            },
-          ]);
-          // Also invalidate messages to sync state
-          void qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
-          break;
+      if (wsEvent.type === "copilot:session-event" && wsEvent.event) {
+        const event = wsEvent.event;
+        const ts = new Date(event.timestamp).getTime();
 
-        case "assistant.message_delta": {
-          const delta = event.data.deltaContent ?? "";
-          if (!streamingRef.current) {
-            streamingRef.current = { id: `rt-stream-${ts}`, content: delta };
-          } else {
-            streamingRef.current.content += delta;
-          }
-          setStreamingEntry({
-            id: streamingRef.current.id,
-            type: "assistant",
-            content: streamingRef.current.content,
-            timestamp: ts,
-            isStreaming: true,
-          });
-          break;
-        }
-
-        case "assistant.message":
-          // Final assistant message replaces streaming content
-          streamingRef.current = null;
-          setStreamingEntry(null);
-          setRealtimeEntries((prev) => [
-            ...prev,
-            {
-              id: `rt-asst-${ts}`,
-              type: "assistant",
-              content: event.data.content ?? "",
-              timestamp: ts,
-            },
-          ]);
-          void qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
-          break;
-
-        case "tool.execution_start":
-          setRealtimeEntries((prev) => [
-            ...prev,
-            {
-              id: `rt-tool-${ts}`,
-              type: "tool",
-              content: event.data.toolName,
-              toolName: event.data.toolName,
-              toolStatus: "running",
-              timestamp: ts,
-            },
-          ]);
-          break;
-
-        case "tool.execution_complete":
-          setRealtimeEntries((prev) => {
-            // Find the last running tool entry (SDK doesn't provide toolName in completion)
-            const idx = [...prev].reverse().findIndex(
-              (e) => e.type === "tool" && e.toolStatus === "running",
-            );
-            if (idx >= 0) {
-              const realIdx = prev.length - 1 - idx;
-              const updated = [...prev];
-              updated[realIdx] = {
-                ...updated[realIdx],
-                toolStatus: event.data.success ? "completed" : "failed",
-                content: event.data.result?.content ?? updated[realIdx].content,
-              };
-              return updated;
-            }
-            return [
+        switch (event.type) {
+          case "user.message":
+            setRealtimeEntries((prev) => [
               ...prev,
               {
-                id: `rt-toolcomplete-${ts}`,
-                type: "tool",
-                content: event.data.result?.content ?? "",
-                toolName: "tool",
-                toolStatus: event.data.success ? "completed" : "failed",
+                id: `rt-user-${ts}`,
+                type: "user",
+                content: event.data.content ?? "",
                 timestamp: ts,
               },
-            ];
-          });
-          break;
+            ]);
+            void qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+            break;
 
-        case "session.idle":
-          setRealtimeEntries((prev) => [
-            ...prev,
-            {
-              id: `rt-idle-${ts}`,
-              type: "status",
-              content: "Session idle",
+          case "assistant.message_delta": {
+            const delta = (event.data as { deltaContent?: string }).deltaContent ?? "";
+            // Use ref for streaming accumulation (synchronous, not subject to batching)
+            if (!streamingRef.current) {
+              streamingRef.current = { id: `rt-stream-${ts}`, content: delta };
+            } else {
+              streamingRef.current.content += delta;
+            }
+            setStreamingEntry({
+              id: streamingRef.current.id,
+              type: "assistant",
+              content: streamingRef.current.content,
               timestamp: ts,
-            },
-          ]);
-          break;
+              isStreaming: true,
+            });
+            break;
+          }
 
-        case "session.error":
-          setRealtimeEntries((prev) => [
-            ...prev,
-            {
-              id: `rt-error-${ts}`,
-              type: "error",
-              content: event.data.message ?? "Session error",
-              timestamp: ts,
-            },
-          ]);
-          break;
+          case "assistant.message":
+            // Final assistant message replaces streaming content
+            streamingRef.current = null;
+            setStreamingEntry(null);
+            setRealtimeEntries((prev) => [
+              ...prev,
+              {
+                id: `rt-asst-${ts}`,
+                type: "assistant",
+                content: (event.data as { content?: string }).content ?? "",
+                timestamp: ts,
+              },
+            ]);
+            void qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+            break;
 
-        default:
-          break;
+          case "tool.execution_start":
+            setRealtimeEntries((prev) => [
+              ...prev,
+              {
+                id: `rt-tool-${ts}`,
+                type: "tool",
+                content: (event.data as { toolName?: string }).toolName ?? "",
+                toolName: (event.data as { toolName?: string }).toolName,
+                toolStatus: "running",
+                timestamp: ts,
+              },
+            ]);
+            break;
+
+          case "tool.execution_complete":
+            setRealtimeEntries((prev) => {
+              const idx = [...prev].reverse().findIndex(
+                (e) => e.type === "tool" && e.toolStatus === "running",
+              );
+              if (idx >= 0) {
+                const realIdx = prev.length - 1 - idx;
+                const updated = [...prev];
+                const data = event.data as { success?: boolean; result?: { content?: string } };
+                updated[realIdx] = {
+                  ...updated[realIdx],
+                  toolStatus: data.success ? "completed" : "failed",
+                  content: data.result?.content ?? updated[realIdx].content,
+                };
+                return updated;
+              }
+              const data = event.data as { success?: boolean; result?: { content?: string } };
+              return [
+                ...prev,
+                {
+                  id: `rt-toolcomplete-${ts}`,
+                  type: "tool",
+                  content: data.result?.content ?? "",
+                  toolName: "tool",
+                  toolStatus: data.success ? "completed" : "failed",
+                  timestamp: ts,
+                },
+              ];
+            });
+            break;
+
+          case "session.idle":
+            setRealtimeEntries((prev) => [
+              ...prev,
+              {
+                id: `rt-idle-${ts}`,
+                type: "status",
+                content: "Session idle",
+                timestamp: ts,
+              },
+            ]);
+            break;
+
+          case "session.error":
+            setRealtimeEntries((prev) => [
+              ...prev,
+              {
+                id: `rt-error-${ts}`,
+                type: "error",
+                content: (event.data as { message?: string }).message ?? "Session error",
+                timestamp: ts,
+              },
+            ]);
+            break;
+
+          default:
+            break;
+        }
       }
-    }
 
-    if (wsEvent.type === "copilot:tool-invocation") {
-      const ts = wsEvent.timestamp ?? Date.now();
-      setRealtimeEntries((prev) => [
-        ...prev,
-        {
-          id: `rt-hqtool-${ts}`,
-          type: "hq-tool",
-          content: "",
-          hqToolName: wsEvent.tool,
-          hqToolArgs: wsEvent.args,
-          timestamp: ts,
-        },
-      ]);
-    }
-  }, [wsEvent, sessionId, qc]);
+      if (wsEvent.type === "copilot:tool-invocation") {
+        const ts = wsEvent.timestamp ?? Date.now();
+        setRealtimeEntries((prev) => [
+          ...prev,
+          {
+            id: `rt-hqtool-${ts}`,
+            type: "hq-tool",
+            content: "",
+            hqToolName: wsEvent.tool,
+            hqToolArgs: wsEvent.args,
+            timestamp: ts,
+          },
+        ]);
+      }
+    });
+
+    return unsub;
+  }, [sessionId, subscribe, qc]);
 
   // Reset realtime entries when session changes
   const prevSessionRef = useRef(sessionId);
