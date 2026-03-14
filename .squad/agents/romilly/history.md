@@ -264,3 +264,16 @@ Wave 1 delivered foundational daemon architecture, frontend UI, and backend data
   2. `start()` had no idempotency guard — daemon reconnects (HQ restart) called it again, leaking another `client.on()` listener. One reconnect = 3× events.
   3. `handleCreateSession`/`handleResumeSession` sent explicit synthetic `session.start` events duplicating what `session.on()` already forwarded.
   Fix: (a) `start()` returns immediately if `this.started` is true. (b) `client.on()` handler skips events for sessions already tracked in `activeSessions`. (c) `trackSession(session, skipInitialStart)` suppresses the first `session.start` from `session.on()` when create/resume already sent one explicitly. (d) `trackSession` now cleans up old unsubscriber before attaching new listener.
+
+### Issue #23: Dev Tunnels — Fastify routes + --tunnel CLI flag
+- **Tunnel route plugin:** `src/server/routes/tunnel.ts` — uses `fp` (fastify-plugin) to expose `tunnelManager` as a Fastify decorator. Depends on `websocket` plugin. Routes: GET /api/tunnel (status, never throws), POST /api/tunnel/start (with port resolution from body or server address), POST /api/tunnel/stop, GET /api/tunnel/qr (base64 QR code via `qrcode` npm package).
+- **WS broadcast:** TunnelManager emits `status-change` events → plugin broadcasts `{ type: "tunnel:status", ...state }` on the new `"tunnel"` channel. Added `"tunnel"` to `Channel` union and `VALID_CHANNELS` set in `ws/types.ts`.
+- **--tunnel CLI flag:** Parsed in `loadConfig()` via `process.argv.includes("--tunnel")`. Added `tunnel: boolean` to `ServerConfig`. In `index.ts` `start()`, auto-calls `tunnelManager.start(config.port)` after server listen, with console output for tunnel URL and share URL. Non-fatal — logs warning if tunnel fails.
+- **Parallel build with TARS:** Route plugin imports `TunnelManager` from `../tunnel.js` which TARS is building concurrently. Interface contract: `TunnelManager extends EventEmitter` with `start(port)`, `stop()`, `getStatus()`, `getState()`, `getShareUrl()`, `generateToken()`, `isCliAvailable()`. Emits `status-change` event.
+- **Package additions:** `qrcode` (runtime) + `@types/qrcode` (devDep) installed for QR code generation.
+
+### Cross-Team Summary (2026-03-14 orchestration)
+- TARS completed TunnelManager with EventEmitter status, CLI token generation, and singleton factory
+- Brand integrated TunnelButton/Modal UI with REST polling hooks and QR code display
+- Coordinator fixed TS2783 duplicate error property in tunnel routes
+- All work committed; tunnel feature ready for testing

@@ -602,3 +602,82 @@ Stable interface for HQ to manage per-project agent selection without coupling t
 
 ---
 
+
+---
+
+### Decision: TunnelManager Implementation Pattern
+
+**Date:** 2026-03-14
+**By:** TARS
+**Issue:** #23 (Dev Tunnels Integration)
+
+## Decision
+
+TunnelManager is a single-file module (`src/server/tunnel.ts`) wrapping the `devtunnel` CLI via `child_process.spawn`/`execFile`. Exposed as an EventEmitter with a singleton factory (`getTunnelManager()`).
+
+## Key choices
+
+1. **CLI wrapping, not SDK** — No official Microsoft Node.js SDK exists for Dev Tunnels. CLI wrapping is the canonical approach, consistent with the earlier research finding.
+
+2. **Singleton factory** — `getTunnelManager(options)` creates-or-returns a shared instance. Romilly can import this directly in her Fastify plugin without needing a Fastify decorator. `resetTunnelManager()` provided for test isolation.
+
+3. **Anonymous + token hybrid** — `start()` uses `--allow-anonymous` for immediate connectivity. `generateToken()` is separate so the QR code flow can optionally layer on token auth for tighter security. Share URL embeds the token as a query parameter.
+
+4. **EventEmitter for status** — Emits `status-change` with full `TunnelState` snapshot. This lets the WebSocket layer (or any consumer) subscribe to tunnel lifecycle without polling.
+
+## Impact on other agents
+
+- **Romilly:** Import `getTunnelManager` and `TunnelState` to build the Fastify plugin/routes for tunnel control and status API.
+- **Brand:** `TunnelState` type is the contract for the frontend tunnel status widget. `shareUrl` field is ready for QR code rendering.
+
+---
+
+### Decision: Tunnel plugin uses fp (fastify-plugin) pattern
+
+**By:** Romilly
+**Date:** 2026-03-14
+**Issue:** #23
+
+## Decision
+
+The tunnel route plugin (`src/server/routes/tunnel.ts`) uses `fastify-plugin` (`fp`) rather than a plain `FastifyPluginAsync`, exposing `tunnelManager` as a Fastify instance decorator.
+
+## Why
+
+The `--tunnel` CLI flag needs to call `server.tunnelManager.start()` in `index.ts` after server boot. Without `fp`, the decoration would be scoped to the plugin's encapsulation context and invisible to the parent. This matches the pattern used by `attention/plugin.ts` and `ws/plugin.ts`.
+
+## Alternatives considered
+
+- Separate plugin file + route file (like attention has `plugin.ts` + routes in the same file): Overkill since tunnel has no complex initialization dependencies. Single file is cleaner.
+- Module-level singleton TunnelManager: Would bypass Fastify's lifecycle hooks (onClose cleanup, dependency ordering). Decorator pattern is more testable and idiomatic.
+
+## Impact
+
+Other plugins/routes can access `fastify.tunnelManager` if needed (e.g., a future dashboard route that shows tunnel status inline). The `"tunnel"` WebSocket channel was added to `ws/types.ts` for real-time status broadcasts.
+
+---
+
+### Decision: Tunnel UI uses REST polling, not WebSocket
+
+**By:** Brand (Frontend Dev)
+**Date:** 2026-03-14
+**Context:** Issue #23 — Dev Tunnels Integration
+
+## Decision
+
+The tunnel status UI polls `GET /api/tunnel` every 5 seconds via TanStack Query rather than using a WebSocket subscription channel.
+
+## Rationale
+
+- Tunnel state changes infrequently (start/stop are user-initiated, not continuous)
+- 5-second polling is more than responsive enough for this use case
+- Avoids adding a new WS channel and server broadcast logic for minimal benefit
+- QR code data is fetched on-demand only when the modal is open and tunnel is running
+
+## Upgrade path
+
+If Romilly adds a `tunnel` WebSocket channel later, the frontend can switch to `useSubscription("tunnel")` + query cache patching (the standard REST+WS merge pattern already used for daemons/sessions).
+
+## Impact
+
+Low — routine implementation choice. No framework or API surface change.
