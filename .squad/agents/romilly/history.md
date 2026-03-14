@@ -227,3 +227,25 @@ Wave 1 delivered foundational daemon architecture, frontend UI, and backend data
 **Tests:** 669 passing (17 new). Existing tests updated to use `getInternalSession()` for internal field assertions and verify client responses are stripped.
 
 **Pattern:** Request-response for GET routes uses `waitForResponse(requestId)` → daemon responds → `resolveRequest(requestId, data)`. Fire-and-forget for POST/DELETE operations returns `{ ok: true }` immediately.
+
+## Learnings
+
+### Inbox System Backend (Session 7)
+
+**Built:** Full inbox system backend — types, persistence, routes, tool-invocation wiring.
+
+**Files changed:**
+- `src/server/state/types.ts` — Added `InboxMessage`, `ProjectInbox`, `defaultProjectInbox()`, extended `StateService` with `getInbox()`/`saveInbox()`
+- `src/server/state/state-manager.ts` — Implemented `getInbox()`/`saveInbox()` using existing `readState()`/`writeState()` private helpers. Inbox files stored at `inbox/{owner}/{repo}.json` in launchpad-state repo.
+- `src/client/services/types.ts` — Added `InboxMessage`, `InboxListResponse`, `InboxCountResponse` for client consumption.
+- `src/server/ws/types.ts` — Added `"inbox"` channel to `Channel` union and `VALID_CHANNELS` set.
+- `src/server/routes/inbox.ts` — New Fastify route plugin: `GET /api/projects/:owner/:repo/inbox` (list+filter), `GET .../inbox/count` (badge), `PATCH .../inbox/:id` (status update). Broadcasts on "inbox" channel after PATCH.
+- `src/server/index.ts` — Registered `inboxRoutes` plugin.
+- `src/server/copilot-aggregator/plugin.ts` — Extended the `tool-invocation` event handler: when `request_human_review` or `report_blocker` fires, creates `InboxMessage` via `crypto.randomUUID()`, persists via `stateService.getInbox()/saveInbox()`, broadcasts `inbox:new-message` on the "inbox" WS channel. Fire-and-forget with error logging.
+
+**Pattern:** Inbox paths are per-project (`inbox/{owner}/{repo}.json`), unlike config/preferences/enrichment which are global single files. The `readState()`/`writeState()` helpers work fine for arbitrary paths — no new generic plumbing needed.
+
+**Key decisions:**
+- Title derivation: `args.title ?? args.message ?? args.reason ?? tool name` — covers all tool arg shapes.
+- Fire-and-forget persistence in the tool-invocation handler — no `await` so it doesn't block the event loop; errors logged.
+- Separate "inbox" WS channel (not reusing "attention") to allow targeted subscriptions.
