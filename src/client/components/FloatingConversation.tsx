@@ -1,4 +1,5 @@
 import { Badge, CloseButton, Group, Paper, Text, Transition } from "@mantine/core";
+import { useEffect } from "react";
 import { CopilotConversation } from "./CopilotConversation.js";
 import { Terminal } from "./Terminal.js";
 import { useAggregatedSession } from "../services/hooks.js";
@@ -21,6 +22,24 @@ export function FloatingConversation({
     : null;
   const { daemon } = useDaemonForProject(projectId ?? undefined);
   const isCliSession = sessionData?.sessionType === "copilot-cli";
+
+  // Resume CLI session on attach (replays any buffered output)
+  useEffect(() => {
+    if (!isCliSession || !sessionId) return;
+    fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/resume`, {
+      method: "POST",
+    }).catch(() => {});
+  }, [isCliSession, sessionId]);
+
+  const handleClose = () => {
+    if (isCliSession && sessionId) {
+      // Tell daemon to buffer output while detached
+      fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/disconnect`, {
+        method: "POST",
+      }).catch(() => {});
+    }
+    onClose();
+  };
 
   return (
     <Transition mounted transition="slide-up" duration={250} timingFunction="ease">
@@ -71,7 +90,7 @@ export function FloatingConversation({
             <CloseButton
               size="sm"
               aria-label="Close conversation"
-              onClick={onClose}
+              onClick={handleClose}
               data-testid="floating-close"
             />
           </Group>
@@ -79,9 +98,9 @@ export function FloatingConversation({
           {/* Conversation body */}
           <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
             {isCliSession && daemon ? (
-              <Terminal daemonId={daemon.daemonId} onClose={onClose} />
+              <Terminal daemonId={daemon.daemonId} terminalId={sessionId} onClose={handleClose} />
             ) : (
-              <CopilotConversation sessionId={sessionId} sessionType={sessionData?.sessionType} onClose={onClose} />
+              <CopilotConversation sessionId={sessionId} sessionType={sessionData?.sessionType} onClose={handleClose} />
             )}
           </div>
         </Paper>
