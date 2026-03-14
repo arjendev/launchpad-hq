@@ -9,10 +9,12 @@ export interface ServerConfig {
   isDev: boolean;
   clientDistPath: string;
   corsOrigin: string;
+  tunnel: boolean;
 }
 
 export function loadConfig(): ServerConfig {
   const isDev = process.env.NODE_ENV !== "production";
+  const args = process.argv.slice(2);
 
   return {
     port: Number(process.env.PORT) || 3000,
@@ -23,5 +25,6 @@ export function loadConfig(): ServerConfig {
       ? resolve(process.cwd(), "dist", "client")
       : resolve(__dirname, "..", "client"),
     corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    tunnel: args.includes("--tunnel"),
   };
 }

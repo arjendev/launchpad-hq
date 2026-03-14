@@ -27,6 +27,7 @@ import copilotSessionRoutes from "./routes/copilot-sessions.js";
 import inboxRoutes from "./routes/inbox.js";
 import selfDaemonPlugin from "./self-daemon/plugin.js";
 import selfDaemonRoutes from "./routes/self-daemon.js";
+import tunnelPlugin from "./routes/tunnel.js";
 
 const config = loadConfig();
 
@@ -100,6 +101,10 @@ await server.register(inboxRoutes);
 await server.register(selfDaemonPlugin);
 await server.register(selfDaemonRoutes);
 
+// --- Tunnel (Dev Tunnels integration for remote access) ---
+
+await server.register(tunnelPlugin);
+
 // --- Lifecycle ---
 
 async function start() {
@@ -108,6 +113,21 @@ async function start() {
     console.log(
       `🚀 launchpad-hq running on http://${config.host}:${config.port} (${config.isDev ? "dev" : "production"})`,
     );
+
+    // Auto-start tunnel if --tunnel flag was passed
+    if (config.tunnel) {
+      try {
+        const info = await server.tunnelManager.start(config.port);
+        console.log(`🔗 Dev tunnel active: ${info.url}`);
+        const shareUrl = server.tunnelManager.getShareUrl();
+        if (shareUrl) {
+          console.log(`📱 Share URL: ${shareUrl}`);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`⚠️  Tunnel failed to start: ${message}`);
+      }
+    }
   } catch (err) {
     if (err instanceof GitHubAuthError) {
       console.error(`\n❌ ${err.message}\n`);
