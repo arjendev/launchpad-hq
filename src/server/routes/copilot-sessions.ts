@@ -287,6 +287,26 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
     },
   );
 
+  /** POST /api/copilot/aggregated/sessions/:sessionId/delete — End/delete a session */
+  server.post<{ Params: { sessionId: string } }>(
+    "/api/copilot/aggregated/sessions/:sessionId/delete",
+    async (request, reply) => {
+      const { sessionId } = request.params;
+
+      const ok = sendToDaemon(server, sessionId, reply, () => ({
+        type: "copilot-delete-session",
+        timestamp: Date.now(),
+        payload: { sessionId },
+      }));
+      if (!ok) return;
+
+      // Tombstone locally so UI sees it immediately
+      server.copilotAggregator.removeSession(sessionId);
+
+      return reply.send({ ok: true });
+    },
+  );
+
   /** POST /api/copilot/aggregated/sessions/:sessionId/disconnect — Disconnect session */
   server.post<{ Params: { sessionId: string } }>(
     "/api/copilot/aggregated/sessions/:sessionId/disconnect",
