@@ -62,3 +62,17 @@ html *::after {
     opacity: 0.5;
   }
 }
+
+/* ── Mobile adjustments ──────────────────────────────── */
+@media (max-width: 768px) {
+  /* Prevent rubber-banding / overscroll on iOS */
+  html, body {
+    overscroll-behavior: none;
+  }
+
+  /* Ensure tap targets are at least 44px */
+  button,
+  [role="button"] {
+    min-height: 36px;
+  }
+}
