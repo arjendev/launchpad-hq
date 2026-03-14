@@ -102,6 +102,22 @@ export interface SessionConfigWire {
   streaming?: boolean;
 }
 
+/** Sub-agent definition for multi-agent coordination */
+export interface SubAgentDefinitionWire {
+  name: string;
+  description: string;
+  model?: string;
+  systemMessage?: string;
+}
+
+/** Configuration for creating a coordinated multi-agent session */
+export interface CoordinatorConfigWire {
+  model?: string;
+  systemMessage?: string;
+  agents: SubAgentDefinitionWire[];
+  infiniteSessions?: boolean;
+}
+
 /** Attention item surfaced by the daemon */
 export interface AttentionItem {
   id: string;
@@ -248,6 +264,28 @@ export interface AuthResponseMessage extends BaseMessage<'auth-response'> {
   };
 }
 
+/** Daemon → HQ: agent requests permission for a tool call */
+export interface CopilotPermissionRequestMessage extends BaseMessage<'copilot-permission-request'> {
+  payload: {
+    projectId: string;
+    sessionId: string;
+    requestId: string;
+    toolName: string;
+    toolArgs: Record<string, unknown>;
+  };
+}
+
+/** Daemon → HQ: agent requests user input */
+export interface CopilotUserInputRequestMessage extends BaseMessage<'copilot-user-input-request'> {
+  payload: {
+    projectId: string;
+    sessionId: string;
+    requestId: string;
+    question: string;
+    choices?: string[];
+  };
+}
+
 export type DaemonToHqMessage =
   | RegisterMessage
   | HeartbeatMessage
@@ -264,7 +302,9 @@ export type DaemonToHqMessage =
   | CopilotAuthStatusMessage
   | AttentionItemMessage
   | CopilotToolInvocationMessage
-  | AuthResponseMessage;
+  | AuthResponseMessage
+  | CopilotPermissionRequestMessage
+  | CopilotUserInputRequestMessage;
 
 // ---------------------------------------------------------------------------
 // HQ → Daemon messages
@@ -409,6 +449,32 @@ export interface CopilotDeleteSessionMessage extends BaseMessage<'copilot-delete
   payload: { sessionId: string };
 }
 
+export interface CopilotCreateCoordinatedSessionMessage extends BaseMessage<'copilot-create-coordinated-session'> {
+  payload: {
+    requestId: string;
+    config: CoordinatorConfigWire;
+  };
+}
+
+/** HQ → Daemon: permission decision from user */
+export interface CopilotPermissionResponseMessage extends BaseMessage<'copilot-permission-response'> {
+  payload: {
+    requestId: string;
+    sessionId: string;
+    decision: 'allow' | 'deny';
+  };
+}
+
+/** HQ → Daemon: user input response */
+export interface CopilotUserInputResponseMessage extends BaseMessage<'copilot-user-input-response'> {
+  payload: {
+    requestId: string;
+    sessionId: string;
+    answer: string;
+    wasFreeform: boolean;
+  };
+}
+
 export type HqToDaemonMessage =
   | AuthChallengeMessage
   | AuthAcceptMessage
@@ -432,7 +498,10 @@ export type HqToDaemonMessage =
   | CopilotDeletePlanMessage
   | CopilotDisconnectSessionMessage
   | CopilotListModelsMessage
-  | CopilotDeleteSessionMessage;
+  | CopilotDeleteSessionMessage
+  | CopilotCreateCoordinatedSessionMessage
+  | CopilotPermissionResponseMessage
+  | CopilotUserInputResponseMessage;
 
 // ---------------------------------------------------------------------------
 // Combined union — every message that can travel over the wire
