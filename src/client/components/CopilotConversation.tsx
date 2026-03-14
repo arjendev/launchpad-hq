@@ -611,6 +611,7 @@ export function CopilotConversation({
 
   const sendPrompt = useSendPrompt();
   const abortSession = useAbortSession();
+  const endSession = useEndSession();
 
   const [promptText, setPromptText] = useState("");
   const [controlPanelOpen, setControlPanelOpen] = useState(false);
@@ -667,8 +668,8 @@ export function CopilotConversation({
   }, [sessionId, abortSession]);
 
   const handleEndSession = useCallback(() => {
-    abortSession.mutate(sessionId, { onSuccess: () => onClose?.() });
-  }, [sessionId, abortSession, onClose]);
+    endSession.mutate(sessionId, { onSuccess: () => onClose?.() });
+  }, [sessionId, endSession, onClose]);
 
   // ── Render ─────────────────────────────────────────
 
@@ -713,10 +714,10 @@ export function CopilotConversation({
               variant="subtle"
               color="red"
               onClick={handleEndSession}
-              loading={abortSession.isPending}
+              loading={endSession.isPending}
               data-testid="end-session-button"
             >
-              ✕ End
+              🛑 End Session
             </Button>
           </Group>
         </Group>
