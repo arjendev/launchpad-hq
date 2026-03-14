@@ -169,29 +169,25 @@ export function useDaemonForProject(projectId: string | undefined): {
 // ── Aggregated Copilot Sessions ────────────────────────
 
 /** Fetch aggregated copilot sessions across all daemons, polling every 5 seconds. */
-export function useAggregatedSessions(_projectId?: string): {
+export function useAggregatedSessions(projectId?: string): {
   sessions: AggregatedSession[];
   isLoading: boolean;
   isError: boolean;
   error: Error | null;
 } {
   const query = useQuery<{ sessions: AggregatedSession[]; count: number }>({
-    queryKey: ["aggregated-sessions"],
-    queryFn: () =>
-      fetchJson<{ sessions: AggregatedSession[]; count: number }>(
-        "/api/copilot/aggregated/sessions",
-      ),
+    queryKey: ["aggregated-sessions", projectId],
+    queryFn: () => {
+      const url = projectId
+        ? `/api/copilot/aggregated/sessions?projectId=${encodeURIComponent(projectId)}`
+        : "/api/copilot/aggregated/sessions";
+      return fetchJson<{ sessions: AggregatedSession[]; count: number }>(url);
+    },
     refetchInterval: 5_000,
   });
 
-  const sessions = useMemo(() => {
-    const all = query.data?.sessions ?? [];
-    // projectId filtering removed — sessions no longer carry projectId
-    return all;
-  }, [query.data]);
-
   return {
-    sessions,
+    sessions: query.data?.sessions ?? [],
     isLoading: query.isLoading,
     isError: query.isError,
     error: query.error,
@@ -1174,11 +1170,15 @@ export function useConversationEntries(sessionId: string | null): {
     // 1. Add REST messages
     if (messagesData?.messages) {
       for (const msg of messagesData.messages) {
+        const meta = msg.metadata;
+        const eventData: Record<string, unknown> | undefined =
+          meta && Object.keys(meta).length > 0 ? { ...meta } : undefined;
         result.push({
           id: `msg-${msg.timestamp}-${msg.role}`,
           type: msg.role === "user" ? "user" : msg.role === "assistant" ? "assistant" : "status",
           content: msg.content,
           timestamp: msg.timestamp,
+          ...(eventData ? { eventData } : {}),
         });
       }
     }
