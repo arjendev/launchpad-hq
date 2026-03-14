@@ -1,5 +1,4 @@
 import { Badge, CloseButton, Group, Paper, Text, Tooltip, Transition } from "@mantine/core";
-import { useEffect } from "react";
 import { CopilotConversation } from "./CopilotConversation.js";
 import { Terminal } from "./Terminal.js";
 import { useAggregatedSession } from "../services/hooks.js";
@@ -26,14 +25,6 @@ export function FloatingConversation({
   // Use prop first (immediate), fall back to query (lazy)
   const resolvedSessionType = propSessionType ?? sessionData?.sessionType;
   const isCliSession = resolvedSessionType === "copilot-cli";
-
-  // Resume CLI session on attach (replays any buffered output)
-  useEffect(() => {
-    if (!isCliSession || !sessionId) return;
-    fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/resume`, {
-      method: "POST",
-    }).catch(() => {});
-  }, [isCliSession, sessionId]);
 
   const handleClose = () => {
     if (isCliSession && sessionId) {

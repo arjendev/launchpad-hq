@@ -4,6 +4,7 @@ import {
   type FastifyInstance,
 } from "../../test-utils/server.js";
 import websocket from "../ws/plugin.js";
+import terminalRelayPlugin from "../terminal-relay/plugin.js";
 import daemonRegistryPlugin from "../daemon-registry/plugin.js";
 import copilotAggregatorPlugin from "../copilot-aggregator/plugin.js";
 import { CopilotSessionAggregator } from "../copilot-aggregator/aggregator.js";
@@ -57,6 +58,7 @@ function makeSessionInfo(overrides: Partial<{ sessionId: string; startTime: Date
 async function buildServer() {
   const server = await createTestServer();
   await server.register(websocket);
+  await server.register(terminalRelayPlugin);
   await server.register(daemonRegistryPlugin);
   await server.register(copilotAggregatorPlugin);
   await server.register(copilotSessionRoutes);

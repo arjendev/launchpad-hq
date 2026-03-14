@@ -18,11 +18,9 @@ declare module 'fastify' {
 
 async function terminalRelayPlugin(fastify: FastifyInstance) {
   const relay = new TerminalRelay(
-    // Send to browser: use the WS connection manager broadcast to a specific client
-    (clientId, _channel, payload) => {
-      // Use the ws decorator to send to a specific client via broadcast
-      // Since ConnectionManager.send requires a ServerMessage, we format it
-      fastify.ws.broadcast('terminal' as never, payload);
+    // Send to a specific browser client by clientId
+    (clientId, channel, payload) => {
+      fastify.ws.sendToClient(clientId, channel as never, payload);
     },
     // Send to daemon: use the daemon registry
     (daemonId, message) => {
@@ -39,5 +37,5 @@ async function terminalRelayPlugin(fastify: FastifyInstance) {
 
 export default fp(terminalRelayPlugin, {
   name: 'terminal-relay',
-  dependencies: ['websocket', 'daemon-registry'],
+  dependencies: ['websocket'],
 });

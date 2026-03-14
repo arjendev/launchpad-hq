@@ -120,7 +120,9 @@ describe('CliSessionManager', () => {
     it('sends terminal-data to HQ when attached', () => {
       const { sent, manager } = setup();
       const sessionId = manager.createSession('req-a');
-      sent.length = 0; // clear the session.start event
+      // Sessions start detached — resume to attach before sending data
+      manager.resumeSession(sessionId);
+      sent.length = 0; // clear the session.start event and any buffered replay
 
       // Simulate PTY output
       mockPty._dataCallback!('hello world');

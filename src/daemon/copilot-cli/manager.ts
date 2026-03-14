@@ -77,7 +77,7 @@ export class CliSessionManager {
       id: sessionId,
       ptyProcess,
       outputBuffer: [],
-      attached: true,
+      attached: false,
       startedAt: Date.now(),
       updatedAt: Date.now(),
       summary: 'Copilot CLI terminal',

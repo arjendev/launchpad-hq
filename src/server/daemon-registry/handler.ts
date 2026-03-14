@@ -9,6 +9,7 @@ import type {
 } from "../../shared/protocol.js";
 import { validateDaemonToken } from "../../shared/auth.js";
 import type { DaemonRegistry } from "./registry.js";
+import type { TerminalRelay } from "../terminal-relay/relay.js";
 
 /** Per-connection state machine for the auth handshake */
 interface PendingConnection {
@@ -37,6 +38,7 @@ export class DaemonWsHandler {
     private tokenLookup: TokenLookup,
     private broadcast: BrowserBroadcast,
     private log: FastifyBaseLogger,
+    private terminalRelay?: TerminalRelay,
   ) {}
 
   /** Called when a new daemon WebSocket connects */
@@ -159,21 +161,41 @@ export class DaemonWsHandler {
       }
 
       case "terminal-data":
-        this.broadcast("terminal", {
-          type: "terminal:data",
-          projectId: msg.payload.projectId,
-          sessionId: msg.payload.sessionId,
-          data: msg.payload.data,
-        });
+        if (this.terminalRelay) {
+          // Route through relay — sends only to clients joined to this terminal
+          const daemonIdForData = this.wsToDaemonId.get(ws) ?? msg.payload.projectId;
+          this.terminalRelay.forwardFromDaemon(
+            daemonIdForData,
+            msg.payload.sessionId,
+            msg.payload.data,
+          );
+        } else {
+          // Fallback: broadcast to all terminal subscribers
+          this.broadcast("terminal", {
+            type: "terminal:data",
+            projectId: msg.payload.projectId,
+            sessionId: msg.payload.sessionId,
+            data: msg.payload.data,
+          });
+        }
         break;
 
       case "terminal-exit":
-        this.broadcast("terminal", {
-          type: "terminal:exit",
-          projectId: msg.payload.projectId,
-          terminalId: msg.payload.terminalId,
-          exitCode: msg.payload.exitCode,
-        });
+        if (this.terminalRelay) {
+          const daemonIdForExit = this.wsToDaemonId.get(ws) ?? msg.payload.projectId;
+          this.terminalRelay.forwardExitFromDaemon(
+            daemonIdForExit,
+            msg.payload.terminalId,
+            msg.payload.exitCode,
+          );
+        } else {
+          this.broadcast("terminal", {
+            type: "terminal:exit",
+            projectId: msg.payload.projectId,
+            terminalId: msg.payload.terminalId,
+            exitCode: msg.payload.exitCode,
+          });
+        }
         break;
 
       case "copilot-session-list":
