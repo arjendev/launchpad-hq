@@ -47,8 +47,7 @@ export function useTerminal({
 
       if (payload.type === "terminal:data") {
         const dp = payload as TerminalDataPayload;
-        // Match by sessionId (daemon sends terminal ID as sessionId for data)
-        if (dp.sessionId === terminalId) {
+        if (dp.terminalId === terminalId) {
           onDataRef.current?.(dp.data);
         }
       } else if (payload.type === "terminal:exit") {

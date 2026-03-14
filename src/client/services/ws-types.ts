@@ -72,14 +72,14 @@ export type ClientMessage =
 
 export interface TerminalDataPayload {
   type: "terminal:data";
-  projectId: string;
-  sessionId: string;
+  daemonId: string;
+  terminalId: string;
   data: string;
 }
 
 export interface TerminalExitPayload {
   type: "terminal:exit";
-  projectId: string;
+  daemonId: string;
   terminalId: string;
   exitCode: number;
 }
