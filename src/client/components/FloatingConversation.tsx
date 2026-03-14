@@ -1,4 +1,4 @@
-import { Badge, CloseButton, Group, Paper, Text, Transition } from "@mantine/core";
+import { Badge, CloseButton, Group, Paper, Text, Tooltip, Transition } from "@mantine/core";
 import { useEffect } from "react";
 import { CopilotConversation } from "./CopilotConversation.js";
 import { Terminal } from "./Terminal.js";
@@ -76,9 +76,11 @@ export function FloatingConversation({
             }}
           >
             <Group gap="xs" style={{ flex: 1, minWidth: 0 }}>
-              <Text size="sm" fw={600} truncate>
-                Session {sessionId.slice(0, 8)}
-              </Text>
+              <Tooltip label={sessionData?.summary ?? sessionId} openDelay={400}>
+                <Text size="sm" fw={600} truncate>
+                  Session — {sessionData?.summary ?? sessionData?.title ?? sessionId.slice(0, 8)}
+                </Text>
+              </Tooltip>
               {resolvedSessionType && (
                 <Badge size="xs" variant="outline" color={
                   resolvedSessionType === "copilot-cli" ? "teal"

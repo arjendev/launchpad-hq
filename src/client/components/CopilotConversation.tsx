@@ -14,18 +14,19 @@ import {
   Stack,
   Text,
   TextInput,
+  Tooltip,
 } from "@mantine/core";
 import {
   useAggregatedSession,
   useConversationEntries,
   useSendPrompt,
   useAbortSession,
+  useEndSession,
   useListModels,
   useSetModel,
   useSetMode,
   useGetPlan,
   useDeletePlan,
-  useDisconnectSession,
 } from "../services/hooks.js";
 import type { ConversationEntry } from "../services/types.js";
 
@@ -388,10 +389,19 @@ const EventCard = memo(function EventCard({ entry }: { entry: ConversationEntry 
             parentSessionId={entry.eventData.parentSessionId as string | undefined}
           />
         )}
-        <Text size="xs" c="dimmed" truncate style={{ flex: 1 }}>
-          {entry.content}
-          {entry.isStreaming && " ⏳"}
-        </Text>
+        <Tooltip
+          label={entry.content ?? ""}
+          multiline
+          maw={400}
+          openDelay={300}
+          withArrow
+          disabled={!entry.content || entry.content.length < 60}
+        >
+          <Text size="xs" c="dimmed" truncate style={{ flex: 1 }}>
+            {entry.content}
+            {entry.isStreaming && " ⏳"}
+          </Text>
+        </Tooltip>
       </Group>
     </Paper>
   );
@@ -460,7 +470,6 @@ function SdkControlPanel({ sessionId }: { sessionId: string }) {
   const setModel = useSetModel();
   const setMode = useSetMode();
   const deletePlan = useDeletePlan();
-  const disconnectSession = useDisconnectSession();
 
   const [planExpanded, setPlanExpanded] = useState(false);
 
@@ -539,17 +548,6 @@ function SdkControlPanel({ sessionId }: { sessionId: string }) {
         </Collapse>
       </Stack>
 
-      {/* Disconnect */}
-      <Button
-        size="compact-xs"
-        variant="light"
-        color="orange"
-        onClick={() => disconnectSession.mutate(sessionId)}
-        loading={disconnectSession.isPending}
-        fullWidth
-      >
-        ⛓️‍💥 Disconnect
-      </Button>
     </Stack>
   );
 }
@@ -611,6 +609,7 @@ export function CopilotConversation({
 
   const sendPrompt = useSendPrompt();
   const abortSession = useAbortSession();
+  const endSession = useEndSession();
 
   const [promptText, setPromptText] = useState("");
   const [controlPanelOpen, setControlPanelOpen] = useState(false);
@@ -667,8 +666,8 @@ export function CopilotConversation({
   }, [sessionId, abortSession]);
 
   const handleEndSession = useCallback(() => {
-    abortSession.mutate(sessionId, { onSuccess: () => onClose?.() });
-  }, [sessionId, abortSession, onClose]);
+    endSession.mutate(sessionId, { onSuccess: () => onClose?.() });
+  }, [sessionId, endSession, onClose]);
 
   // ── Render ─────────────────────────────────────────
 
@@ -689,7 +688,7 @@ export function CopilotConversation({
               </Button>
             )}
             <Text size="sm" fw={600} truncate>
-              {session?.title ?? `Session ${sessionId.slice(0, 8)}`}
+              {session?.summary ?? session?.title ?? `Session ${sessionId.slice(0, 8)}`}
             </Text>
           </Group>
           <Group gap={4} wrap="nowrap">
@@ -713,10 +712,10 @@ export function CopilotConversation({
               variant="subtle"
               color="red"
               onClick={handleEndSession}
-              loading={abortSession.isPending}
+              loading={endSession.isPending}
               data-testid="end-session-button"
             >
-              ✕ End
+              🛑 End
             </Button>
           </Group>
         </Group>
