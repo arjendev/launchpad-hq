@@ -23,6 +23,7 @@ import type {
 } from '../../shared/protocol.js';
 import { createHqTools } from './hq-tools.js';
 import { buildSystemMessage } from './system-message.js';
+import { logIncoming, logOutgoing, logSdk } from '../logger.js';
 
 // ---------------------------------------------------------------------------
 // SDK dynamic import — safe when package is not installed
@@ -100,7 +101,11 @@ export class CopilotManager {
   private started = false;
 
   constructor(options: CopilotManagerOptions) {
-    this.sendToHq = options.sendToHq;
+    this.sendToHq = (msg: DaemonToHqMessage) => {
+      const { type, timestamp, ...rest } = msg;
+      logOutgoing(type, 'payload' in rest ? (rest as Record<string, unknown>).payload : rest);
+      options.sendToHq(msg);
+    };
     this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     this.projectId = options.projectId ?? 'unknown';
     this.projectName = options.projectName;
@@ -204,6 +209,8 @@ export class CopilotManager {
 
   /** Handle an incoming HQ → Daemon message (copilot-* commands) */
   async handleMessage(msg: HqToDaemonMessage): Promise<void> {
+    logIncoming(msg.type, msg.payload);
+
     switch (msg.type) {
       case 'copilot-create-session':
         await this.handleCreateSession(msg.payload.requestId, msg.payload.config);
@@ -292,6 +299,7 @@ export class CopilotManager {
     try {
       const sdkConfig = this.buildSdkConfig(config);
       const session = await this.client.createSession(sdkConfig);
+      logSdk(`Session created: ${session.sessionId}`);
       this.trackSession(session);
 
       // SDK will emit session.start via the event handler, but we also send
@@ -395,6 +403,7 @@ export class CopilotManager {
       if (unsub) unsub();
       this.sessionUnsubscribers.delete(sessionId);
       this.activeSessions.delete(sessionId);
+      logSdk(`Session removed: ${sessionId}`);
     }
 
     // Always try to delete from SDK registry
@@ -502,6 +511,7 @@ export class CopilotManager {
     if (unsub) unsub();
     this.sessionUnsubscribers.delete(sessionId);
     this.activeSessions.delete(sessionId);
+    logSdk(`Session removed: ${sessionId}`);
 
     this.sendToHq({
       type: 'copilot-session-event',
@@ -537,6 +547,7 @@ export class CopilotManager {
       if (unsub) unsub();
       this.sessionUnsubscribers.delete(sessionId);
       this.activeSessions.delete(sessionId);
+      logSdk(`Session removed: ${sessionId}`);
     }
 
     // Delete from SDK registry (permanent)
@@ -580,6 +591,7 @@ export class CopilotManager {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private trackSession(session: any): void {
     this.activeSessions.set(session.sessionId, session);
+    logSdk(`Session tracked: ${session.sessionId} (event listener attached)`);
 
     const unsub = session.on((event: SessionEvent) => {
       this.sendToHq({
