@@ -401,3 +401,25 @@ export interface InboxListResponse {
 export interface InboxCountResponse {
   unread: number;
 }
+
+// ── Tunnel types (match server /api/tunnel routes) ────
+
+export type TunnelStatus = "stopped" | "starting" | "running" | "stopping" | "error";
+
+export interface TunnelInfo {
+  url: string;
+  tunnelId: string;
+  port: number;
+}
+
+export interface TunnelState {
+  status: TunnelStatus;
+  info: TunnelInfo | null;
+  shareUrl: string | null;
+  error: string | null;
+}
+
+export interface TunnelQrResponse {
+  shareUrl: string;
+  qrDataUrl: string;
+}

@@ -51,3 +51,14 @@ html *::after {
   --lp-kanban-progress: #d97706;
   --lp-kanban-done: #16a34a;
 }
+
+/* ── Tunnel pulse animation ─────────────────────────── */
+@keyframes tunnel-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}

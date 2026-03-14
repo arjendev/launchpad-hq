@@ -7,6 +7,7 @@ import { InboxPanel } from "../components/InboxPanel.js";
 import { ResizableTerminalPanel } from "../components/ResizableTerminalPanel.js";
 import { ConnectionStatus } from "../components/ConnectionStatus.js";
 import { ThemeToggle } from "../components/ThemeToggle.js";
+import { TunnelButton } from "../components/TunnelButton.js";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { useSelectedSession } from "../contexts/SessionContext.js";
 import { useDaemonForProject } from "../services/hooks.js";
@@ -27,6 +28,7 @@ export function DashboardLayout() {
         <Group h="100%" px="md" justify="space-between">
           <Title order={3}>🚀 launchpad-hq</Title>
           <Group gap="xs">
+            <TunnelButton />
             <ThemeToggle />
             <ConnectionStatus />
           </Group>
