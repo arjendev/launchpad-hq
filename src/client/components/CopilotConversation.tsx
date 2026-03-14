@@ -17,6 +17,7 @@ import {
   TextInput,
   Tooltip,
 } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import {
   useAggregatedSession,
   useConversationEntries,
@@ -834,6 +835,7 @@ export function CopilotConversation({
   const [promptText, setPromptText] = useState("");
   const [showRawEvents, setShowRawEvents] = useState(false);
   const [expandedView, setExpandedView] = useState(false);
+  const isMobile = useMediaQuery("(max-width: 768px)");
 
   // Auto-scroll logic
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -1122,88 +1124,92 @@ export function CopilotConversation({
             )}
           </Box>
         )}
-        <Group gap="xs" wrap="nowrap">
-          <NativeSelect
-            aria-label="Session agent"
-            data-testid="session-agent-select"
-            data={agentOptions}
-            value={currentAgentId}
-            onChange={handleAgentChange}
-            disabled={isAgentSelectorDisabled}
-            size="sm"
-            style={{ width: 150, flexShrink: 0 }}
-          />
-          {modelOptions.length > 0 && (
+        <Stack gap="xs">
+          <Group gap="xs" wrap="nowrap">
             <NativeSelect
-              aria-label="Model"
-              data-testid="session-model-select"
-              data={modelOptions}
-              value={currentModelId}
-              onChange={handleModelChange}
-              disabled={setModel.isPending}
+              aria-label="Session agent"
+              data-testid="session-agent-select"
+              data={agentOptions}
+              value={currentAgentId}
+              onChange={handleAgentChange}
+              disabled={isAgentSelectorDisabled}
               size="sm"
-              style={{ width: 180, flexShrink: 0 }}
+              style={{ width: isMobile ? undefined : 150, flex: isMobile ? 1 : undefined, flexShrink: 0 }}
             />
-          )}
-          <TextInput
-            placeholder={
-              isProcessing
-                ? "Steer the current work or queue a follow-up…"
-                : "Type a prompt…"
-            }
-            value={promptText}
-            onChange={(e) => setPromptText(e.currentTarget.value)}
-            onKeyDown={handleKeyDown}
-            disabled={sendPrompt.isPending}
-            style={{ flex: 1 }}
-            size="sm"
-            data-testid="prompt-input"
-          />
-          {isProcessing ? (
-            <>
-              <Button
+            {modelOptions.length > 0 && (
+              <NativeSelect
+                aria-label="Model"
+                data-testid="session-model-select"
+                data={modelOptions}
+                value={currentModelId}
+                onChange={handleModelChange}
+                disabled={setModel.isPending}
                 size="sm"
-                variant="light"
-                onClick={() => handleSend("immediate")}
-                loading={sendPrompt.isPending}
-                disabled={!promptText.trim()}
-                data-testid="steer-button"
-              >
-                Steer
-              </Button>
-              <Button
-                size="sm"
-                variant="light"
-                onClick={() => handleSend("enqueue")}
-                loading={sendPrompt.isPending}
-                disabled={!promptText.trim()}
-                data-testid="queue-button"
-              >
-                Queue
-              </Button>
-              <Button
-                size="sm"
-                color="red"
-                variant="light"
-                onClick={handleAbort}
-                loading={abortSession.isPending}
-                data-testid="abort-button"
-              >
-                Abort
-              </Button>
-            </>
-          ) : (
-            <Button
+                style={{ width: isMobile ? undefined : 180, flex: isMobile ? 1 : undefined, flexShrink: 0 }}
+              />
+            )}
+          </Group>
+          <Group gap="xs" wrap="nowrap">
+            <TextInput
+              placeholder={
+                isProcessing
+                  ? "Steer the current work or queue a follow-up…"
+                  : "Type a prompt…"
+              }
+              value={promptText}
+              onChange={(e) => setPromptText(e.currentTarget.value)}
+              onKeyDown={handleKeyDown}
+              disabled={sendPrompt.isPending}
+              style={{ flex: 1 }}
               size="sm"
-              onClick={() => handleSend()}
-              loading={sendPrompt.isPending}
-              disabled={!promptText.trim()}
-              data-testid="send-button"
-            >
-              Send
-            </Button>
-          )}
-        </Group>
+              data-testid="prompt-input"
+            />
+            {isProcessing ? (
+              <>
+                <Button
+                  size="sm"
+                  variant="light"
+                  onClick={() => handleSend("immediate")}
+                  loading={sendPrompt.isPending}
+                  disabled={!promptText.trim()}
+                  data-testid="steer-button"
+                >
+                  Steer
+                </Button>
+                <Button
+                  size="sm"
+                  variant="light"
+                  onClick={() => handleSend("enqueue")}
+                  loading={sendPrompt.isPending}
+                  disabled={!promptText.trim()}
+                  data-testid="queue-button"
+                >
+                  Queue
+                </Button>
+                <Button
+                  size="sm"
+                  color="red"
+                  variant="light"
+                  onClick={handleAbort}
+                  loading={abortSession.isPending}
+                  data-testid="abort-button"
+                >
+                  Abort
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() => handleSend()}
+                loading={sendPrompt.isPending}
+                disabled={!promptText.trim()}
+                data-testid="send-button"
+              >
+                Send
+              </Button>
+            )}
+          </Group>
+        </Stack>
       </Box>
     </Stack>
   );
