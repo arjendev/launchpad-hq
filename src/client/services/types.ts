@@ -140,6 +140,7 @@ export type AggregatedSessionStatus = "active" | "idle" | "error" | "ended";
 
 export interface AggregatedSession {
   sessionId: string;
+  sessionType?: 'copilot-cli' | 'copilot-sdk' | 'squad-sdk';
   status: AggregatedSessionStatus;
   model?: string;
   title?: string;
