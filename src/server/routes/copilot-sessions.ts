@@ -421,7 +421,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
 
     try {
       const result = await server.copilotAggregator.waitForResponse<{ sessionId: string }>(requestId);
-      return reply.send({ ok: true, sessionId: result.sessionId });
+      return reply.send({ ok: true, sessionId: result.sessionId, sessionType: sessionType ?? 'copilot-sdk' });
     } catch {
       return reply
         .status(504)

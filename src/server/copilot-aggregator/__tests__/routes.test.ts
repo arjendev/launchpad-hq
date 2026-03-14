@@ -336,7 +336,7 @@ describe("Copilot session routes", () => {
 
       const res = await resPromise;
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ ok: true, sessionId: "new-sess" });
+      expect(res.json()).toEqual({ ok: true, sessionId: "new-sess", sessionType: "copilot-sdk" });
     });
 
     it("returns 404 for unknown daemon", async () => {

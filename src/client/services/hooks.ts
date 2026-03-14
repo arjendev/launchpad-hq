@@ -347,7 +347,7 @@ export function useSendPrompt() {
 export function useCreateSession() {
   const qc = useQueryClient();
   return useMutation<
-    { ok: boolean; sessionId: string },
+    { ok: boolean; sessionId: string; sessionType?: string },
     Error,
     { owner: string; repo: string; model?: string; sessionType?: string }
   >({
@@ -504,6 +504,22 @@ export function useDisconnectSession() {
   return useMutation<{ ok: boolean }, Error, string>({
     mutationFn: (sessionId) =>
       fetchJson(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/disconnect`, {
+        method: "POST",
+      }),
+    onSuccess: (_data, sessionId) => {
+      void qc.invalidateQueries({ queryKey: ["aggregated-session", sessionId] });
+      void qc.invalidateQueries({ queryKey: ["aggregated-sessions"] });
+      void qc.invalidateQueries({ queryKey: ["copilot-sessions"] });
+    },
+  });
+}
+
+/** End & delete a session permanently. */
+export function useEndSession() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean }, Error, string>({
+    mutationFn: (sessionId) =>
+      fetchJson(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/delete`, {
         method: "POST",
       }),
     onSuccess: (_data, sessionId) => {

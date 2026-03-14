@@ -107,7 +107,7 @@ describe("Copilot session lifecycle — integration", () => {
 
       const res = await resPromise;
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ ok: true, sessionId: "new-sess-42" });
+      expect(res.json()).toEqual({ ok: true, sessionId: "new-sess-42", sessionType: "copilot-sdk" });
     });
 
     it("forwards model config when specified", async () => {
@@ -129,7 +129,7 @@ describe("Copilot session lifecycle — integration", () => {
 
       const res = await resPromise;
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ ok: true, sessionId: "model-sess" });
+      expect(res.json()).toEqual({ ok: true, sessionId: "model-sess", sessionType: "copilot-sdk" });
     });
 
     it("returns 504 when daemon does not respond in time", async () => {

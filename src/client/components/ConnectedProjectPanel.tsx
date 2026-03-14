@@ -241,7 +241,7 @@ function CopilotSessionsSection({
   onSelectSession,
 }: {
   project: DashboardProject;
-  onSelectSession?: (sessionId: string) => void;
+  onSelectSession?: (sessionId: string, sessionType?: string) => void;
 }) {
   const projectId = `${project.owner}/${project.repo}`;
   const { sessions } = useAggregatedSessions(projectId);
@@ -258,17 +258,18 @@ function CopilotSessionsSection({
       sessionType,
     });
     if (result.sessionId) {
-      onSelectSession?.(result.sessionId);
+      onSelectSession?.(result.sessionId, result.sessionType ?? sessionType);
     }
   };
 
   const handleResume = (sessionId: string) => {
+    const session = sessions.find((s) => s.sessionId === sessionId);
     resumeSession.mutate(
       { sessionId },
       {
         onSuccess: () => {
           setResumeModalOpen(false);
-          onSelectSession?.(sessionId);
+          onSelectSession?.(sessionId, session?.sessionType);
         },
       },
     );
@@ -462,7 +463,7 @@ function AttentionBadge() {
 export function ConnectedProjectPanel({
   onOpenConversation,
 }: {
-  onOpenConversation?: (sessionId: string) => void;
+  onOpenConversation?: (sessionId: string, sessionType?: string) => void;
 }) {
   const { selectedProject } = useSelectedProject();
 
