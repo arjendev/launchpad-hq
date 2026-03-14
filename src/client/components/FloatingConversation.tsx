@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge, Button, CloseButton, Group, Paper, Text, Tooltip, Transition } from "@mantine/core";
 import { CopilotConversation } from "./CopilotConversation.js";
 import { Terminal } from "./Terminal.js";
@@ -62,6 +62,17 @@ export function FloatingConversation({
       onSuccess: () => onClose(),
     });
   };
+
+  // Resume SDK/Squad sessions when the overlay mounts.
+  // CLI sessions handle resume inside the Terminal component after WS join.
+  useEffect(() => {
+    if (isCliSession || !sessionId) return;
+    fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/resume`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }).catch(() => {});
+  }, [sessionId, isCliSession]);
 
   return (
     <Transition mounted transition="slide-up" duration={250} timingFunction="ease">
