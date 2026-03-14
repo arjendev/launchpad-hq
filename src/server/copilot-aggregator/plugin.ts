@@ -9,6 +9,7 @@ import type {
 import type {
   CopilotMessage,
   CopilotHqToolName,
+  SessionType,
 } from "../../shared/protocol.js";
 import { CopilotSessionAggregator } from "./aggregator.js";
 
@@ -34,8 +35,13 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
     aggregator.updateSessions(daemonId, payload.projectId, payload.sessions);
   });
 
-  registry.on("copilot:session-event" as never, (daemonId: string, payload: { projectId: string; sessionId: string; event: SessionEvent }) => {
+  registry.on("copilot:session-event" as never, (daemonId: string, payload: { projectId: string; sessionId: string; sessionType?: SessionType; event: SessionEvent }) => {
     aggregator.handleSessionEvent(daemonId, payload.sessionId, payload.event);
+
+    // Track session type if provided
+    if (payload.sessionType) {
+      aggregator.setSessionType(payload.sessionId, payload.sessionType);
+    }
 
     // If the event carries a requestId, resolve any pending request-response
     const requestId = (payload.event as SessionEvent & { data?: Record<string, unknown> })?.data?.requestId;

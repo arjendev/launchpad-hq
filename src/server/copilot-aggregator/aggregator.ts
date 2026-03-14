@@ -8,6 +8,7 @@ import type {
   CopilotMessage,
   CopilotHqToolName,
   AggregatedSession,
+  SessionType,
 } from "../../shared/protocol.js";
 
 // ---------------------------------------------------------------------------
@@ -112,6 +113,7 @@ export class CopilotSessionAggregator extends EventEmitter {
       const aggregated: InternalAggregatedSession = {
         ...existing,
         sessionId: info.sessionId,
+        sessionType: existing?.sessionType ?? 'copilot-sdk',
         daemonId,
         projectId,
         status: existing?.status ?? 'idle',
@@ -177,6 +179,7 @@ export class CopilotSessionAggregator extends EventEmitter {
       // Create a stub session for events without a prior session-list
       this.sessions.set(sessionId, {
         sessionId,
+        sessionType: 'copilot-sdk',
         daemonId,
         projectId: daemonId,
         status: "idle",
@@ -187,6 +190,15 @@ export class CopilotSessionAggregator extends EventEmitter {
     }
 
     this.emit("session-event", sessionId, event);
+  }
+
+  /** Update the session type for a session */
+  setSessionType(sessionId: string, sessionType: SessionType): void {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      session.sessionType = sessionType;
+      session.updatedAt = Date.now();
+    }
   }
 
   // ── SDK state ──────────────────────────────────────────
