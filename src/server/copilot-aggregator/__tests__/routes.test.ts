@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createTestServer, type FastifyInstance } from "../../../test-utils/server.js";
 import websocket from "../../ws/plugin.js";
+import terminalRelayPlugin from "../../terminal-relay/plugin.js";
 import daemonRegistryPlugin from "../../daemon-registry/plugin.js";
 import copilotAggregatorPlugin from "../plugin.js";
 import copilotSessionRoutes from "../../routes/copilot-sessions.js";
@@ -36,6 +37,7 @@ describe("Copilot session routes", () => {
   beforeEach(async () => {
     server = await createTestServer();
     await server.register(websocket);
+    await server.register(terminalRelayPlugin);
     await server.register(daemonRegistryPlugin);
     await server.register(copilotAggregatorPlugin);
     await server.register(copilotSessionRoutes);

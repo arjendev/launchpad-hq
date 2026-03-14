@@ -37,6 +37,7 @@ vi.mock("node:child_process", () => ({
   execSync: vi.fn(),
 }));
 
+import terminalRelayPlugin from "../../terminal-relay/plugin.js";
 import daemonRegistryPlugin from "../../daemon-registry/plugin.js";
 import selfDaemonPlugin from "../plugin.js";
 
@@ -48,6 +49,7 @@ describe("Self-daemon plugin", () => {
   ): Promise<FastifyInstance> {
     server = await createTestServer();
     await server.register(websocket);
+    await server.register(terminalRelayPlugin);
     await server.register(daemonRegistryPlugin);
     await server.register(selfDaemonPlugin, { enabled: options.enabled });
     return server;

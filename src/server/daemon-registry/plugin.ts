@@ -34,6 +34,7 @@ async function daemonRegistryPlugin(fastify: FastifyInstance) {
     tokenLookup,
     (channel, payload) => fastify.ws.broadcast(channel as never, payload),
     fastify.log,
+    fastify.terminalRelay,
   );
 
   // Handle HTTP upgrade on the daemon WS path
@@ -88,5 +89,5 @@ async function daemonRegistryPlugin(fastify: FastifyInstance) {
 
 export default fp(daemonRegistryPlugin, {
   name: "daemon-registry",
-  dependencies: ["websocket"],
+  dependencies: ["websocket", "terminal-relay"],
 });

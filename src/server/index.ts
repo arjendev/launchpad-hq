@@ -63,13 +63,13 @@ if (!config.isDev && existsSync(config.clientDistPath)) {
 
 await server.register(websocket);
 
-// --- Daemon registry (depends on websocket) ---
-
-await server.register(daemonRegistryPlugin);
-
-// --- Terminal relay (depends on websocket + daemon-registry) ---
+// --- Terminal relay (depends on websocket) ---
 
 await server.register(terminalRelayPlugin);
+
+// --- Daemon registry (depends on websocket + terminal-relay) ---
+
+await server.register(daemonRegistryPlugin);
 
 // --- Copilot introspection ---
 

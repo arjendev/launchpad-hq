@@ -169,6 +169,21 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
   sendInputRef.current = sendInput;
   sendResizeRef.current = sendResize;
 
+  // ── Resume CLI session after WS subscription ────────
+  // For external terminal sessions (copilot-cli), send a resume request
+  // AFTER the WebSocket subscription is established so buffered output
+  // arrives to a ready listener.
+  useEffect(() => {
+    if (!externalTerminalId || !activeTerminalId) return;
+    // Small delay to ensure the WS subscribe message has been processed
+    const timer = setTimeout(() => {
+      fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(activeTerminalId)}/resume`, {
+        method: "POST",
+      }).catch(() => {});
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [externalTerminalId, activeTerminalId]);
+
   // ── Initialize xterm.js ─────────────────────────────
   useEffect(() => {
     const container = containerRef.current;

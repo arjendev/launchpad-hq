@@ -10,6 +10,8 @@ declare module "fastify" {
     ws: {
       /** Broadcast a payload to all clients subscribed to a channel. */
       broadcast: (channel: Channel, payload: unknown) => void;
+      /** Send a message to a specific client by ID. */
+      sendToClient: (clientId: string, channel: Channel, payload: unknown) => boolean;
       /** Number of connected clients. */
       clients: () => number;
     };
@@ -83,6 +85,8 @@ async function websocketPlugin(fastify: FastifyInstance) {
   // Decorate Fastify for other plugins/routes to push updates
   fastify.decorate("ws", {
     broadcast: (channel: Channel, payload: unknown) => manager.broadcast(channel, payload),
+    sendToClient: (clientId: string, channel: Channel, payload: unknown) =>
+      manager.send(clientId, { type: "update", channel, payload }),
     clients: () => manager.size,
   });
 
