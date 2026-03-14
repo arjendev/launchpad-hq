@@ -202,3 +202,94 @@ Wave 1 delivered complete frontend foundation: three-pane dashboard with project
 - **Integration:** Works seamlessly with Romilly's backend dual-path cleanup. Frontend cache invalidation (both keys) + backend removal (immediate + daemon safety net) = robust end-to-end abort workflow.
 - **Commit:** 1e7c8f7
 - **Decision captured in:** `.squad/decisions/decisions.md` — "Frontend — Session abort cache invalidation"
+
+### 2026-03-14: ResizableTerminalPanel — inline panel replacing floating overlay
+- **Component:** `src/client/components/ResizableTerminalPanel.tsx` — VS Code-style resizable bottom panel wrapping the existing `Terminal` component (or `CopilotConversation` for SDK/Squad sessions).
+- **Drag handle:** 5px top divider with `row-resize` cursor. Pure mousedown/mousemove/mouseup — no library. Highlights with `--lp-accent` on hover.
+- **Header bar:** Migrated from FloatingConversation patterns: session title/summary with tooltip, type badge (CLI/SDK/Squad with teal/blue/violet), status badge (active/idle/error/ended), Detach button (with disconnect call for CLI), End Session button with 3s confirm timeout.
+- **Session routing:** `sessionType === "copilot-cli"` renders Terminal; all others render CopilotConversation. SDK/Squad sessions get a resume POST on mount.
+- **Props:** `daemonId`, `terminalId?`, `sessionId`, `sessionType?`, `onClose?`, `defaultHeight?` (300px), `minHeight?` (100px).
+- **Theme:** Uses `--lp-surface`, `--lp-border`, `--lp-text`, `--lp-accent` CSS variables. No custom CSS file needed — all inline styles using design tokens.
+- **Test:** `tests/e2e/resizable-terminal-panel.spec.ts` — 3 Playwright tests (drag handle cursor, header buttons, confirm pattern). Guarded with count checks since panel only renders with active sessions.
+- **Pattern:** Wraps Terminal.tsx without modification. All FloatingConversation header logic (status maps, confirm timer, detach disconnect, SDK resume) ported to inline panel context.
+
+### 2026-03-14: SessionContext + SessionList — session selection layer
+
+- **SessionContext** (`src/client/contexts/SessionContext.tsx`) — React context following ProjectContext pattern. Tracks `selectedSession: AggregatedSession | null` with `selectSession()` callback. On session switch: disconnects outgoing CLI sessions via `useDisconnectSession`, then resumes incoming session via `useResumeSession`. SDK/Squad sessions just clear selection (they keep running on daemon). Auto-clears selection when `selectedProject` changes.
+- **SessionList** (`src/client/components/SessionList.tsx`) — narrow column component (~220px expected) showing all sessions for the selected project. Each item renders a status dot (green/yellow/red/gray), session type badge (CLI=teal, SDK=blue, Squad=violet), truncated summary, and relative time. Single-click toggles selection via `selectSession()`. "New" dropdown creates sessions (SDK/CLI/Squad). Uses same Mantine styling pattern as ProjectList (`var(--mantine-color-blue-light)` for selected state, `UnstyledButton` for click targets).
+- **App.tsx** — `SessionProvider` added inside `ProjectProvider`, wrapping `RouterProvider`.
+- **Test utils** — `SessionProvider` added to test provider wrapper.
+- **8 new tests** (`SessionList.test.tsx`): no-project empty state, renders session items, shows type badges, empty session state, click selects, click deselects, New button present, heading visible.
+- **Total tests passing:** 752 (744 existing + 8 new).
+- **Helpers reused:** `timeAgo`, `sessionStatusColor`, `sessionTypeColor`, `sessionTypeLabel` from ConnectedProjectPanel migrated as local copies (no shared utils module yet).
+
+### Inbox count badges on ProjectList
+- **What:** Added `useInboxCount(owner, repo)` hook to `hooks.ts` and a red `Badge` in `ProjectItem` showing unread inbox count next to the project name.
+- **Hook:** TanStack Query with 30s refetch interval, calls `GET /api/projects/:owner/:repo/inbox/count`, returns `InboxCountResponse` (`{ unread: number }`). URL params are `encodeURIComponent`-wrapped. Only enabled when owner+repo are truthy.
+- **Badge:** Mantine `Badge` with `size="xs"`, `color="red"`, `variant="filled"`. Conditionally rendered only when `unread > 0`. Positioned inline in the project name row, between the repo name and daemon status emoji.
+- **Layout:** Zero structural changes to `ProjectItem`. Badge sits in the existing `<Group gap={6}>` row, Mantine flexbox handles spacing naturally.
+- **Files changed:** `src/client/services/hooks.ts` (new hook + import), `src/client/components/ProjectList.tsx` (import + hook call + badge JSX).
+- **Tests:** All 80 client tests passing. No regressions.
+
+### 2026-03-14: Progressive-depth layout rewrite — DashboardLayout
+
+- **Rewrite:** Completely replaced old 3-pane DashboardLayout (ProjectList | KanbanBoard | ConnectedProjectPanel) with new progressive-depth layout: ProjectList (250px) | SessionList (220px) | Main area (flex, split vertically).
+- **Removed:** `ConnectedProjectPanel` and `FloatingConversation` imports/renders. Both are being phased out in favor of inline panels.
+- **Main area logic:** Three states — (1) no project: "Select a project to get started" empty state, (2) project but no session: KanbanBoard at full height, (3) session selected: KanbanBoard on top + ResizableTerminalPanel on bottom.
+- **Terminal props:** `daemonId` from `useDaemonForProject(projectId)`, `sessionId` and `sessionType` from `useSelectedSession()`, `terminalId` set to `sessionId` (AggregatedSession has no terminalId field).
+- **No App.tsx change needed:** SessionProvider was already in place from the SessionContext work.
+- **E2E test updated:** Renamed "three-pane layout renders" → "progressive-depth layout renders", updated assertions to check for Sessions column and new empty state text.
+- **CSS:** Pure flexbox, `--lp-border` for dividers, responsive column→row via `useMediaQuery`.
+- **Build:** Vite build passes. Pre-existing type errors in FloatingConversation.tsx and ResizableTerminalPanel.tsx (unrelated `setTimeout` typing) still present but not caused by this change.
+
+### InboxPanel Component
+
+**Added:** `src/client/components/InboxPanel.tsx`, inbox hooks (`useInbox`, `useUpdateInboxMessage`) in `hooks.ts`, `"inbox"` channel in client `ws-types.ts`.
+
+Key decisions:
+- **Dual-query pattern:** `useInbox` fires two parallel TanStack queries (unread + read). Merged and sorted newest-first client-side. Archived messages hidden.
+- **WS invalidation:** Subscribes to `"inbox"` channel; any WS message invalidates inbox + inbox-count caches for automatic re-fetch.
+- **Session scoping:** Reads from `useSelectedSession` context. If session selected → filters by sessionId. Otherwise shows project-wide.
+- **Unread indicator:** Bold title + blue left border + circle badge. Click marks read. Per-card archive icon.
+- **Upgraded `useInboxCount`:** Added WS subscription to existing hook so badge counts also update in real-time.
+
+### Kanban → BacklogList migration + component cleanup
+- **Replaced KanbanBoard with BacklogList:** Flat sorted list (in-progress → todo → done) replaces 3-column kanban. Done items collapsed by default with "Show N completed" toggle. Each row shows status badge, title, issue number, assignee avatars. Click opens issue in GitHub.
+- **Layout update:** DashboardLayout now shows InboxPanel (250px fixed) alongside BacklogList (flex: 1) in horizontal Flex split.
+- **Deleted components:** FloatingConversation, ConnectedProjectPanel, TerminalOverlay — removed files + all imports + associated test files.
+- **Test impact:** Removed ConnectedProjectPanel.test.tsx and TerminalOverlay.test.tsx. Updated App.test.tsx to test BacklogList instead of KanbanBoard/ConnectedProjectPanel. Updated CopilotConversation.test.tsx comment references. All 738 tests passing, build clean.
+
+## Session: UI Redesign — Progressive Depth Navigation (2026-03-14)
+
+**Delivered:** 7 agents across 11 tasks. ResizableTerminalPanel, SessionList + SessionContext, InboxPanel, progressive-depth DashboardLayout, BacklogList, component cleanup. Build passing, 738 tests green.
+
+### Key work
+1. **ResizableTerminalPanel (Brand-5):** Inline resize panel (no external lib) replaces FloatingConversation overlay. Drag handler, same header UX patterns, height defaults 300/100/85vh.
+2. **SessionList + SessionContext (Brand-6):** New session browser column (220px). Disconnect-before-switch logic for CLI sessions; SDK/Squad sessions silent clear. Auto-resume on select.
+3. **Inbox backend (Romilly-7):** Per-project persistence at `inbox/{owner}/{repo}.json` in launchpad-state. Fire-and-forget tool invocation wiring (request_human_review, report_blocker). Separate "inbox" WS channel. 3 REST routes + count endpoint.
+4. **Progressive-depth layout (Brand-8):** 3-column grid (Projects 250px | Sessions 220px | Main flex). Main area: InboxPanel+BacklogList (top) | ResizableTerminalPanel (bottom). Removed ConnectedProjectPanel + FloatingConversation.
+5. **InboxPanel (Brand-9):** Session-scoped inbox. Dual-query fetch (unread + read, merged). WS invalidation pattern. Upgraded useInboxCount for real-time badge updates.
+6. **Inbox badges (Brand-10):** Red unread badge on ProjectItem. Updates in near-real-time via "inbox" WS channel.
+7. **BacklogList + cleanup (Brand-11):** Flat sorted list (in-progress → todo → done collapsed). Deleted FloatingConversation, ConnectedProjectPanel, TerminalOverlay. All imports scrubbed. 738 tests passing.
+
+### Decisions
+- **ResizableTerminalPanel:** Inline panel, simple drag handler, same header patterns
+- **SessionContext:** Disconnect-before-switch (CLI only), auto-resume, context-driven selection
+- **Inbox backend:** Per-project files, fire-and-forget, dedicated WS channel, title fallback chain
+- **Progressive-depth:** 3-column grid, ready for KanbanBoard → BacklogList swap
+- **InboxPanel:** Dual-query, WS invalidation, session scoping via context, unread visual
+- **BacklogList:** Flat list, done collapsed, click-to-GitHub, replaces kanban
+
+### Files created (7)
+- src/client/components/ResizableTerminalPanel.tsx
+- src/client/components/SessionList.tsx
+- src/client/components/InboxPanel.tsx
+- src/client/components/BacklogList.tsx
+- src/client/contexts/SessionContext.tsx
+- src/server/routes/inbox.ts
+- tests/e2e/resizable-terminal-panel.spec.ts
+
+### Files deleted (3)
+- src/client/components/FloatingConversation.tsx
+- src/client/components/ConnectedProjectPanel.tsx
+- src/client/components/TerminalOverlay.tsx
