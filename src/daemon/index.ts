@@ -12,6 +12,8 @@ import { DaemonWebSocketClient } from './client.js';
 import { DaemonState } from './state.js';
 import { setupDaemonTerminal, DaemonTerminalManager } from './terminal/index.js';
 import { CopilotManager } from './copilot/index.js';
+import { CliSessionManager } from './copilot-cli/index.js';
+import { SquadSessionManager } from './squad/index.js';
 import { logIncoming, logOutgoing } from './logger.js';
 
 export interface DaemonProcess {
@@ -19,6 +21,8 @@ export interface DaemonProcess {
   state: DaemonState;
   terminalManager: DaemonTerminalManager;
   copilot: CopilotManager;
+  cliSessions: CliSessionManager;
+  squadSessions: SquadSessionManager;
   shutdown: () => void;
 }
 
@@ -107,7 +111,29 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     projectId: config.projectId,
   });
 
-  client.on('message', (msg) => {
+  const cliSessions = new CliSessionManager({
+    sendToHq: (msg) => client.send(msg),
+    projectId: config.projectId,
+    cwd: process.cwd(),
+  });
+
+  const squadSessions = new SquadSessionManager({
+    sendToHq: (msg) => client.send(msg),
+    projectId: config.projectId,
+  });
+
+  client.on('message', async (msg) => {
+    if (!msg.type.startsWith('copilot-') && !msg.type.startsWith('terminal-')) return;
+
+    // Try CLI session manager first (handles its own sessions + copilot-cli type)
+    const handledByCli = await cliSessions.handleMessage(msg);
+    if (handledByCli) return;
+
+    // Try Squad session manager (handles squad-sdk type)
+    const handledBySquad = await squadSessions.handleMessage(msg);
+    if (handledBySquad) return;
+
+    // Fall through to default CopilotManager (copilot-sdk type)
     if (msg.type.startsWith('copilot-')) {
       void copilot.handleMessage(msg);
     }
@@ -117,6 +143,13 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     void copilot.start().catch((err) => {
       console.error(`⚠ Copilot SDK start failed: ${err}`);
     });
+
+    // Report capabilities
+    daemonInfo.capabilities.push('copilot-sdk');
+    daemonInfo.capabilities.push('copilot-cli');
+    if (squadSessions.isAvailable()) {
+      daemonInfo.capabilities.push('squad-sdk');
+    }
   });
 
   // --- Start connection ---
@@ -129,13 +162,15 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
   function shutdown(): void {
     console.log('\n⏏ Daemon shutting down…');
     void copilot.stop().catch(() => {});
+    void cliSessions.stop().catch(() => {});
+    void squadSessions.stop().catch(() => {});
     terminalCleanup();
     state.setOnline(false);
     client.disconnect();
     console.log('👋 Daemon stopped.');
   }
 
-  return { client, state, terminalManager, copilot, shutdown };
+  return { client, state, terminalManager, copilot, cliSessions, squadSessions, shutdown };
 }
 
 /** Detect the runtime environment */
