@@ -438,6 +438,123 @@ describe('CliSessionManager', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Ring buffer behaviour
+  // -----------------------------------------------------------------------
+
+  describe('ring buffer', () => {
+    it('replays full output history including pre-detach data on resume', () => {
+      const { sent, manager } = setup();
+      const sessionId = manager.createSession('req-rb1');
+
+      // Session starts detached. Send initial output (goes to ring buffer).
+      mockPty._dataCallback!('initial-prompt$ ');
+
+      // Attach (first resume) — replays initial output
+      manager.resumeSession(sessionId);
+      sent.length = 0;
+
+      // Live output while attached (also stored in ring buffer)
+      mockPty._dataCallback!('hello');
+      mockPty._dataCallback!(' world');
+      sent.length = 0;
+
+      // Detach
+      manager.detachSession(sessionId);
+
+      // Output while detached (ring buffer only)
+      mockPty._dataCallback!(' detached-data');
+
+      // Second resume — should replay ALL output (pre + post detach)
+      manager.resumeSession(sessionId);
+
+      const replays = sent.filter((m) => m.type === 'terminal-data');
+      expect(replays).toHaveLength(1);
+      expect((replays[0] as any).payload.data).toBe(
+        'initial-prompt$ hello world detached-data',
+      );
+    });
+
+    it('evicts oldest chunks when exceeding 512 KB', () => {
+      const { sent, manager } = setup();
+      const sessionId = manager.createSession('req-rb2');
+
+      // Push ~600 KB of data (each chunk is 10 KB)
+      const chunkSize = 10 * 1024;
+      const chunkCount = 60;
+      for (let i = 0; i < chunkCount; i++) {
+        mockPty._dataCallback!(String(i).padStart(5, '0') + 'X'.repeat(chunkSize - 5));
+      }
+
+      // Resume to see what was retained
+      manager.resumeSession(sessionId);
+
+      const replays = sent.filter((m) => m.type === 'terminal-data');
+      expect(replays).toHaveLength(1);
+
+      const replayed = (replays[0] as any).payload.data as string;
+
+      // Should be capped near 512 KB — oldest chunks evicted
+      expect(replayed.length).toBeLessThanOrEqual(512 * 1024 + chunkSize);
+      // Should contain the latest chunk
+      expect(replayed).toContain(String(chunkCount - 1).padStart(5, '0'));
+      // Should NOT contain the very first chunk (evicted)
+      expect(replayed).not.toContain('00000X');
+    });
+
+    it('preserves ring buffer across multiple resume/detach cycles', () => {
+      const { sent, manager } = setup();
+      const sessionId = manager.createSession('req-rb3');
+
+      mockPty._dataCallback!('cycle0');
+      manager.resumeSession(sessionId);
+
+      mockPty._dataCallback!('-cycle1');
+      manager.detachSession(sessionId);
+
+      mockPty._dataCallback!('-cycle2');
+      manager.resumeSession(sessionId);
+
+      mockPty._dataCallback!('-cycle3');
+      manager.detachSession(sessionId);
+
+      // Clear everything before final resume so we only see the replay
+      sent.length = 0;
+      manager.resumeSession(sessionId);
+
+      const replays = sent.filter((m) => m.type === 'terminal-data');
+      expect(replays).toHaveLength(1);
+      expect((replays[0] as any).payload.data).toBe(
+        'cycle0-cycle1-cycle2-cycle3',
+      );
+    });
+
+    it('sends live data AND stores in ring buffer when attached', () => {
+      const { sent, manager } = setup();
+      const sessionId = manager.createSession('req-rb4');
+      manager.resumeSession(sessionId);
+      sent.length = 0;
+
+      // While attached, data should be sent live
+      mockPty._dataCallback!('live-1');
+      mockPty._dataCallback!('live-2');
+
+      const liveMessages = sent.filter((m) => m.type === 'terminal-data');
+      expect(liveMessages).toHaveLength(2);
+
+      // Detach and resume — ring buffer should replay everything
+      manager.detachSession(sessionId);
+      sent.length = 0;
+      manager.resumeSession(sessionId);
+
+      const replays = sent.filter((m) => m.type === 'terminal-data');
+      expect(replays).toHaveLength(1);
+      // Contains live-1 and live-2 even though they were sent live earlier
+      expect((replays[0] as any).payload.data).toContain('live-1');
+      expect((replays[0] as any).payload.data).toContain('live-2');
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // stop
   // -----------------------------------------------------------------------
 
