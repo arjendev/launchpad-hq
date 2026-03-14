@@ -74,6 +74,17 @@ export interface CopilotMessage {
   timestamp: number;
   /** Where this message originated — omitted for normal VS Code messages */
   source?: 'hq-injection';
+  /** Optional metadata preserved from SDK events (subagent context, model info, etc.) */
+  metadata?: CopilotMessageMetadata;
+}
+
+/** Rich metadata attached to a CopilotMessage so it survives REST round-trips */
+export interface CopilotMessageMetadata {
+  parentToolCallId?: string;
+  subagentName?: string;
+  agentName?: string;
+  model?: string;
+  initiator?: string;
 }
 
 // ---------------------------------------------------------------------------

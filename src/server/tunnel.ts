@@ -49,8 +49,7 @@ export class TunnelError extends Error {
     public readonly code:
       | "CLI_NOT_FOUND"
       | "STARTUP_TIMEOUT"
-      | "PROCESS_ERROR"
-      | "TOKEN_ERROR",
+      | "PROCESS_ERROR",
     public readonly cause?: unknown,
   ) {
     super(message);
@@ -71,7 +70,6 @@ export class TunnelManager extends EventEmitter {
   private process: ChildProcess | null = null;
   private status: TunnelStatus = "stopped";
   private info: TunnelInfo | null = null;
-  private accessToken: string | null = null;
   private lastError: string | null = null;
   private stopping = false;
 
@@ -118,12 +116,11 @@ export class TunnelManager extends EventEmitter {
 
     this.setStatus("starting");
     this.lastError = null;
-    this.accessToken = null;
 
     return new Promise<TunnelInfo>((resolve, reject) => {
       const child = spawn(
         this.cliBinary,
-        ["host", "-p", String(port), "--allow-anonymous"],
+        ["host", "-p", String(port)],
         { stdio: ["ignore", "pipe", "pipe"] },
       );
 
@@ -153,7 +150,7 @@ export class TunnelManager extends EventEmitter {
       //   Connect via browser: https://<id>-<port>.usw2.devtunnels.ms
       // or:  Hosting port: 3000 at https://<id>-<port>.usw2.devtunnels.ms
       // The tunnel ID is embedded in the subdomain.
-      const urlPattern = /https:\/\/([a-z0-9-]+(?:\.[a-z0-9-]+)*\.devtunnels\.ms\S*)/i;
+      const urlPattern = /https:\/\/([a-z0-9-]+(?:\.[a-z0-9-]+)*\.devtunnels\.ms[^\s,;]*)/i;
       const tunnelIdPattern = /Tunnel ID:\s+([^\s]+)/i;
 
       let parsedUrl: string | null = null;
@@ -264,7 +261,6 @@ export class TunnelManager extends EventEmitter {
    */
   async stop(): Promise<void> {
     this.stopping = true;
-    this.accessToken = null;
 
     if (!this.process) {
       this.setStatus("stopped");
@@ -311,66 +307,12 @@ export class TunnelManager extends EventEmitter {
   }
 
   /**
-   * Generate a short-lived access token for the tunnel.
-   * Calls `devtunnel token <tunnelId> --scopes connect --expiration <exp>`.
-   */
-  async generateToken(expiration = "1h"): Promise<string> {
-    if (!this.info) {
-      throw new TunnelError(
-        "Cannot generate token — no active tunnel",
-        "TOKEN_ERROR",
-      );
-    }
-
-    return new Promise<string>((resolve, reject) => {
-      execFile(
-        this.cliBinary,
-        [
-          "token",
-          this.info!.tunnelId,
-          "--scopes",
-          "connect",
-          "--expiration",
-          expiration,
-        ],
-        { timeout: 10_000 },
-        (err, stdout, stderr) => {
-          if (err) {
-            const msg = `Failed to generate tunnel token: ${stderr || err.message}`;
-            reject(new TunnelError(msg, "TOKEN_ERROR", err));
-            return;
-          }
-
-          // Token output is typically on the last non-empty line
-          const token = stdout.trim().split("\n").pop()?.trim();
-          if (!token) {
-            reject(
-              new TunnelError(
-                "devtunnel token returned empty output",
-                "TOKEN_ERROR",
-              ),
-            );
-            return;
-          }
-
-          this.accessToken = token;
-          this.logger?.info("Generated tunnel access token");
-          resolve(token);
-        },
-      );
-    });
-  }
-
-  /**
-   * Returns the full share URL with embedded access token, suitable for
-   * QR code generation. Returns null when tunnel is not running or no
-   * token has been generated.
+   * Returns the tunnel URL suitable for QR code generation.
+   * Returns null when tunnel is not running.
    */
   getShareUrl(): string | null {
-    if (!this.info || !this.accessToken) return null;
-
-    const base = this.info.url.replace(/\/$/, "");
-    return `${base}?access_token=${encodeURIComponent(this.accessToken)}`;
+    if (!this.info) return null;
+    return this.info.url.replace(/\/$/, "");
   }
 
   // ── Internals ──────────────────────────────────────────
