@@ -178,12 +178,27 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
       const { config, sessionType } = request.body ?? {};
       const requestId = randomUUID();
 
-      const ok = sendToDaemon(server, sessionId, reply, () => ({
+      const internal = server.copilotAggregator.getInternalSession(sessionId);
+      if (!internal) {
+        return reply.status(404).send(notFound);
+      }
+
+      // Disconnect first to clean up stale daemon-side event listeners,
+      // preventing duplicate event forwarding on repeated resumes.
+      server.daemonRegistry.sendToDaemon(internal.daemonId, {
+        type: "copilot-disconnect-session",
+        timestamp: Date.now(),
+        payload: { sessionId },
+      });
+
+      const sent = server.daemonRegistry.sendToDaemon(internal.daemonId, {
         type: "copilot-resume-session",
         timestamp: Date.now(),
         payload: { requestId, sessionId, sessionType, config },
-      }));
-      if (!ok) return;
+      });
+      if (!sent) {
+        return reply.status(502).send(sendFailed);
+      }
 
       return reply.send({ ok: true });
     },
