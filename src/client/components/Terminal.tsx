@@ -172,17 +172,28 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
   // ── Resume CLI session after WS subscription ────────
   // For external terminal sessions (copilot-cli), send a resume request
   // AFTER the WebSocket subscription is established so buffered output
-  // arrives to a ready listener.
+  // arrives to a ready listener.  The daemon replays its full ring buffer
+  // so xterm.js can reconstruct the complete TUI screen state.
   useEffect(() => {
     if (!externalTerminalId || !activeTerminalId) return;
+
+    // Clear the fresh xterm so the ring-buffer replay starts clean
+    xtermRef.current?.reset();
+
     // Small delay to ensure the WS subscribe message has been processed
     const timer = setTimeout(() => {
+      // Sync PTY dimensions with the client terminal before replay
+      const term = xtermRef.current;
+      if (term) {
+        sendResizeRef.current(term.cols, term.rows);
+      }
+
       fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(activeTerminalId)}/resume`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       }).catch(() => {});
-    }, 100);
+    }, 150);
     return () => clearTimeout(timer);
   }, [externalTerminalId, activeTerminalId]);
 

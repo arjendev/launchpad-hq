@@ -25,11 +25,22 @@ interface PtyHandle {
   kill(signal?: string): void;
 }
 
+/** Max ring-buffer size per session (bytes). Keeps enough ANSI data for
+ *  xterm.js to reconstruct the current TUI screen on resume. */
+const MAX_BUFFER_BYTES = 512 * 1024; // 512 KB
+
 interface CliSession {
   id: string;
   ptyProcess: PtyHandle;
-  /** Buffer output while UI is detached */
-  outputBuffer: string[];
+  /**
+   * Ring buffer of ALL PTY output (both attached and detached periods).
+   * On resume the entire buffer is replayed so xterm.js can reconstruct
+   * the full screen state — critical for TUI apps like Copilot CLI that
+   * continuously redraw.
+   */
+  ringBuffer: string[];
+  /** Byte-length sum of ringBuffer entries. */
+  ringBufferSize: number;
   /** Whether UI is currently viewing this session */
   attached: boolean;
   startedAt: number;
@@ -76,16 +87,29 @@ export class CliSessionManager {
     const session: CliSession = {
       id: sessionId,
       ptyProcess,
-      outputBuffer: [],
+      ringBuffer: [],
+      ringBufferSize: 0,
       attached: false,
       startedAt: Date.now(),
       updatedAt: Date.now(),
       summary: 'Copilot CLI terminal',
     };
 
-    // Wire PTY output → HQ (or buffer if detached)
+    // Wire PTY output → ring buffer (always) + HQ (when attached)
     ptyProcess.onData((data: string) => {
       session.updatedAt = Date.now();
+
+      // Always append to ring buffer so resume can reconstruct full screen
+      session.ringBuffer.push(data);
+      session.ringBufferSize += data.length;
+
+      // Evict oldest chunks while over budget
+      while (session.ringBufferSize > MAX_BUFFER_BYTES && session.ringBuffer.length > 1) {
+        const removed = session.ringBuffer.shift()!;
+        session.ringBufferSize -= removed.length;
+      }
+
+      // Stream live when attached
       if (session.attached) {
         this.sendToHq({
           type: 'terminal-data',
@@ -96,8 +120,6 @@ export class CliSessionManager {
             data,
           },
         });
-      } else {
-        session.outputBuffer.push(data);
       }
     });
 
@@ -156,7 +178,7 @@ export class CliSessionManager {
     return sessionId;
   }
 
-  /** Resume (reattach to) an existing CLI session — replay buffered output */
+  /** Resume (reattach to) an existing CLI session — replay ring buffer */
   resumeSession(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
@@ -164,10 +186,11 @@ export class CliSessionManager {
     session.attached = true;
     session.updatedAt = Date.now();
 
-    // Replay buffered output
-    if (session.outputBuffer.length > 0) {
-      const buffered = session.outputBuffer.join('');
-      session.outputBuffer = [];
+    // Replay entire ring buffer so xterm.js can reconstruct full screen state.
+    // For TUI apps (Copilot CLI) this replays the most recent ~512 KB of ANSI
+    // output, which is enough for xterm to reach the current visual state.
+    if (session.ringBuffer.length > 0) {
+      const buffered = session.ringBuffer.join('');
       this.sendToHq({
         type: 'terminal-data',
         timestamp: Date.now(),
