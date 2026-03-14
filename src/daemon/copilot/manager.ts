@@ -124,19 +124,24 @@ export class CopilotManager {
     }
   }
 
-  /** Start the SDK client and begin polling sessions */
+  /** Start the SDK client and begin polling sessions.
+   *  Idempotent — safe to call on reconnect without leaking listeners. */
   async start(): Promise<void> {
+    if (this.started) return;
+
     if (!this.client) {
       console.warn('⚠ Copilot SDK not available — copilot features disabled');
       return;
     }
 
-    // Wire client-level lifecycle events (session created/deleted/updated)
+    // Wire client-level lifecycle events (session created/deleted/updated).
+    // Guard: skip events for sessions that already have a dedicated
+    // session.on() listener (via trackSession) to prevent duplicate forwarding.
     if (typeof this.client.on === 'function') {
       this.lifecycleUnsub = this.client.on(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (event: any) => {
-          if (event.sessionId) {
+          if (event.sessionId && !this.activeSessions.has(event.sessionId)) {
             this.sendToHq({
               type: 'copilot-session-event',
               timestamp: Date.now(),
@@ -300,7 +305,7 @@ export class CopilotManager {
       const sdkConfig = this.buildSdkConfig(config);
       const session = await this.client.createSession(sdkConfig);
       logSdk(`Session created: ${session.sessionId}`);
-      this.trackSession(session);
+      this.trackSession(session, true);
 
       // SDK will emit session.start via the event handler, but we also send
       // a synthetic event so HQ can correlate the requestId
@@ -587,13 +592,32 @@ export class CopilotManager {
     });
   }
 
-  /** Track a session and forward its events to HQ as-is */
+  /**
+   * Track a session and forward its events to HQ as-is.
+   *
+   * @param skipInitialStart — When true, the first `session.start` event from
+   *   the SDK is suppressed because the caller (create/resume) already sent an
+   *   explicit synthetic event carrying the requestId needed for correlation.
+   */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private trackSession(session: any): void {
+  private trackSession(session: any, skipInitialStart = false): void {
+    // Clean up any previous listener for this sessionId to prevent leaks
+    const oldUnsub = this.sessionUnsubscribers.get(session.sessionId);
+    if (oldUnsub) oldUnsub();
+
     this.activeSessions.set(session.sessionId, session);
     logSdk(`Session tracked: ${session.sessionId} (event listener attached)`);
 
+    let skipStart = skipInitialStart;
+
     const unsub = session.on((event: SessionEvent) => {
+      // Skip the initial session.start — create/resume already sent it
+      // with the requestId needed for HQ correlation.
+      if (skipStart && event.type === 'session.start') {
+        skipStart = false;
+        return;
+      }
+
       this.sendToHq({
         type: 'copilot-session-event',
         timestamp: Date.now(),
