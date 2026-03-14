@@ -299,3 +299,40 @@ Key decisions:
 - src/client/components/FloatingConversation.tsx
 - src/client/components/ConnectedProjectPanel.tsx
 - src/client/components/TerminalOverlay.tsx
+
+## Session: Dev Tunnels Integration Research (2026-03-14)
+
+**Delivered:** Grooming + auth research for Issue #23 (Microsoft Dev Tunnels). Cooper handled grooming; TARS handled auth research. Architecture ready for P2 (pre-login) and P3+ (token-based QR code).
+
+### Key findings for QR UI work
+**From TARS Auth Research:**
+- **Phase 1 (P2):** Temporary tunnel with pre-login (user runs `devtunnel user login` once beforehand)
+- **Phase 2+ (P3):** Token-based auth for QR code — after tunnel creation, call `devtunnel token TUNNELID --expiration 4h` to generate short-lived bearer token. Embed in QR: `https://l3rs99qw-3000.usw2.devtunnels.ms?access_token=TOKEN`. Phone scans → opens URL with embedded token → devtunnel relay validates → launchpad session established.
+- **Security model:** Token is short-lived (configurable 4h–30d), HTTPS-only, scoped to tunnel, auto-expires. Devtunnel relay handles validation automatically — no backend token storage needed.
+- **QR code UI pattern:** After "Share" button click, show modal with QR code + expiration timer + "Copy URL" button.
+
+### Decisions captured
+1. Tunnel Lifecycle: Temporary (auto-delete on close) — simplest for P2, no state management needed
+2. Authentication: Pre-login (user responsibility) — launchpad assumes user ran `devtunnel user login` beforehand. Clear error message if not authenticated.
+3. URL Extraction: Regex parsing on stdout (devtunnel outputs text, not JSON)
+4. Implementation Pattern: Adapt self-daemon spawner (proven subprocess lifecycle pattern)
+5. Error Handling: Clear status codes (`running`, `not_running`, `not_available`, `auth_failed`, `error`)
+6. CLI Integration: Simple `--tunnel` flag in CLI, set `TUNNEL_ENABLED` env var for server
+7. Auth for QR Code (Phase 3+): Token-based with short expiration — instant mobile access, secure
+
+### Files to change (P2)
+- `src/cli.ts` — Parse --tunnel flag
+- `src/server/config.ts` — Add tunnelEnabled field
+- `src/server/tunnel.ts` — New: TunnelManager class
+- `src/server/tunnel-plugin.ts` — New: Fastify plugin
+- `src/server/routes/tunnel.ts` — New: GET /api/tunnel route
+- `src/server/index.ts` — Register tunnel-plugin
+- `README.md` — Document devtunnel CLI install requirement
+
+### Files for QR UI (P3+)
+- `src/client/components/ShareModal.tsx` — New modal showing QR code + expiration + copy URL
+- `src/client/hooks/useDevTunnelShare.ts` — Hook to fetch tunnel status + generate/manage tokens
+
+### Context for Brand
+The QR code feature is a Phase 3+ enhancement. Pre-work (P2 temporary tunnel) is being handled by Cooper + TARS. Once P2 is complete, Brand will own the "Share" button UI, QR modal design, and token expiration timer component. The backend token generation is handled server-side; Brand's role is display + UX.
+

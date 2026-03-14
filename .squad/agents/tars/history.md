@@ -220,3 +220,11 @@ Key achievements:
 - 16 new tests added to manager.test.ts (32 total). TestSdkSession mock extended with `rpc` object mirroring SDK's `createSessionRpc()` shape, plus `setModel()` method
 - TestCopilotClient extended with `listModels()` returning mock ModelInfo array
 - Pre-existing test failures (19) in aggregator/routes tests are from Romilly's parallel WIP on `InternalAggregatedSession` / `toClientSession()` stripping — NOT caused by these changes
+
+### 2026-03-14: DevTunnel Authentication Mechanisms Research
+- **Best path for QR code feature:** Token-based auth. Issue `devtunnel token TUNNELID --scopes connect --expiration 4h` after tunnel creation. Embed token in QR URL. Phone scans → URL includes token → devtunnel relay validates → launchpad creates session.
+- **Auth models available:** (1) Pre-login (user runs `devtunnel user login` once, token cached in keychain), (2) Anonymous (`--allow-anonymous`), (3) Access tokens (stateless, short-lived, validates at relay), (4) Org/tenant-level.
+- **SDK status:** No official Microsoft Node.js SDK exists. DevTunnel CLI is the canonical interface. Wrap with child_process (pattern exists in `src/server/self-daemon/spawner.ts`).
+- **Implementation roadmap:** Phase 1 (P2, current grooming): Pre-login temporary tunnel. Phase 2 (P3+): Add token generation for passwordless mobile access. Phase 3 (P4+): Org/tenant, persistent tunnels.
+- **Security model:** Tokens are tunnel-access tokens (not user identity). Keep short-lived (4h default). Pair with launchpad's own session/JWT for user identity. Token validates automatically at devtunnel relay (no backend storage needed).
+- **For QR code:** Anonymous mode works for MVP if tunnel expires quickly, but token-based is better (more secure, still simple to implement). Pre-login model defeats QR UX on mobile (scan → login → access).

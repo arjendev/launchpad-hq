@@ -389,3 +389,216 @@ Delete the adapter layer entirely. SDK types become wire types. Manager talks to
 - Server-side mock adapter (`src/server/copilot/mock-adapter.ts`) is unaffected — it's for the server-side copilot plugin, not the daemon.
 - Future SDK version upgrades require only updating `@github/copilot-sdk` — no adapter mapping to maintain.
 - **Test count:** 639 passing (no regressions).
+## 2026-03-14: Dev Tunnels Integration
+
+### Decision: Tunnel Lifecycle, Authentication, Implementation Pattern
+
+**By:** Cooper (Lead)  
+**Date:** 2026-03-14  
+**Status:** Grooming complete, ready for implementation
+
+**Context**  
+Issue #23 grooming for Microsoft Dev Tunnels integration. Analyzed codebase patterns, devtunnel CLI interface, and acceptance criteria.
+
+**Key Decisions**
+
+1. **Tunnel Lifecycle: Temporary (Not Persistent)**  
+   Use temporary tunnels that auto-delete on close. Simplest for P2. No state persistence needed. Can upgrade to persistent tunnels in future phase.
+
+2. **Authentication: Pre-Login (User Responsibility)**  
+   Assume user has run `devtunnel user login` manually. Don't implement auto-login in launchpad. Clear error message in /api/tunnel if not authenticated.
+
+3. **URL Extraction: Regex Parsing**  
+   Parse tunnel URL from devtunnel stdout using regex on "Hosting port X at https://..." line. devtunnel outputs to stdout (not JSON). Regex is stable.
+
+4. **Implementation Pattern: Adapt Self-Daemon Spawner**  
+   Follow src/server/self-daemon/spawner.ts as gold standard for subprocess lifecycle management. Pattern is proven: stdio piping, exit handling, graceful shutdown, error capture.
+
+5. **Error Handling: Clear Status Codes**  
+   /api/tunnel returns `{ status, url?, error? }` with specific codes: "running", "not_running", "not_available" (CLI missing), "auth_failed" (not logged in), "error" (process crashed).
+
+6. **CLI Integration: Simple Flag Pass-Through**  
+   Add `--tunnel` flag to src/cli.ts, set env var TUNNEL_ENABLED for server to read. Minimal change, consistent with existing `--daemon` flag pattern.
+
+**Files to Change**
+- `src/cli.ts` — Parse --tunnel flag
+- `src/server/config.ts` — Add tunnelEnabled field
+- `src/server/tunnel.ts` — New: TunnelManager class
+- `src/server/tunnel-plugin.ts` — New: Fastify plugin
+- `src/server/routes/tunnel.ts` — New: GET /api/tunnel route
+- `src/server/index.ts` — Register tunnel-plugin
+- `README.md` — Document devtunnel CLI install requirement
+
+**Why**  
+Simplicity, consistency with existing patterns, clear error states for dashboard integration, maintainable foundation for future enhancements (persistent tunnels, token-based auth for QR codes).
+
+---
+
+### Research: DevTunnel Authentication Mechanisms
+
+**By:** TARS (Daemon & SDK Specialist)  
+**Date:** 2026-03-14  
+**Status:** Research complete, actionable findings documented
+
+**Summary**  
+DevTunnel supports multiple auth models: user-based (default, secure), anonymous (simplest, least secure), org-level access control, and access tokens (sharable without login). For QR code use case (scan → auto-login on phone), combine temporary tunnel with token-based authentication in Phase 3+.
+
+**Authentication Models Evaluated**
+
+| Model | How It Works | Security | Use Case |
+|-------|-------------|----------|----------|
+| **Authenticated (Default)** | User must log in with Microsoft/GitHub | High | Standard sharing; secure by default |
+| **Anonymous** | Anyone with tunnel URL can access; use `--allow-anonymous` flag | Medium/Low | Public demos, temporary shares, P2 MVP only |
+| **Token-Based** | Issue bearer tokens for specific tunnel; embed in QR URL | High | Mobile QR code access (recommended for Phase 3+) |
+| **Organization-Level** | Grant access to GitHub org or Microsoft tenant members | High | Team-based access control |
+
+**Phase 1 (P2): Pre-Login Model**  
+User runs `devtunnel user login` once (one-time setup). Token cached in system keychain. If not logged in: return `status: "auth_failed"` from `/api/tunnel` with guidance. Simple, secure, avoids launchpad auth complexity.
+
+**Phase 2+ (P3): Token-Based Auth for QR Code**  
+After tunnel creation, call `devtunnel token TUNNELID --scopes connect --expiration 4h` to generate short-lived token. Embed in QR: `https://l3rs99qw-3000.usw2.devtunnels.ms?access_token=TOKEN`. Phone scans → opens URL with embedded token → devtunnel relay validates → launchpad creates session. Secure, instant mobile access, no backend state needed.
+
+**DevTunnel API Surface**
+- **No official Node.js SDK** in Microsoft package ecosystem
+- **No public REST API** published (404 on /rest-api)
+- **CLI is canonical interface** — stable output format; child_process + stdout parsing is reliable
+
+**Implementation Architecture**
+- Spawn: `devtunnel host -p 3000`
+- Generate token: `devtunnel token TUNNELID --expiration 4h`
+- QR encodes: tunnel URL + token in query param or header
+- Phone request includes token → devtunnel relay validates automatically → launchpad session established
+
+**Why This Approach**
+- Leverage devtunnel's built-in security (token expiration, relay validation)
+- Don't reinvent auth; use relay as security boundary
+- Tokens are stateless; no backend storage needed
+- Multi-port support is native to devtunnel CLI
+- Foundation for future org/tenant access control
+
+---
+
+### Decision: Copilot SDK Custom-Agent Selection (Native Implementation)
+
+**By:** TARS (Platform Dev)  
+**Date:** 2026-03-14  
+**Status:** Implemented
+
+**What**  
+Daemon-side agent selection now uses Copilot SDK's native `customAgents` session config plus `session.rpc.agent.select()` / `deselect()` after create or resume. Agent choices exposed to HQ as stable catalog.
+
+**Why**  
+SDK 0.1.32 already supports custom-agent registration and runtime selection. A custom spawn/coordinator tool would duplicate behavior and increase recursion risk. Stable catalog IDs let HQ remember per-project choices without coupling persistence to raw SDK names.
+
+**Catalog Structure**
+- Builtin entry: "plain" session
+- Discovered agents: `github:*` IDs from `.github/agents/*.agent.md` files
+- HQ persists per-project preference as `defaultCopilotSdkAgent` on config.json
+
+---
+
+### Decision: Disconnect-Before-Resume Pattern (SDK Sessions)
+
+**By:** Romilly (Backend Dev)  
+**Date:** 2026-03-14  
+**Status:** Implemented
+
+**Context**  
+Duplicate SDK session events caused by accumulated daemon-side event listeners when `selectSession` sent `copilot-resume-session` repeatedly without cleanup.
+
+**Decision**  
+1. **Server resume route always sends `copilot-disconnect-session` before `copilot-resume-session`** — ensures clean daemon state regardless of client behavior.
+2. **Client disconnects ALL session types on switch** — SDK sessions get proper cleanup.
+3. **Client guards against re-selecting same session** — prevents redundant resume calls.
+
+**Impact**  
+Daemon developers can rely on receiving disconnect before any resume. Even buggy clients can't accumulate stale listeners. Any future session type gets automatic cleanup on switch.
+
+---
+
+### Decision: Triple Event Fix — CopilotManager Dedup Guards
+
+**By:** Romilly (Backend Dev)  
+**Date:** 2026-03-14  
+**Status:** Implemented
+
+**Context**  
+After previous duplicate-event fix, users reported 3× duplicate entries in conversation viewer with DIFFERENT timestamps. Root cause: daemon was creating 3 separate events per SDK event.
+
+**Root Causes Found**
+1. **`client.on()` duplicated `session.on()`** — Catch-all listener at client level fired for per-session events already covered by session-level listener. Independent timestamps per listener.
+2. **`start()` not idempotent** — On daemon reconnect, `start()` called again without guard. Each call leaked additional `client.on()` listener. After reconnect: 2 client listeners + 1 session listener = 3× events.
+3. **Explicit synthetic events doubled `session.start`** — `handleCreateSession`/`handleResumeSession` sent synthetic `session.start` while `session.on()` also forwarded SDK's native `session.start`.
+
+**Changes**
+- `CopilotManager.start()`: Early return if `this.started` is true (idempotent)
+- `client.on()` handler: Skips events where `sessionId` exists in `activeSessions` (per-session listener covers those)
+- `trackSession(session, skipInitialStart)`: New param suppresses first `session.start` from `session.on()` when create/resume already sent it
+- `trackSession()`: Cleans up pre-existing unsubscriber for same sessionId before attaching new one
+
+**Impact**  
+All session events fire exactly 1× regardless of reconnects. No listener leaks on daemon reconnect. 3 new unit tests + 1 E2E test added.
+
+**Files Changed**
+- `src/daemon/copilot/manager.ts` — Core fix (4 changes)
+- `src/daemon/copilot/__tests__/manager.test.ts` — 3 dedup regression tests
+- `tests/e2e/sdk-session-duplicates.spec.ts` — E2E duplicate detection test
+
+---
+
+## User Directives (2026-03-14)
+
+### Dev Tunnel UI: Clickable Top Bar Element with QR Code
+
+**By:** Arjen (via Copilot)  
+**What:** Dev Tunnel UI should be a clickable element in the top bar (right side). Clicking shows a QR code. Scanning QR code should authenticate/log you in on the remote device.  
+**Why:** User request — captured for team memory  
+**Status:** Design phase; depends on Phase 3+ token-based auth research (documented above)
+
+---
+
+### Native Copilot SDK: Prefer Native Delegation
+
+**By:** Arjen (via Copilot)  
+**What:** Prefer native Copilot SDK custom-agent coordination if it already supports delegation; avoid adding an explicit coordinator marker unless there is a concrete gap.  
+**Why:** User request — captured for team memory  
+**Status:** Implemented (TARS decision above)
+
+---
+
+### Brand: Remembered Copilot SDK Agent Picker
+
+**By:** Brand (Frontend Dev)  
+**Date:** 2026-03-14  
+**Status:** Implemented
+
+**What**  
+Session-creation UI treats Copilot SDK agent choice as remembered per-project preference. Daemon-backed agent catalog and saved project preference stay separate: primary `Copilot SDK` action launches with remembered choice, alternate entries create with `Default` or discovered agent and update preference optimistically.
+
+**Contract**  
+- Persist preference on `config.json` project entries as `defaultCopilotSdkAgent`
+- `null` means "use default Copilot SDK agent"
+- HQ exposes `GET`/`PUT /api/daemons/:owner/:repo/copilot/agents` to read catalog + preference and update preference
+- `POST /api/daemons/:owner/:repo/copilot/sessions` accepts optional `agent` param; when omitted for `copilot-sdk`, HQ forwards remembered non-null project preference
+
+**Why**  
+Keeps repeat session creation fast and obvious without separate config flow. Keeps delegation details out of UI. `Default` stays plain session option.
+
+---
+
+### Copilot SDK Agent Preference Routes
+
+**By:** Romilly (Backend Dev)  
+**Date:** 2026-03-14  
+**Status:** Documented
+
+**What**  
+Routes contract for agent preference storage and discovery:
+- `GET /api/daemons/:owner/:repo/copilot/agents` — Read daemon-advertised catalog + remembered preference
+- `PUT /api/daemons/:owner/:repo/copilot/agents` — Update remembered preference
+
+**Why**  
+Stable interface for HQ to manage per-project agent selection without coupling to SDK implementation details.
+
+---
+
