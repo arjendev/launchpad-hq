@@ -93,11 +93,17 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
 
   // ── Read-only session queries ─────────────────────────
 
-  /** GET /api/copilot/aggregated/sessions — All aggregated sessions across all daemons */
-  server.get("/api/copilot/aggregated/sessions", async (_request, reply) => {
-    const sessions = server.copilotAggregator.getAllSessions();
-    return reply.send({ sessions, count: sessions.length });
-  });
+  /** GET /api/copilot/aggregated/sessions — Aggregated sessions, optionally filtered by projectId */
+  server.get<{ Querystring: { projectId?: string } }>(
+    "/api/copilot/aggregated/sessions",
+    async (request, reply) => {
+      const { projectId } = request.query;
+      const sessions = projectId
+        ? server.copilotAggregator.getSessionsByProject(projectId)
+        : server.copilotAggregator.getAllSessions();
+      return reply.send({ sessions, count: sessions.length });
+    },
+  );
 
   /** GET /api/copilot/aggregated/sessions/:sessionId — Single session detail */
   server.get<{ Params: { sessionId: string } }>(
