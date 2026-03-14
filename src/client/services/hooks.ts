@@ -349,15 +349,18 @@ export function useCreateSession() {
   return useMutation<
     { ok: boolean; sessionId: string },
     Error,
-    { owner: string; repo: string; model?: string }
+    { owner: string; repo: string; model?: string; sessionType?: string }
   >({
-    mutationFn: ({ owner, repo, model }) =>
+    mutationFn: ({ owner, repo, model, sessionType }) =>
       fetchJson("/api/daemons/" +
         encodeURIComponent(owner) + "/" +
         encodeURIComponent(repo) + "/copilot/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(model ? { model } : {}),
+        body: JSON.stringify({
+          ...(model ? { model } : {}),
+          ...(sessionType ? { sessionType } : {}),
+        }),
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["aggregated-sessions"] });
