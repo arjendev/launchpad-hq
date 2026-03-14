@@ -31,6 +31,8 @@
 - **SDK messages lack projectId:** Daemon `CopilotManager` sends `copilot-sdk-session-event` and `copilot-sdk-session-list` without `projectId` in the payload (unlike the non-SDK `copilot-session-*` messages which include it). The `DaemonWsHandler` must inject `projectId` from `wsToDaemonId` mapping when relaying SDK messages to the registry. Fixed in handler.ts by spreading `projectId: this.wsToDaemonId.get(ws)` into the payload.
 - **daemonId === projectId:** Throughout the codebase, `daemonId` is the `owner/repo` string and is interchangeable with `projectId`. The aggregator stub session creation previously used `"unknown"` as fallback — changed to use `daemonId` directly since they're the same value.
 - **Silent catch anti-pattern:** `CopilotManager.pollSessions` was swallowing errors silently. Added `console.warn` for visibility. Silent catches hide production issues — always log at minimum warn level.
+- **Duplicate SDK events root cause:** Four contributing factors: (1) `selectSession` called `resumeSession` unconditionally — even re-selecting the same session fired another resume, accumulating daemon-side event listeners. (2) Only CLI sessions were disconnected on switch-away — SDK sessions never got cleanup. (3) WebSocket client `createSocket()` didn't null old socket handlers, allowing brief duplicate message dispatch during reconnect. (4) Realtime conversation entries lacked id-based dedup. Fix: guard same-session resume, disconnect all types on switch, null old WS handlers, add id-based dedup.
+- **Resume route pattern — disconnect-before-resume:** Server-side safeguard: the resume endpoint now sends `copilot-disconnect-session` before `copilot-resume-session`. This ensures clean daemon state regardless of client behavior. Belt-and-suspenders against stale event listeners.
 
 ### 2026-03-13: Phase 1 Summary
 
@@ -255,3 +257,9 @@ Wave 1 delivered foundational daemon architecture, frontend UI, and backend data
 **Delivered:** Inbox backend fully implemented. Tool invocations (request_human_review, report_blocker) now create inbox messages. Per-project persistence. Fire-and-forget pattern unblocks frontend.
 
 **Key work:** Romilly-7 built complete inbox backend — types, StateManager persistence (per-project files in launchpad-state), tool-invocation wiring to create messages + WS broadcast, 3 REST routes + count endpoint. Title fallback chain handles both tool types. Separate "inbox" WS channel for targeted UI subscriptions.
+
+- **Triple event root cause (3× different timestamps):** Three sources of duplicate events in `CopilotManager`:
+  1. `client.on()` catch-all listener in `start()` duplicated per-session events already covered by `session.on()` in `trackSession()`, each generating different timestamps.
+  2. `start()` had no idempotency guard — daemon reconnects (HQ restart) called it again, leaking another `client.on()` listener. One reconnect = 3× events.
+  3. `handleCreateSession`/`handleResumeSession` sent explicit synthetic `session.start` events duplicating what `session.on()` already forwarded.
+  Fix: (a) `start()` returns immediately if `this.started` is true. (b) `client.on()` handler skips events for sessions already tracked in `activeSessions`. (c) `trackSession(session, skipInitialStart)` suppresses the first `session.start` from `session.on()` when create/resume already sent one explicitly. (d) `trackSession` now cleans up old unsubscriber before attaching new listener.

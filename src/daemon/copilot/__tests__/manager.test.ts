@@ -1000,4 +1000,151 @@ describe('CopilotManager', () => {
       expect(invocationMsg).toBeDefined();
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Duplicate event prevention (#triple-event regression)
+  // -----------------------------------------------------------------------
+
+  describe('duplicate event prevention', () => {
+    it('start() is idempotent — calling twice does not leak listeners', async () => {
+      await manager.start();
+      const countAfterFirst = sent.length;
+
+      // Reset and call start again (simulates daemon reconnect → re-auth)
+      sent = [];
+      await manager.start();
+
+      // start() should be a no-op — no new messages sent
+      expect(sent.length).toBe(0);
+
+      // Session events should still work (exactly 1× per event)
+      sent = [];
+      await manager.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-dup-1' },
+      });
+
+      const sessionEvents = sent.filter(
+        (m) => m.type === 'copilot-session-event',
+      );
+
+      // Should have exactly 1 session.start (the explicit synthetic one,
+      // NOT a duplicate from client.on or leaked listener)
+      const startEvents = sessionEvents.filter((m) => {
+        const payload = m as unknown as {
+          payload: { event: { type: string } };
+        };
+        return payload.payload.event.type === 'session.start';
+      });
+      expect(startEvents.length).toBe(1);
+    });
+
+    it('session.on() sends each event exactly once (no client.on duplication)', async () => {
+      await manager.start();
+
+      // Create a session
+      await manager.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-dup-2' },
+      });
+
+      // Find the sessionId from the session.start event
+      const startEvent = sent.find(
+        (m) =>
+          m.type === 'copilot-session-event' &&
+          (m as unknown as { payload: { event: { type: string } } }).payload
+            .event.type === 'session.start',
+      );
+      expect(startEvent).toBeDefined();
+      const sessionId = (
+        startEvent as unknown as { payload: { sessionId: string } }
+      ).payload.sessionId;
+
+      // Reset and send a prompt — this generates multiple SDK events
+      sent = [];
+      await manager.handleMessage({
+        type: 'copilot-send-prompt',
+        timestamp: Date.now(),
+        payload: { sessionId, prompt: 'test message' },
+      });
+
+      // Count events by type — each should appear exactly once
+      const eventsByType = new Map<string, number>();
+      for (const msg of sent) {
+        if (msg.type !== 'copilot-session-event') continue;
+        const eventType = (
+          msg as unknown as { payload: { event: { type: string } } }
+        ).payload.event.type;
+        eventsByType.set(eventType, (eventsByType.get(eventType) ?? 0) + 1);
+      }
+
+      // Each event type should fire exactly once
+      for (const [eventType, count] of eventsByType) {
+        expect(
+          count,
+          `Event '${eventType}' should fire exactly once, got ${count}`,
+        ).toBe(1);
+      }
+    });
+
+    it('trackSession cleans up old listener before attaching new one', async () => {
+      await manager.start();
+
+      // Create a session
+      await manager.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-dup-3' },
+      });
+
+      const startEvent = sent.find(
+        (m) =>
+          m.type === 'copilot-session-event' &&
+          (m as unknown as { payload: { event: { type: string } } }).payload
+            .event.type === 'session.start',
+      );
+      const sessionId = (
+        startEvent as unknown as { payload: { sessionId: string } }
+      ).payload.sessionId;
+
+      // Disconnect + resume (simulates user re-selecting the session)
+      await manager.handleMessage({
+        type: 'copilot-disconnect-session',
+        timestamp: Date.now(),
+        payload: { sessionId },
+      });
+      await manager.handleMessage({
+        type: 'copilot-resume-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-dup-4', sessionId },
+      });
+
+      // Send a prompt on the resumed session
+      sent = [];
+      await manager.handleMessage({
+        type: 'copilot-send-prompt',
+        timestamp: Date.now(),
+        payload: { sessionId, prompt: 'test after resume' },
+      });
+
+      // Each event type should still appear exactly once
+      const eventsByType = new Map<string, number>();
+      for (const msg of sent) {
+        if (msg.type !== 'copilot-session-event') continue;
+        const eventType = (
+          msg as unknown as { payload: { event: { type: string } } }
+        ).payload.event.type;
+        eventsByType.set(eventType, (eventsByType.get(eventType) ?? 0) + 1);
+      }
+
+      for (const [eventType, count] of eventsByType) {
+        expect(
+          count,
+          `After resume: event '${eventType}' should fire exactly once, got ${count}`,
+        ).toBe(1);
+      }
+    });
+  });
 });
