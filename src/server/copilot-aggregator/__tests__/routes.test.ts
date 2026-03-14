@@ -406,7 +406,7 @@ describe("Copilot session routes", () => {
   // ── POST /api/copilot/aggregated/sessions/:sessionId/resume ──
 
   describe("POST /api/copilot/aggregated/sessions/:sessionId/resume", () => {
-    it("sends resume message to daemon", async () => {
+    it("sends disconnect then resume message to daemon", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
 
@@ -423,12 +423,17 @@ describe("Copilot session routes", () => {
       expect(res.statusCode).toBe(200);
       expect(res.json().ok).toBe(true);
 
-      expect(ws.sent).toHaveLength(1);
-      const msg = JSON.parse(ws.sent[0]);
-      expect(msg.type).toBe("copilot-resume-session");
-      expect(msg.payload.sessionId).toBe("s1");
-      expect(msg.payload.config).toEqual({ model: "gpt-4o" });
-      expect(msg.payload.requestId).toBeDefined();
+      // Disconnect sent first to clean up stale listeners, then resume
+      expect(ws.sent).toHaveLength(2);
+      const disconnectMsg = JSON.parse(ws.sent[0]);
+      expect(disconnectMsg.type).toBe("copilot-disconnect-session");
+      expect(disconnectMsg.payload.sessionId).toBe("s1");
+
+      const resumeMsg = JSON.parse(ws.sent[1]);
+      expect(resumeMsg.type).toBe("copilot-resume-session");
+      expect(resumeMsg.payload.sessionId).toBe("s1");
+      expect(resumeMsg.payload.config).toEqual({ model: "gpt-4o" });
+      expect(resumeMsg.payload.requestId).toBeDefined();
     });
 
     it("returns 404 for unknown session", async () => {

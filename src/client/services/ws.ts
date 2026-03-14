@@ -171,6 +171,15 @@ export class WebSocketManager {
   // --- Internal ---
 
   private createSocket(): void {
+    // Null out handlers on the old socket to prevent duplicate message dispatch
+    // during the brief overlap when old socket is CLOSING and new one is OPEN.
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+    }
+
     try {
       this.ws = new WebSocket(this.url);
     } catch {

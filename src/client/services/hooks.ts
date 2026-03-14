@@ -18,6 +18,9 @@ import type {
   CopilotSession,
   AttentionItem,
   AttentionCountResponse,
+  InboxMessage,
+  InboxListResponse,
+  InboxCountResponse,
   ModeResponse,
   PlanResponse,
   ModelsResponse,
@@ -892,12 +895,15 @@ export function useConversationEntries(sessionId: string | null): {
       }
     }
 
-    // 3. Add realtime entries (deduplicate by checking if a REST message already covers this timestamp)
+    // 3. Add realtime entries, deduplicating against REST data and within
+    //    realtime itself (guards against duplicate daemon event forwarding).
+    const seenIds = new Set(result.map((e) => e.id));
     const restTimestamps = new Set(result.map((e) => e.timestamp));
     for (const entry of realtimeEntries) {
-      if (!restTimestamps.has(entry.timestamp)) {
-        result.push(entry);
-      }
+      if (seenIds.has(entry.id)) continue;
+      if (restTimestamps.has(entry.timestamp)) continue;
+      seenIds.add(entry.id);
+      result.push(entry);
     }
 
     // 4. Add streaming entry if present
@@ -922,4 +928,112 @@ export function useConversationEntries(sessionId: string | null): {
     error: messagesErr,
     sessionStatus: session?.status ?? null,
   };
+}
+
+// ── Inbox count per project ────
+
+export function useInboxCount(owner?: string, repo?: string) {
+  const qc = useQueryClient();
+  const query = useQuery<InboxCountResponse>({
+    queryKey: ["inbox-count", owner, repo],
+    queryFn: () =>
+      fetchJson<InboxCountResponse>(
+        `/api/projects/${encodeURIComponent(owner!)}/${encodeURIComponent(repo!)}/inbox/count`,
+      ),
+    enabled: !!owner && !!repo,
+    refetchInterval: 30_000,
+  });
+
+  // Re-fetch when inbox WS channel fires
+  const { data: wsInbox } = useSubscription<{ type: string }>("inbox");
+  const prevInboxRef = useRef<typeof wsInbox>(null);
+  useEffect(() => {
+    if (wsInbox && wsInbox !== prevInboxRef.current) {
+      prevInboxRef.current = wsInbox;
+      void qc.invalidateQueries({ queryKey: ["inbox-count", owner, repo] });
+    }
+  }, [wsInbox, qc, owner, repo]);
+
+  return query;
+}
+
+/** Fetch inbox messages for a project, optionally filtered by session. */
+export function useInbox(owner?: string, repo?: string, sessionId?: string | null) {
+  const qc = useQueryClient();
+
+  const unreadQuery = useQuery<InboxListResponse>({
+    queryKey: ["inbox", owner, repo, sessionId, "unread"],
+    queryFn: () => {
+      const params = new URLSearchParams({ status: "unread" });
+      if (sessionId) params.set("sessionId", sessionId);
+      return fetchJson<InboxListResponse>(
+        `/api/projects/${encodeURIComponent(owner!)}/${encodeURIComponent(repo!)}/inbox?${params}`,
+      );
+    },
+    enabled: !!owner && !!repo,
+    refetchInterval: 30_000,
+  });
+
+  const readQuery = useQuery<InboxListResponse>({
+    queryKey: ["inbox", owner, repo, sessionId, "read"],
+    queryFn: () => {
+      const params = new URLSearchParams({ status: "read" });
+      if (sessionId) params.set("sessionId", sessionId);
+      return fetchJson<InboxListResponse>(
+        `/api/projects/${encodeURIComponent(owner!)}/${encodeURIComponent(repo!)}/inbox?${params}`,
+      );
+    },
+    enabled: !!owner && !!repo,
+    refetchInterval: 30_000,
+  });
+
+  // Invalidate on WS inbox updates
+  const { data: wsInbox } = useSubscription<{ type: string }>("inbox");
+  const prevRef = useRef<typeof wsInbox>(null);
+  useEffect(() => {
+    if (wsInbox && wsInbox !== prevRef.current) {
+      prevRef.current = wsInbox;
+      void qc.invalidateQueries({ queryKey: ["inbox", owner, repo] });
+      void qc.invalidateQueries({ queryKey: ["inbox-count", owner, repo] });
+    }
+  }, [wsInbox, qc, owner, repo]);
+
+  const messages = useMemo(() => {
+    const unread = unreadQuery.data?.messages ?? [];
+    const read = readQuery.data?.messages ?? [];
+    return [...unread, ...read].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  }, [unreadQuery.data, readQuery.data]);
+
+  return {
+    messages,
+    unreadCount: unreadQuery.data?.unread ?? 0,
+    isLoading: unreadQuery.isLoading || readQuery.isLoading,
+    isError: unreadQuery.isError || readQuery.isError,
+  };
+}
+
+/** Mutation to mark an inbox message as read or archived. */
+export function useUpdateInboxMessage(owner?: string, repo?: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    InboxMessage,
+    Error,
+    { id: string; status: "read" | "archived" }
+  >({
+    mutationFn: ({ id, status }) =>
+      fetchJson<InboxMessage>(
+        `/api/projects/${encodeURIComponent(owner!)}/${encodeURIComponent(repo!)}/inbox/${encodeURIComponent(id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["inbox", owner, repo] });
+      void qc.invalidateQueries({ queryKey: ["inbox-count", owner, repo] });
+    },
+  });
 }
