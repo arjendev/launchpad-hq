@@ -12,6 +12,7 @@ import { DaemonWebSocketClient } from './client.js';
 import { DaemonState } from './state.js';
 import { setupDaemonTerminal, DaemonTerminalManager } from './terminal/index.js';
 import { CopilotManager } from './copilot/index.js';
+import { logIncoming, logOutgoing } from './logger.js';
 
 export interface DaemonProcess {
   client: DaemonWebSocketClient;
@@ -52,6 +53,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
 
   client.on('authenticated', () => {
     console.log('✅ Authenticated with HQ');
+    logOutgoing('register', daemonInfo);
     client.sendRegistration(daemonInfo);
     state.update({ daemonOnline: true, initialized: true });
   });
@@ -73,6 +75,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
 
   client.on('message', (msg) => {
     if (msg.type === 'request-status') {
+      logIncoming(msg.type, msg.payload);
       client.sendStatusUpdate(state.current);
     }
   });
