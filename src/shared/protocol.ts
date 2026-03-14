@@ -26,6 +26,13 @@ import type {
 export type { ConnectionState, SessionEvent, SessionEventType, SessionMetadata, ModelInfo, GetAuthStatusResponse };
 
 // ---------------------------------------------------------------------------
+// Session integration variants
+// ---------------------------------------------------------------------------
+
+/** Integration variant for a Copilot session */
+export type SessionType = 'copilot-cli' | 'copilot-sdk' | 'squad-sdk';
+
+// ---------------------------------------------------------------------------
 // Shared domain types
 // ---------------------------------------------------------------------------
 
@@ -68,6 +75,7 @@ export interface CopilotMessage {
 /** Aggregated view of a session — client-facing (no internal routing fields) */
 export interface AggregatedSession {
   sessionId: string;
+  sessionType?: SessionType;
   status: 'idle' | 'active' | 'error' | 'ended';
   model?: string;
   title?: string;
@@ -87,6 +95,7 @@ export interface ToolDefinitionWire {
 
 /** Session configuration sent over the wire (handler-free subset of SDK SessionConfig) */
 export interface SessionConfigWire {
+  sessionType?: SessionType;
   model?: string;
   systemMessage?: { mode: 'append' | 'replace'; content: string };
   tools?: ToolDefinitionWire[];
@@ -181,6 +190,7 @@ export interface CopilotSessionEventMessage extends BaseMessage<'copilot-session
   payload: {
     projectId: string;
     sessionId: string;
+    sessionType?: SessionType;
     event: SessionEvent;
   };
 }
@@ -328,6 +338,7 @@ export interface RequestStatusMessage extends BaseMessage<'request-status'> {
 export interface CopilotCreateSessionMessage extends BaseMessage<'copilot-create-session'> {
   payload: {
     requestId: string;
+    sessionType?: SessionType;
     config?: SessionConfigWire;
   };
 }
@@ -336,6 +347,7 @@ export interface CopilotResumeSessionMessage extends BaseMessage<'copilot-resume
   payload: {
     requestId: string;
     sessionId: string;
+    sessionType?: SessionType;
     config?: Partial<SessionConfigWire>;
   };
 }
