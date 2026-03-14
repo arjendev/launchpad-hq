@@ -31,11 +31,34 @@ function makeDaemonInfo(projectId = "proj-1") {
   };
 }
 
+function createMockStateService() {
+  return {
+    getConfig: vi.fn().mockResolvedValue({ version: 1, projects: [] }),
+    saveConfig: vi.fn().mockResolvedValue(undefined),
+    getPreferences: vi.fn().mockResolvedValue({ version: 1, theme: "system" }),
+    savePreferences: vi.fn().mockResolvedValue(undefined),
+    getEnrichment: vi.fn().mockResolvedValue({
+      version: 1,
+      projects: {},
+      updatedAt: new Date().toISOString(),
+    }),
+    saveEnrichment: vi.fn().mockResolvedValue(undefined),
+    sync: vi.fn().mockResolvedValue(undefined),
+    getProjectByToken: vi.fn().mockResolvedValue(undefined),
+    updateProjectState: vi.fn().mockResolvedValue(undefined),
+    getProjectDefaultCopilotAgent: vi.fn().mockResolvedValue(undefined),
+    updateProjectDefaultCopilotAgent: vi.fn().mockResolvedValue(undefined),
+    getInbox: vi.fn().mockResolvedValue({ version: 1, projectId: "test/repo1", messages: [] }),
+    saveInbox: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 describe("Copilot session routes", () => {
   let server: FastifyInstance;
 
   beforeEach(async () => {
     server = await createTestServer();
+    server.decorate("stateService", createMockStateService());
     await server.register(websocket);
     await server.register(terminalRelayPlugin);
     await server.register(daemonRegistryPlugin);
@@ -339,6 +362,31 @@ describe("Copilot session routes", () => {
       const res = await resPromise;
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ ok: true, sessionId: "new-sess", sessionType: "copilot-sdk" });
+    });
+
+    it("lets an explicit agent selection override the remembered preference", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("test/repo1", ws as never, makeDaemonInfo());
+      (
+        server.stateService.getProjectDefaultCopilotAgent as ReturnType<typeof vi.fn>
+      ).mockResolvedValue("reviewer");
+
+      const resPromise = server.inject({
+        method: "POST",
+        url: "/api/daemons/test/repo1/copilot/sessions",
+        payload: { agent: "planner" },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const sentMsg = JSON.parse(ws.sent[0]);
+      expect(sentMsg.payload.config).toEqual({ agent: "planner" });
+
+      server.copilotAggregator.resolveRequest(sentMsg.payload.requestId, { sessionId: "new-sess-agent" });
+
+      const res = await resPromise;
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, sessionId: "new-sess-agent", sessionType: "copilot-sdk" });
     });
 
     it("returns 404 for unknown daemon", async () => {

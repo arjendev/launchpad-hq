@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   createTestServer,
   type FastifyInstance,
@@ -51,12 +51,35 @@ function makeSessionInfo(overrides: Partial<{ sessionId: string; startTime: Date
   };
 }
 
+function createMockStateService() {
+  return {
+    getConfig: vi.fn().mockResolvedValue({ version: 1, projects: [] }),
+    saveConfig: vi.fn().mockResolvedValue(undefined),
+    getPreferences: vi.fn().mockResolvedValue({ version: 1, theme: "system" }),
+    savePreferences: vi.fn().mockResolvedValue(undefined),
+    getEnrichment: vi.fn().mockResolvedValue({
+      version: 1,
+      projects: {},
+      updatedAt: new Date().toISOString(),
+    }),
+    saveEnrichment: vi.fn().mockResolvedValue(undefined),
+    sync: vi.fn().mockResolvedValue(undefined),
+    getProjectByToken: vi.fn().mockResolvedValue(undefined),
+    updateProjectState: vi.fn().mockResolvedValue(undefined),
+    getProjectDefaultCopilotAgent: vi.fn().mockResolvedValue(undefined),
+    updateProjectDefaultCopilotAgent: vi.fn().mockResolvedValue(undefined),
+    getInbox: vi.fn().mockResolvedValue({ version: 1, projectId: "acme/widget", messages: [] }),
+    saveInbox: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Test server builder
 // ---------------------------------------------------------------------------
 
 async function buildServer() {
   const server = await createTestServer();
+  server.decorate("stateService", createMockStateService());
   await server.register(websocket);
   await server.register(terminalRelayPlugin);
   await server.register(daemonRegistryPlugin);
@@ -132,6 +155,31 @@ describe("Copilot session lifecycle — integration", () => {
       const res = await resPromise;
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ ok: true, sessionId: "model-sess", sessionType: "copilot-sdk" });
+    });
+
+    it("falls back to the remembered Copilot SDK agent when none is provided", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
+      (
+        server.stateService.getProjectDefaultCopilotAgent as ReturnType<typeof vi.fn>
+      ).mockResolvedValue("reviewer");
+
+      const resPromise = server.inject({
+        method: "POST",
+        url: "/api/daemons/acme/widget/copilot/sessions",
+        payload: {},
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const msg = JSON.parse(ws.sent[0]);
+      expect(msg.payload.config).toEqual({ agent: "reviewer" });
+
+      server.copilotAggregator.resolveRequest(msg.payload.requestId, { sessionId: "agent-sess" });
+
+      const res = await resPromise;
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, sessionId: "agent-sess", sessionType: "copilot-sdk" });
     });
 
     it("returns 504 when daemon does not respond in time", async () => {

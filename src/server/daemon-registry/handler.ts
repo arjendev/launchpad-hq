@@ -206,6 +206,15 @@ export class DaemonWsHandler {
         this.registry.emit("copilot:session-event" as never, this.wsToDaemonId.get(ws), msg.payload);
         break;
 
+      case "copilot-agent-catalog":
+        this.registry.emit("copilot:agent-catalog" as never, this.wsToDaemonId.get(ws), msg.payload);
+        this.broadcast("copilot", {
+          type: "copilot:agent-catalog",
+          projectId: msg.payload.projectId,
+          agents: msg.payload.agents,
+        });
+        break;
+
       case "copilot-sdk-state":
         this.registry.emit("copilot:sdk-state" as never, this.wsToDaemonId.get(ws), msg.payload);
         break;

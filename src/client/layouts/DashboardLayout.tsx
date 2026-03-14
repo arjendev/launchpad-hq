@@ -1,17 +1,25 @@
-import { useState } from "react";
-import { AppShell, Flex, ScrollArea, Title, Group } from "@mantine/core";
+import { AppShell, Flex, ScrollArea, Stack, Text, Title, Group } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
-import { ProjectList } from "../components/ProjectList";
-import { KanbanBoard } from "../components/KanbanBoard";
-import { ConnectedProjectPanel } from "../components/ConnectedProjectPanel";
-import { ConnectionStatus } from "../components/ConnectionStatus";
-import { ThemeToggle } from "../components/ThemeToggle";
-import { FloatingConversation } from "../components/FloatingConversation";
+import { ProjectList } from "../components/ProjectList.js";
+import { SessionList } from "../components/SessionList.js";
+import { BacklogList } from "../components/BacklogList.js";
+import { InboxPanel } from "../components/InboxPanel.js";
+import { ResizableTerminalPanel } from "../components/ResizableTerminalPanel.js";
+import { ConnectionStatus } from "../components/ConnectionStatus.js";
+import { ThemeToggle } from "../components/ThemeToggle.js";
+import { useSelectedProject } from "../contexts/ProjectContext.js";
+import { useSelectedSession } from "../contexts/SessionContext.js";
+import { useDaemonForProject } from "../services/hooks.js";
 
 export function DashboardLayout() {
   const isSmallScreen = useMediaQuery("(max-width: 768px)");
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [activeSessionType, setActiveSessionType] = useState<string | undefined>();
+  const { selectedProject } = useSelectedProject();
+  const { selectedSession, selectSession } = useSelectedSession();
+
+  const projectId = selectedProject
+    ? `${selectedProject.owner}/${selectedProject.repo}`
+    : undefined;
+  const { daemon } = useDaemonForProject(projectId);
 
   return (
     <AppShell header={{ height: 50 }} padding={0}>
@@ -30,7 +38,7 @@ export function DashboardLayout() {
           direction={isSmallScreen ? "column" : "row"}
           style={{ height: "calc(100dvh - 50px)" }}
         >
-          {/* Left pane — Projects */}
+          {/* Column 1 — Projects (250px) */}
           <ScrollArea
             style={{
               width: isSmallScreen ? "100%" : 250,
@@ -46,43 +54,79 @@ export function DashboardLayout() {
             <ProjectList />
           </ScrollArea>
 
-          {/* Center pane — Kanban Board */}
-          <ScrollArea style={{ flex: 1, minWidth: 0 }}>
-            <KanbanBoard />
-          </ScrollArea>
-
-          {/* Right pane — Connected Project */}
-          <ScrollArea
+          {/* Column 2 — Sessions (220px) */}
+          <div
             style={{
-              width: isSmallScreen ? "100%" : 300,
-              minWidth: isSmallScreen ? undefined : 300,
-              borderLeft: isSmallScreen
+              width: isSmallScreen ? "100%" : 220,
+              minWidth: isSmallScreen ? undefined : 220,
+              borderRight: isSmallScreen
                 ? undefined
                 : "1px solid var(--lp-border)",
-              borderTop: isSmallScreen
+              borderBottom: isSmallScreen
                 ? "1px solid var(--lp-border)"
                 : undefined,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
             }}
           >
-            <ConnectedProjectPanel onOpenConversation={(sessionId, sessionType) => {
-              setActiveSessionId(sessionId);
-              setActiveSessionType(sessionType);
-            }} />
-          </ScrollArea>
+            <SessionList />
+          </div>
+
+          {/* Column 3 — Main area (flex) */}
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
+            {!selectedProject ? (
+              /* Empty state — no project selected */
+              <Stack align="center" justify="center" style={{ flex: 1 }}>
+                <Text size="lg" c="dimmed">
+                  Select a project to get started
+                </Text>
+              </Stack>
+            ) : (
+              <>
+                {/* Top — Inbox + Backlog side by side */}
+                <Flex style={{ flex: 1, minHeight: 0 }}>
+                  <div
+                    style={{
+                      width: 250,
+                      minWidth: 250,
+                      borderRight: "1px solid var(--lp-border)",
+                      overflow: "hidden",
+                      display: "flex",
+                      flexDirection: "column",
+                    }}
+                  >
+                    <InboxPanel />
+                  </div>
+                  <ScrollArea style={{ flex: 1, minHeight: 0 }}>
+                    <BacklogList />
+                  </ScrollArea>
+                </Flex>
+
+                {/* Bottom — Terminal panel (visible when session selected) */}
+                {selectedSession && daemon && (
+                  <ResizableTerminalPanel
+                    daemonId={daemon.daemonId}
+                    sessionId={selectedSession.sessionId}
+                    sessionType={selectedSession.sessionType}
+                    terminalId={selectedSession.sessionId}
+                    onClose={() => selectSession(null)}
+                    defaultHeight={Math.floor((window.innerHeight - 50) * 0.7)}
+                  />
+                )}
+              </>
+            )}
+          </div>
         </Flex>
       </AppShell.Main>
-
-      {/* Floating conversation overlay */}
-      {activeSessionId && (
-        <FloatingConversation
-          sessionId={activeSessionId}
-          sessionType={activeSessionType}
-          onClose={() => {
-            setActiveSessionId(null);
-            setActiveSessionType(undefined);
-          }}
-        />
-      )}
     </AppShell>
   );
 }

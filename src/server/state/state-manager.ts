@@ -117,7 +117,7 @@ export class StateManager implements StateService {
   async updateProjectState(
     owner: string,
     repo: string,
-    updates: Partial<Pick<ProjectEntry, "initialized" | "workState">>,
+    updates: Partial<Pick<ProjectEntry, "initialized" | "workState" | "defaultCopilotSdkAgent">>,
   ): Promise<ProjectEntry | undefined> {
     const config = await this.getConfig();
     const project = config.projects.find(
@@ -129,9 +129,33 @@ export class StateManager implements StateService {
 
     if (updates.initialized !== undefined) project.initialized = updates.initialized;
     if (updates.workState !== undefined) project.workState = updates.workState;
+    if (updates.defaultCopilotSdkAgent !== undefined) {
+      project.defaultCopilotSdkAgent = updates.defaultCopilotSdkAgent;
+    }
 
     await this.saveConfig(config);
     return project;
+  }
+
+  async getProjectDefaultCopilotAgent(
+    owner: string,
+    repo: string,
+  ): Promise<string | null | undefined> {
+    const config = await this.getConfig();
+    const project = config.projects.find(
+      (p) =>
+        p.owner.toLowerCase() === owner.toLowerCase() &&
+        p.repo.toLowerCase() === repo.toLowerCase(),
+    );
+    return project ? project.defaultCopilotSdkAgent ?? null : undefined;
+  }
+
+  async updateProjectDefaultCopilotAgent(
+    owner: string,
+    repo: string,
+    agent: string | null,
+  ): Promise<ProjectEntry | undefined> {
+    return this.updateProjectState(owner, repo, { defaultCopilotSdkAgent: agent });
   }
 
   // ---- internal helpers -----------------------------------------------------

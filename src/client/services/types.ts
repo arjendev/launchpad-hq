@@ -126,7 +126,7 @@ export interface DaemonSummary {
 
 // ── SDK re-exports — source of truth for Copilot event types ────
 
-import type { SessionEventType, SessionEvent } from '@github/copilot-sdk';
+import type { SessionEventType, SessionEvent } from "@github/copilot-sdk";
 
 /** SDK session event type names (re-exported for convenience) */
 export type CopilotSessionEventType = SessionEventType;
@@ -140,7 +140,7 @@ export type AggregatedSessionStatus = "active" | "idle" | "error" | "ended";
 
 export interface AggregatedSession {
   sessionId: string;
-  sessionType?: 'copilot-cli' | 'copilot-sdk' | 'squad-sdk';
+  sessionType?: "copilot-cli" | "copilot-sdk" | "squad-sdk";
   status: AggregatedSessionStatus;
   model?: string;
   title?: string;
@@ -173,6 +173,21 @@ export interface ModelsResponse {
   models: CopilotModel[];
 }
 
+export interface CopilotAgentCatalogEntry {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface CopilotAgentCatalogResponse {
+  agents: CopilotAgentCatalogEntry[];
+}
+
+export interface CopilotAgentPreferenceResponse {
+  agentId: string | null;
+  agentName?: string | null;
+}
+
 export interface AggregatedSessionMessage {
   role: "user" | "assistant" | "system";
   content: string;
@@ -198,8 +213,6 @@ export interface SessionToolsResponse {
   invocations: ToolInvocationRecord[];
   count: number;
 }
-
-
 
 /** Unified entry type for the conversation viewer */
 export type ConversationEntryType =
@@ -260,11 +273,7 @@ export interface CopilotSessionSummary {
 
 // ── Attention types (match server attention/types.ts) ────
 
-export type AttentionType =
-  | "issue_stale"
-  | "pr_needs_review"
-  | "ci_failing"
-  | "session_idle";
+export type AttentionType = "issue_stale" | "pr_needs_review" | "ci_failing" | "session_idle";
 
 export type AttentionSeverity = "info" | "warning" | "critical";
 

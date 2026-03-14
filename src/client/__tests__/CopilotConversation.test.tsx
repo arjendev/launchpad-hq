@@ -444,8 +444,8 @@ describe("CopilotConversation", () => {
     resolveSend?.();
   });
 
-  it("shows session header with status (in parent FloatingConversation)", async () => {
-    // Status badge and session title are now rendered by FloatingConversation,
+  it("shows session header with status (in parent component)", async () => {
+    // Status badge and session title are rendered by the parent component,
     // not CopilotConversation. Verify CopilotConversation renders without a header.
     setupFetchMock();
     render(
@@ -500,7 +500,7 @@ describe("CopilotConversation", () => {
       expect(screen.getByTestId("prompt-area")).toBeInTheDocument();
     });
 
-    // Control panel toggle is now in FloatingConversation header
+    // Control panel toggle is in the parent component header
     expect(screen.queryByTestId("control-panel-toggle")).not.toBeInTheDocument();
   });
 });

@@ -57,6 +57,7 @@ export interface DaemonInfo {
   capabilities: string[];
   version: string;
   protocolVersion: typeof PROTOCOL_VERSION;
+  agentCatalog?: CopilotAgentCatalogEntry[];
 }
 
 /** A single message within a Copilot conversation */
@@ -93,10 +94,26 @@ export interface ToolDefinitionWire {
   parameters: Record<string, unknown>;
 }
 
+/** Advertised Copilot agent entry available for session creation */
+export interface CopilotAgentCatalogEntry {
+  id: string;
+  name: string;
+  displayName?: string;
+  description: string;
+  kind: 'default' | 'custom';
+  source: 'builtin' | 'github-agent-file';
+  path?: string;
+  model?: string;
+  tools?: string[];
+  userInvocable?: boolean;
+  target?: string;
+}
+
 /** Session configuration sent over the wire (handler-free subset of SDK SessionConfig) */
 export interface SessionConfigWire {
   sessionType?: SessionType;
   model?: string;
+  agentId?: string;
   systemMessage?: { mode: 'append' | 'replace'; content: string };
   tools?: ToolDefinitionWire[];
   streaming?: boolean;
@@ -211,6 +228,14 @@ export interface CopilotSessionEventMessage extends BaseMessage<'copilot-session
   };
 }
 
+// Daemon → HQ: available custom-agent catalog for this project
+export interface CopilotAgentCatalogMessage extends BaseMessage<'copilot-agent-catalog'> {
+  payload: {
+    projectId: string;
+    agents: CopilotAgentCatalogEntry[];
+  };
+}
+
 // Daemon → HQ: SDK connection state change
 export interface CopilotSdkStateMessage extends BaseMessage<'copilot-sdk-state'> {
   payload: {
@@ -294,6 +319,7 @@ export type DaemonToHqMessage =
   | TerminalExitMessage
   | CopilotSessionListMessage
   | CopilotSessionEventMessage
+  | CopilotAgentCatalogMessage
   | CopilotConversationMessage
   | CopilotSdkStateMessage
   | CopilotModelsListMessage

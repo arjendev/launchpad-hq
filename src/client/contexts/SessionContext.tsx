@@ -6,7 +6,10 @@ import { useDisconnectSession, useResumeSession } from "../services/hooks.js";
 
 interface SessionContextValue {
   selectedSession: AggregatedSession | null;
-  selectSession: (session: AggregatedSession | null) => void;
+  selectSession: (
+    session: AggregatedSession | null,
+    options?: { resume?: boolean },
+  ) => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -36,7 +39,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [selectedProject]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectSession = useCallback(
-    (session: AggregatedSession | null) => {
+    (
+      session: AggregatedSession | null,
+      options?: { resume?: boolean },
+    ) => {
       const current = selectedSession;
 
       // No-op if re-selecting the same session (avoids duplicate resume)
@@ -49,8 +55,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       setSelectedSession(session);
 
-      // Resume the newly selected session
-      if (session) {
+      // Resume existing sessions on selection. Freshly created sessions can opt out
+      // because create already starts them, and StrictMode would otherwise amplify
+      // duplicate resume calls during initial mount.
+      if (session && options?.resume !== false) {
         resumeSession.mutate({ sessionId: session.sessionId });
       }
     },

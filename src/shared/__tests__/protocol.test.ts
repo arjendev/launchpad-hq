@@ -9,6 +9,8 @@ import type {
   TerminalDataMessage,
   TerminalExitMessage,
   CopilotConversationMessage,
+  CopilotAgentCatalogEntry,
+  CopilotAgentCatalogMessage,
   CopilotSessionListMessage,
   CopilotSessionEventMessage,
   CopilotSdkStateMessage,
@@ -58,11 +60,22 @@ describe('Protocol message types', () => {
           capabilities: ['terminal', 'copilot'],
           version: '0.1.0',
           protocolVersion: PROTOCOL_VERSION,
+          agentCatalog: [
+            {
+              id: 'builtin:default',
+              name: 'default',
+              displayName: 'Plain session',
+              description: 'Standard Copilot session.',
+              kind: 'default',
+              source: 'builtin',
+            },
+          ],
         },
       };
       expect(msg.type).toBe('register');
       expect(msg.payload.projectId).toBe('proj-1');
       expect(msg.payload.capabilities).toContain('terminal');
+      expect(msg.payload.agentCatalog?.[0].id).toBe('builtin:default');
     });
 
     it('heartbeat message has correct shape', () => {
@@ -143,6 +156,38 @@ describe('Protocol message types', () => {
         },
       };
       expect(msg.type).toBe('copilot-session-event');
+    });
+
+    it('copilot-agent-catalog message has correct shape', () => {
+      const agents: CopilotAgentCatalogEntry[] = [
+        {
+          id: 'builtin:default',
+          name: 'default',
+          displayName: 'Plain session',
+          description: 'Standard Copilot session.',
+          kind: 'default',
+          source: 'builtin',
+        },
+        {
+          id: 'github:squad',
+          name: 'squad',
+          displayName: 'Squad',
+          description: 'Coordinates specialists.',
+          kind: 'custom',
+          source: 'github-agent-file',
+          path: '.github/agents/squad.agent.md',
+        },
+      ];
+      const msg: CopilotAgentCatalogMessage = {
+        type: 'copilot-agent-catalog',
+        timestamp: now,
+        payload: {
+          projectId: 'proj-1',
+          agents,
+        },
+      };
+      expect(msg.type).toBe('copilot-agent-catalog');
+      expect(msg.payload.agents).toHaveLength(2);
     });
 
     it('copilot-conversation message has correct shape', () => {
@@ -334,6 +379,7 @@ describe('Protocol message types', () => {
         'terminal-exit',
         'copilot-session-list',
         'copilot-session-event',
+        'copilot-agent-catalog',
         'copilot-conversation',
         'copilot-sdk-state',
         'copilot-models-list',
@@ -342,7 +388,7 @@ describe('Protocol message types', () => {
         'copilot-tool-invocation',
         'auth-response',
       ];
-      expect(types).toHaveLength(14);
+      expect(types).toHaveLength(15);
     });
 
     it('HqToDaemonMessage union contains all HQ message types', () => {
@@ -385,6 +431,7 @@ describe('Protocol message types', () => {
         capabilities: [],
         version: '1.0.0',
         protocolVersion: PROTOCOL_VERSION,
+        agentCatalog: [],
       };
       expect(info.protocolVersion).toBe(PROTOCOL_VERSION);
     });
@@ -392,7 +439,7 @@ describe('Protocol message types', () => {
     it('MessageType covers all discriminants', () => {
       const allTypes: MessageType[] = [
         'register', 'heartbeat', 'status-update', 'terminal-data', 'terminal-exit',
-        'copilot-session-list', 'copilot-session-event', 'copilot-conversation',
+        'copilot-session-list', 'copilot-session-event', 'copilot-agent-catalog', 'copilot-conversation',
         'copilot-sdk-state', 'copilot-models-list', 'copilot-auth-status',
         'copilot-tool-invocation',
         'attention-item', 'auth-response',
@@ -402,7 +449,7 @@ describe('Protocol message types', () => {
         'copilot-create-session', 'copilot-resume-session', 'copilot-send-prompt',
         'copilot-abort-session', 'copilot-list-sessions',
       ];
-      expect(allTypes).toHaveLength(28);
+      expect(allTypes).toHaveLength(29);
     });
   });
 });
