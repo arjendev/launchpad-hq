@@ -228,6 +228,133 @@ const ErrorBanner = memo(function ErrorBanner({
   );
 });
 
+// ── Multi-agent awareness components ───────────────────
+
+function AgentBadge({ agentRole, parentSessionId }: { agentRole?: string; parentSessionId?: string }) {
+  if (!agentRole && !parentSessionId) return null;
+  return (
+    <Badge size="xs" color="grape" variant="light" leftSection="🤖">
+      {agentRole || "sub-agent"}
+    </Badge>
+  );
+}
+
+const PermissionRequestCard = memo(function PermissionRequestCard({
+  sessionId,
+  requestId,
+  toolName,
+  toolArgs,
+}: {
+  sessionId: string;
+  requestId: string;
+  toolName: string;
+  toolArgs: Record<string, unknown>;
+}) {
+  const [decided, setDecided] = useState(false);
+
+  const handleDecision = async (decision: "allow" | "deny") => {
+    await fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/permission-response`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId, decision }),
+    });
+    setDecided(true);
+  };
+
+  return (
+    <Paper withBorder p="xs" radius="sm" style={{ borderColor: "var(--mantine-color-yellow-4)", borderStyle: "dashed" }}>
+      <Stack gap={4}>
+        <Group gap="xs">
+          <Badge size="xs" color="yellow">🔐 Permission</Badge>
+          <Text size="sm" fw={500}>Agent wants to use: {toolName}</Text>
+        </Group>
+        {toolArgs && Object.keys(toolArgs).length > 0 && (
+          <Code block style={{ fontSize: "0.75rem", maxHeight: 100, overflow: "auto" }}>
+            {JSON.stringify(toolArgs, null, 2)}
+          </Code>
+        )}
+        {!decided && (
+          <Group gap="xs">
+            <Button size="xs" color="green" variant="light" onClick={() => handleDecision("allow")}>
+              ✅ Allow
+            </Button>
+            <Button size="xs" color="red" variant="light" onClick={() => handleDecision("deny")}>
+              ❌ Deny
+            </Button>
+          </Group>
+        )}
+        {decided && (
+          <Text size="xs" c="dimmed">Decision submitted</Text>
+        )}
+      </Stack>
+    </Paper>
+  );
+});
+
+const UserInputRequestCard = memo(function UserInputRequestCard({
+  sessionId,
+  requestId,
+  question,
+  choices,
+}: {
+  sessionId: string;
+  requestId: string;
+  question: string;
+  choices?: string[];
+}) {
+  const [answered, setAnswered] = useState(false);
+  const [answer, setAnswer] = useState("");
+
+  const handleSubmit = async (selectedAnswer: string, wasFreeform: boolean) => {
+    await fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/user-input-response`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId, answer: selectedAnswer, wasFreeform }),
+    });
+    setAnswered(true);
+  };
+
+  return (
+    <Paper withBorder p="xs" radius="sm" style={{ borderColor: "var(--mantine-color-blue-4)", borderStyle: "dashed" }}>
+      <Stack gap={4}>
+        <Group gap="xs">
+          <Badge size="xs" color="blue">❓ Agent Question</Badge>
+        </Group>
+        <Text size="sm">{question}</Text>
+        {!answered && choices && choices.length > 0 && (
+          <Group gap="xs" wrap="wrap">
+            {choices.map((c) => (
+              <Button key={c} size="xs" variant="light" onClick={() => handleSubmit(c, false)}>
+                {c}
+              </Button>
+            ))}
+          </Group>
+        )}
+        {!answered && (
+          <Group gap="xs">
+            <TextInput
+              size="xs"
+              placeholder="Type your answer..."
+              value={answer}
+              onChange={(e) => setAnswer(e.currentTarget.value)}
+              style={{ flex: 1 }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && answer.trim()) {
+                  handleSubmit(answer, true);
+                }
+              }}
+            />
+            <Button size="xs" onClick={() => handleSubmit(answer, true)} disabled={!answer.trim()}>
+              Send
+            </Button>
+          </Group>
+        )}
+        {answered && <Text size="xs" c="dimmed">Answer submitted</Text>}
+      </Stack>
+    </Paper>
+  );
+});
+
 const EventCard = memo(function EventCard({ entry }: { entry: ConversationEntry }) {
   const eventType = entry.eventType ?? "unknown";
   const isSquad = eventType.startsWith("squad.");
@@ -255,6 +382,12 @@ const EventCard = memo(function EventCard({ entry }: { entry: ConversationEntry 
         <Badge size="xs" variant="light" color={color} style={{ flexShrink: 0 }}>
           {eventType}
         </Badge>
+        {typeof entry.eventData?.agentRole === "string" && (
+          <AgentBadge
+            agentRole={entry.eventData.agentRole}
+            parentSessionId={entry.eventData.parentSessionId as string | undefined}
+          />
+        )}
         <Text size="xs" c="dimmed" truncate style={{ flex: 1 }}>
           {entry.content}
           {entry.isStreaming && " ⏳"}
@@ -268,9 +401,36 @@ const EventCard = memo(function EventCard({ entry }: { entry: ConversationEntry 
 
 const ConversationMessage = memo(function ConversationMessage({
   entry,
+  sessionId,
 }: {
   entry: ConversationEntry;
+  sessionId: string;
 }) {
+  if (entry.type === "event") {
+    const et = entry.eventType ?? "";
+    if (et === "copilot-permission-request" || et.includes("permission.request")) {
+      return (
+        <PermissionRequestCard
+          sessionId={sessionId}
+          requestId={entry.eventData?.requestId as string}
+          toolName={entry.eventData?.toolName as string}
+          toolArgs={(entry.eventData?.toolArgs as Record<string, unknown>) ?? {}}
+        />
+      );
+    }
+    if (et === "copilot-user-input-request" || et.includes("input.request")) {
+      return (
+        <UserInputRequestCard
+          sessionId={sessionId}
+          requestId={entry.eventData?.requestId as string}
+          question={entry.eventData?.question as string}
+          choices={entry.eventData?.choices as string[] | undefined}
+        />
+      );
+    }
+    return <EventCard entry={entry} />;
+  }
+
   switch (entry.type) {
     case "user":
       return <UserMessage entry={entry} />;
@@ -284,8 +444,6 @@ const ConversationMessage = memo(function ConversationMessage({
       return <StatusDivider entry={entry} />;
     case "error":
       return <ErrorBanner entry={entry} />;
-    case "event":
-      return <EventCard entry={entry} />;
     default:
       return null;
   }
@@ -600,7 +758,7 @@ export function CopilotConversation({
         <Stack gap="sm">
           {sessionType === "squad-sdk" && <AgentRoster entries={entries} />}
           {entries.map((entry) => (
-            <ConversationMessage key={entry.id} entry={entry} />
+            <ConversationMessage key={entry.id} entry={entry} sessionId={sessionId} />
           ))}
         </Stack>
       </ScrollArea>
