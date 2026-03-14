@@ -81,7 +81,7 @@ export function FloatingConversation({
             {isCliSession && daemon ? (
               <Terminal daemonId={daemon.daemonId} onClose={onClose} />
             ) : (
-              <CopilotConversation sessionId={sessionId} onClose={onClose} />
+              <CopilotConversation sessionId={sessionId} sessionType={sessionData?.sessionType} onClose={onClose} />
             )}
           </div>
         </Paper>
