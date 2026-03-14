@@ -20,8 +20,8 @@ export interface ResizableTerminalPanelProps {
   daemonId: string;
   /** Existing terminal id (for resuming CLI sessions). */
   terminalId?: string;
-  /** Session id for data lookup. */
-  sessionId: string;
+  /** Session id for data lookup. Omit for standalone terminal mode. */
+  sessionId?: string;
   /** Session type — "copilot-cli" renders a terminal; anything else renders a conversation. */
   sessionType?: string;
   /** Called when the user detaches (minimizes) the panel. */
@@ -60,12 +60,14 @@ export function ResizableTerminalPanel({
   minHeight = 100,
 }: ResizableTerminalPanelProps) {
   const isMobile = useMediaQuery("(max-width: 768px)");
-  const { data: sessionData } = useAggregatedSession(sessionId);
+  const { data: sessionData } = useAggregatedSession(sessionId ?? "");
   const endSession = useEndSession();
 
+  const isStandaloneTerminal = !sessionId;
+
   // Resolve session type (prop wins, query fallback)
-  const resolvedSessionType = propSessionType ?? sessionData?.sessionType;
-  const isCliSession = resolvedSessionType === "copilot-cli";
+  const resolvedSessionType = isStandaloneTerminal ? undefined : (propSessionType ?? sessionData?.sessionType);
+  const isCliSession = isStandaloneTerminal || resolvedSessionType === "copilot-cli";
 
   // ── Resize state ──────────────────────────────────────
   const [height, setHeight] = useState(defaultHeight);
@@ -133,6 +135,7 @@ export function ResizableTerminalPanel({
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const handleEndClick = () => {
+    if (!sessionId) return;
     if (!confirmingEnd) {
       setConfirmingEnd(true);
       confirmTimer.current = setTimeout(() => setConfirmingEnd(false), 3000);
@@ -145,24 +148,23 @@ export function ResizableTerminalPanel({
   useEffect(() => () => clearTimeout(confirmTimer.current), []);
 
   // ── Detach (minimize) ─────────────────────────────────
+  // Just close the panel — SessionContext handles daemon-side disconnect
+  // for CLI sessions when selectSession(null) is called via onClose.
   const handleDetach = () => {
-    if (isCliSession && sessionId) {
-      fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/disconnect`, {
-        method: "POST",
-      }).catch(() => {});
-    }
     onClose?.();
   };
 
   // ── Derived display values ────────────────────────────
-  const sessionStatus = sessionData?.status ?? "idle";
-  const titleText = sessionData?.summary ?? sessionData?.title ?? sessionId.slice(0, 8);
+  const sessionStatus = isStandaloneTerminal ? "active" : (sessionData?.status ?? "idle");
+  const titleText = isStandaloneTerminal ? "Terminal" : (sessionData?.summary ?? sessionData?.title ?? sessionId!.slice(0, 8));
   const typeBadgeColor =
-    resolvedSessionType === "copilot-cli"
+    isStandaloneTerminal ? "cyan"
+    : resolvedSessionType === "copilot-cli"
       ? "teal"
       : "blue";
   const typeBadgeLabel =
-    resolvedSessionType === "copilot-cli"
+    isStandaloneTerminal ? "PTY"
+    : resolvedSessionType === "copilot-cli"
       ? "CLI"
       : "SDK";
 
@@ -225,19 +227,17 @@ export function ResizableTerminalPanel({
         }}
       >
         <Group gap="xs" style={{ flex: 1, minWidth: 0 }}>
-          <Tooltip label={sessionData?.summary ?? sessionId} openDelay={400}>
+          <Tooltip label={isStandaloneTerminal ? "Standalone terminal" : (sessionData?.summary ?? sessionId)} openDelay={400}>
             <Text size="sm" fw={600} truncate style={{ color: "var(--lp-text)" }}>
-              Session — {titleText}
+              {isStandaloneTerminal ? "Terminal" : `Session — ${titleText}`}
             </Text>
           </Tooltip>
-          {resolvedSessionType && (
-            <Badge size="xs" variant="outline" color={typeBadgeColor}>
-              {typeBadgeLabel}
-            </Badge>
-          )}
+          <Badge size="xs" variant="outline" color={typeBadgeColor}>
+            {typeBadgeLabel}
+          </Badge>
         </Group>
         <Group gap={4} wrap="nowrap">
-          {sessionData?.activity?.tokenUsage && (
+          {!isStandaloneTerminal && sessionData?.activity?.tokenUsage && (
             <Tooltip label="Token usage" withArrow>
               <Badge size="xs" variant="light" color="gray">
                 🪙 {sessionData.activity.tokenUsage.used.toLocaleString()}
@@ -253,7 +253,7 @@ export function ResizableTerminalPanel({
             {statusLabel[sessionStatus] ?? sessionStatus}
           </Badge>
           <Button.Group>
-            <Tooltip label="Minimize — session keeps running in background">
+            <Tooltip label={isStandaloneTerminal ? "Close terminal" : "Minimize — session keeps running in background"}>
               <Button
                 size="compact-xs"
                 variant="default"
@@ -261,22 +261,24 @@ export function ResizableTerminalPanel({
                 data-testid="panel-detach"
                 styles={{ root: { fontWeight: 500 } }}
               >
-                Detach ↗
+                {isStandaloneTerminal ? "Close ✕" : "Detach ↗"}
               </Button>
             </Tooltip>
-            <Tooltip label={confirmingEnd ? "Click again to confirm" : "End session — stops the process"}>
-              <Button
-                size="compact-xs"
-                variant={confirmingEnd ? "filled" : "light"}
-                color="red"
-                onClick={handleEndClick}
-                loading={endSession.isPending}
-                data-testid="panel-end-session"
-                styles={{ root: { fontWeight: 500 } }}
-              >
-                {confirmingEnd ? "Confirm? ■" : "End ■"}
-              </Button>
-            </Tooltip>
+            {!isStandaloneTerminal && (
+              <Tooltip label={confirmingEnd ? "Click again to confirm" : "End session — stops the process"}>
+                <Button
+                  size="compact-xs"
+                  variant={confirmingEnd ? "filled" : "light"}
+                  color="red"
+                  onClick={handleEndClick}
+                  loading={endSession.isPending}
+                  data-testid="panel-end-session"
+                  styles={{ root: { fontWeight: 500 } }}
+                >
+                  {confirmingEnd ? "Confirm? ■" : "End ■"}
+                </Button>
+              </Tooltip>
+            )}
           </Button.Group>
         </Group>
       </Group>
@@ -284,9 +286,9 @@ export function ResizableTerminalPanel({
       {/* ── Body: Terminal or Conversation ───────────────── */}
       <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
         {isCliSession ? (
-          <Terminal daemonId={daemonId} terminalId={terminalId ?? sessionId} onClose={handleDetach} />
+          <Terminal daemonId={daemonId} terminalId={isStandaloneTerminal ? undefined : (terminalId ?? sessionId)} onClose={handleDetach} />
         ) : (
-          <CopilotConversation sessionId={sessionId} sessionType={resolvedSessionType} />
+          <CopilotConversation sessionId={sessionId!} sessionType={resolvedSessionType} />
         )}
       </div>
     </div>

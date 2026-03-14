@@ -851,5 +851,87 @@ describe("Copilot session lifecycle — integration", () => {
 
       expect(res.statusCode).toBe(502);
     });
+
+    it("disconnect route sends message to daemon but keeps session in aggregator", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-disc-keep");
+
+      expect(server.copilotAggregator.getSession("s-disc-keep")).toBeDefined();
+
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/s-disc-keep/disconnect",
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().ok).toBe(true);
+      // Session must still exist — disconnect only detaches, doesn't destroy
+      expect(server.copilotAggregator.getSession("s-disc-keep")).toBeDefined();
+    });
+
+    it("session.idle event from disconnect keeps session in aggregator as idle", () => {
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-idle-disc");
+      const session = server.copilotAggregator.getSession("s-idle-disc");
+      expect(session).toBeDefined();
+
+      // Simulate the session.idle event that handleDisconnect now sends
+      server.copilotAggregator.handleSessionEvent("acme/widget", "s-idle-disc", {
+        type: "session.idle",
+        data: { reason: "disconnected" },
+        timestamp: Date.now(),
+      });
+
+      const after = server.copilotAggregator.getSession("s-idle-disc");
+      expect(after).toBeDefined();
+      expect(after!.status).toBe("idle");
+    });
+
+    it("delete route removes session from aggregator immediately", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-del-rm");
+
+      expect(server.copilotAggregator.getSession("s-del-rm")).toBeDefined();
+
+      const res = await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/s-del-rm/delete",
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().ok).toBe(true);
+      // Session must be gone after delete
+      expect(server.copilotAggregator.getSession("s-del-rm")).toBeUndefined();
+    });
+
+    it("deleted session cannot be re-tracked (tombstoned)", async () => {
+      const ws = createMockSocket();
+      server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-tombstone");
+
+      await server.inject({
+        method: "POST",
+        url: "/api/copilot/aggregated/sessions/s-tombstone/delete",
+      });
+
+      // Try to re-track the same session — should be blocked by tombstone
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-tombstone");
+      expect(server.copilotAggregator.getSession("s-tombstone")).toBeUndefined();
+    });
+
+    it("disconnected session CAN be re-tracked (not tombstoned)", () => {
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-disc-retrack");
+
+      // Simulate disconnect by sending session.idle (not session.shutdown)
+      server.copilotAggregator.handleSessionEvent("acme/widget", "s-disc-retrack", {
+        type: "session.idle",
+        data: { reason: "disconnected" },
+        timestamp: Date.now(),
+      });
+
+      // Session should still exist (no tombstone, no removal)
+      expect(server.copilotAggregator.getSession("s-disc-retrack")).toBeDefined();
+    });
   });
 });

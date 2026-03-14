@@ -209,7 +209,7 @@ function ResumeSessionModal({
 
 export function SessionList() {
   const { selectedProject } = useSelectedProject();
-  const { selectedSession, selectSession } = useSelectedSession();
+  const { selectedSession, selectSession, openTerminal } = useSelectedSession();
   const [resumeModalOpen, setResumeModalOpen] = useState(false);
   const [sessionMode, setSessionMode] = useState<"copilot-sdk" | "copilot-cli">("copilot-sdk");
 
@@ -341,6 +341,17 @@ export function SessionList() {
             </Tooltip>
           </Group>
         )}
+        <Tooltip label={isOnline ? "Open a standalone terminal on the daemon" : "Daemon offline"}>
+          <Button
+            variant="subtle"
+            size="compact-xs"
+            fullWidth
+            disabled={!isOnline}
+            onClick={openTerminal}
+          >
+            🖥 Open Terminal
+          </Button>
+        </Tooltip>
       </Stack>
 
       {/* Active sessions list */}
