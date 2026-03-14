@@ -60,9 +60,7 @@ async function tunnelPlugin(fastify: FastifyInstance) {
     }
 
     const body = request.body as { port?: number } | undefined;
-    const addr = fastify.server.address();
-    const serverPort = typeof addr === "object" && addr ? addr.port : 3000;
-    const resolvedPort = body?.port ?? serverPort;
+    const resolvedPort = body?.port ?? 5173;
 
     try {
       await manager.start(resolvedPort);

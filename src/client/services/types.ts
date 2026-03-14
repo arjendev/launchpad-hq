@@ -275,6 +275,13 @@ export interface AggregatedSessionMessage {
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
+  metadata?: {
+    parentToolCallId?: string;
+    subagentName?: string;
+    agentName?: string;
+    model?: string;
+    initiator?: string;
+  };
 }
 
 export interface SessionMessagesResponse {

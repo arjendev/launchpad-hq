@@ -25,6 +25,13 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
   const aggregator = new CopilotSessionAggregator();
   const registry = fastify.daemonRegistry;
 
+  // Map toolCallId → subagent display name, so assistant.message events from
+  // subagents can be persisted with the agent name even after the subagent
+  // has been removed from the active list.
+  const subagentNamesByToolCallId = new Map<string, string>();
+  // Track the currently selected main agent name per session (from subagent.selected)
+  const mainAgentNameBySession = new Map<string, string>();
+
   // ── Daemon disconnect → clean up sessions ─────────────
   registry.on("daemon:disconnected", (summary) => {
     aggregator.removeDaemon(summary.daemonId);
@@ -50,15 +57,51 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
       aggregator.setSessionType(payload.sessionId, payload.sessionType);
     }
 
+    // Track subagent display names so we can enrich persisted messages
+    if (payload.event.type === "subagent.started") {
+      const d = payload.event.data as { toolCallId?: string; agentDisplayName?: string; agentName?: string };
+      if (d.toolCallId) {
+        subagentNamesByToolCallId.set(d.toolCallId, d.agentDisplayName ?? d.agentName ?? "subagent");
+      }
+    }
+
+    // Track the selected main agent name
+    if (payload.event.type === "subagent.selected") {
+      const d = payload.event.data as { agentDisplayName?: string; agentName?: string };
+      mainAgentNameBySession.set(payload.sessionId, d.agentDisplayName ?? d.agentName ?? "");
+    }
+    if (payload.event.type === "subagent.deselected") {
+      mainAgentNameBySession.delete(payload.sessionId);
+    }
+
     // Persist assistant messages to conversation history so they survive refresh
     if (payload.event.type === "assistant.message") {
-      const data = payload.event.data as { content?: string; parentToolCallId?: string };
+      const data = payload.event.data as {
+        content?: string;
+        parentToolCallId?: string;
+        model?: string;
+        initiator?: string;
+      };
       const content = data.content?.trim();
       if (content) {
+        const metadata: Record<string, string> = {};
+        if (data.parentToolCallId) {
+          metadata.parentToolCallId = data.parentToolCallId;
+          const subName = subagentNamesByToolCallId.get(data.parentToolCallId);
+          if (subName) metadata.subagentName = subName;
+        } else {
+          // Main agent message — attach the agent display name if one is selected
+          const agentName = mainAgentNameBySession.get(payload.sessionId);
+          if (agentName) metadata.agentName = agentName;
+        }
+        if (data.model) metadata.model = data.model;
+        if (data.initiator) metadata.initiator = data.initiator;
+
         aggregator.appendMessages(payload.sessionId, [{
           role: "assistant",
           content,
           timestamp: new Date(payload.event.timestamp).getTime(),
+          ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
         }]);
       }
     }
