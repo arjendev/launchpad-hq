@@ -21,7 +21,6 @@ import {
   useDaemonForProject,
   useAggregatedSessions,
   useCreateSession,
-  useResumeSession,
   useAttentionItems,
   useAttentionCount,
   useDismissAttention,
@@ -175,13 +174,11 @@ function ResumeSessionModal({
   onClose,
   sessions,
   onResume,
-  isPending,
 }: {
   opened: boolean;
   onClose: () => void;
   sessions: AggregatedSession[];
   onResume: (sessionId: string) => void;
-  isPending: boolean;
 }) {
   const resumable = sessions.filter((s) => s.status === "idle" || s.status === "ended");
 
@@ -225,11 +222,6 @@ function ResumeSessionModal({
               </Group>
             </Paper>
           ))}
-          {isPending && (
-            <Stack align="center" p="xs">
-              <Loader size="sm" />
-            </Stack>
-          )}
         </Stack>
       )}
     </Modal>
@@ -247,7 +239,6 @@ function CopilotSessionsSection({
   const { sessions } = useAggregatedSessions(projectId);
   const { daemon } = useDaemonForProject(projectId);
   const createSession = useCreateSession();
-  const resumeSession = useResumeSession();
   const isOnline = !!daemon;
   const [resumeModalOpen, setResumeModalOpen] = useState(false);
 
@@ -264,15 +255,8 @@ function CopilotSessionsSection({
 
   const handleResume = (sessionId: string) => {
     const session = sessions.find((s) => s.sessionId === sessionId);
-    resumeSession.mutate(
-      { sessionId },
-      {
-        onSuccess: () => {
-          setResumeModalOpen(false);
-          onSelectSession?.(sessionId, session?.sessionType);
-        },
-      },
-    );
+    setResumeModalOpen(false);
+    onSelectSession?.(sessionId, session?.sessionType);
   };
 
   return (
@@ -322,7 +306,6 @@ function CopilotSessionsSection({
         onClose={() => setResumeModalOpen(false)}
         sessions={sessions}
         onResume={handleResume}
-        isPending={resumeSession.isPending}
       />
     </Stack>
   );

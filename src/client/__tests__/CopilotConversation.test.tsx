@@ -444,38 +444,32 @@ describe("CopilotConversation", () => {
     resolveSend?.();
   });
 
-  it("shows session header with status", async () => {
+  it("shows session header with status (in parent FloatingConversation)", async () => {
+    // Status badge and session title are now rendered by FloatingConversation,
+    // not CopilotConversation. Verify CopilotConversation renders without a header.
     setupFetchMock();
     render(
       <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Session abc123")).toBeInTheDocument();
+      expect(screen.getByTestId("prompt-area")).toBeInTheDocument();
     });
-
-    // Status badge
-    expect(screen.getByText("● idle")).toBeInTheDocument();
+    // No header title or status badge in CopilotConversation
+    expect(screen.queryByText("Session abc123")).not.toBeInTheDocument();
   });
 
-  it("renders back button and calls onClose", async () => {
+  it("does not render back button (controls moved to parent)", async () => {
     setupFetchMock();
-    const onClose = vi.fn();
-    const user = userEvent.setup();
     render(
-      <CopilotConversation
-        sessionId="abc123"
-       
-        onClose={onClose}
-      />,
+      <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("back-button")).toBeInTheDocument();
+      expect(screen.getByTestId("prompt-area")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByTestId("back-button"));
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId("back-button")).not.toBeInTheDocument();
   });
 
   it("disables input when session is processing", async () => {
@@ -496,14 +490,17 @@ describe("CopilotConversation", () => {
     expect(screen.queryByTestId("send-button")).not.toBeInTheDocument();
   });
 
-  it("shows control panel toggle", async () => {
+  it("accepts controlPanelOpen prop without error", async () => {
     setupFetchMock();
     render(
-      <CopilotConversation sessionId="abc123" />,
+      <CopilotConversation sessionId="abc123" controlPanelOpen={false} />,
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("control-panel-toggle")).toBeInTheDocument();
+      expect(screen.getByTestId("prompt-area")).toBeInTheDocument();
     });
+
+    // Control panel toggle is now in FloatingConversation header
+    expect(screen.queryByTestId("control-panel-toggle")).not.toBeInTheDocument();
   });
 });
