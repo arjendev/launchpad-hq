@@ -111,80 +111,128 @@ Launchpad knows about project environments because **daemons register with HQ** 
 
 When a daemon comes online, goes offline, or reports a state change, the dashboard knows instantly. That status feeds into the attention badges — if an environment you depend on goes down, you see red.
 
-### Copilot Integration
+### Copilot Integration — Three Variants
 
-This is where it gets interesting. The daemon uses **`@github/copilot-sdk`** (technical preview) to bridge Copilot and HQ. A `CopilotClient` connects to the Copilot CLI running locally, discovers sessions, creates new ones, and streams every event back to HQ as a full firehose. HQ filters before forwarding to the browser — the daemon sends everything, the server decides what the UI needs.
+Launchpad supports three distinct Copilot integration modes. Each serves a different use case, but all share the same session model — they appear in a unified session list with a type badge, and the user can create, resume, and close any of them from the same UI. The integration type is configured per-project (default) with per-session override.
 
-You're reviewing your projects from the dashboard. You see a Copilot session that's been spinning on the wrong approach. You read the conversation, understand the context, inject a better prompt, and move on. HQ sends the command to the daemon, the daemon executes it locally via the SDK. Or you see a session that finished and left a question for you. You answer it from the dashboard without ever opening the repo.
+#### Variant 1: `copilot-cli` — Terminal Sessions
 
-Custom tools registered on each session make agents **HQ-aware** — they can report progress, request human review, and signal blockers without being explicitly told to. System message injection gives every agent context about the launchpad project automatically.
+The simplest integration. The daemon spawns the **`copilot`** CLI binary in a PTY terminal. The user interacts through a full **xterm.js** terminal widget in the floating overlay — real keystrokes, real output, full bidirectional control.
 
-HQ only aggregates — it never talks to the SDK directly. The daemon owns the SDK connection entirely.
+A copilot-cli session *is* an active terminal process. The key design: the user can **close the UI window** without killing the terminal. The process keeps running in the daemon. When they want to come back, they resume the session from the modal and the terminal reattaches — output buffered while detached is replayed.
 
-### Session Takeover
+This maps directly to how developers already use `copilot` in their terminal, but now it's accessible from HQ across all projects simultaneously.
 
-When reading isn't enough, you take over. The daemon spawns a **PTY** locally (it's already inside the project environment) and HQ relays terminal I/O between the browser and the daemon. **xterm.js** in the browser gives you a full terminal — attach to any session and operate as if you're sitting in front of it. Full bidirectional control, real keystrokes, real output.
+#### Variant 2: `copilot-sdk` — Programmatic Sessions + Multi-Agent Coordinator
 
-No `docker exec` needed. The daemon is already there.
+The current approach, extended. The daemon uses **`@github/copilot-sdk`** (`CopilotClient`) to create sessions programmatically. A session has a model, system message, custom tools, streaming events — the full SDK surface.
 
-This is the deepest level of introspection: you're not just observing the session, you're inside it.
+What's new: **multi-agent coordination.** The daemon runs an orchestrator session that can spawn sub-agent sessions as tools. Each `CopilotSession` is an autonomous agent with its own model, tools, system prompt, and context. The orchestrator decides when to delegate, spawns the right specialist, collects results, and continues.
+
+```
+Orchestrator Session (daemon)
+    ├── tool: review_code → spawns Code Review sub-session
+    ├── tool: write_tests → spawns Test Writer sub-session
+    └── tool: analyze_perf → spawns Performance sub-session
+```
+
+The coordinator lives **entirely in the daemon** — HQ just relays. Sub-agent events stream to HQ as-is, tagged with the parent orchestrator session. The UI shows the full multi-agent tree: which sub-agents were spawned, what they're doing, how their results flow back.
+
+Hooks (`onPreToolUse`, `onPostToolUse`, `onUserInputRequest`, `onErrorOccurred`) give fine-grained control over the agent loop. Permission decisions can be forwarded to HQ for human approval instead of auto-approving everything.
+
+#### Variant 3: `squad-sdk` — Full Multi-Agent Framework
+
+The heavyweight option. **`@bradygaster/squad-sdk`** wraps the Copilot SDK and provides a complete multi-agent coordination framework out of the box:
+
+- **CastingEngine** — assigns the right agent to each task based on role definitions
+- **Router** — analyzes messages and determines which agents should handle them
+- **HookPipeline** — pre/post processing on every agent interaction
+- **EventBus** — structured event flow across all agents
+- **spawnParallel** — fan-out to multiple agents simultaneously with result collection
+- **Persistent sessions** — crash recovery, session resumption across restarts
+
+The daemon integrates with `SquadCoordinator` — the central orchestrator that handles the full pipeline: direct response check → route analysis → spawn strategy (direct/single/multi/fallback) → fan-out → collect results → emit events.
+
+Squad sessions appear in the same unified session list. The difference is under the hood: squad-sdk manages the agent topology, and the daemon bridges its EventBus to HQ's WebSocket relay.
+
+#### Unified Session Model
+
+All three variants produce sessions that share a common shape:
+
+| Field | Description |
+|---|---|
+| `sessionId` | Unique identifier |
+| `sessionType` | `copilot-cli` \| `copilot-sdk` \| `squad-sdk` |
+| `status` | `idle` \| `active` \| `error` \| `ended` |
+| `summary` | Human-readable session summary |
+| `startedAt` / `updatedAt` | Timestamps |
+
+The resume modal shows all sessions together with a type badge. The floating overlay adapts its rendering based on type: terminal widget for `copilot-cli`, chat view for `copilot-sdk` and `squad-sdk`.
+
+HQ only aggregates — it never talks to any SDK directly. The daemon owns all SDK connections entirely.
 
 ### Daemon Responsibilities
 
-The daemon is the workhorse. It owns the Copilot SDK connection, manages sessions, streams events, and gives HQ everything it needs to present a live picture of the project. Here's what it does:
+The daemon is the workhorse. It owns all Copilot integrations, manages sessions across all three variants, streams events, and gives HQ everything it needs to present a live picture of the project.
 
-**1. SDK Lifecycle Manager**
-- Spawns `CopilotClient({ cliPath: "copilot" })` on daemon start
+**1. Integration Manager**
+- Manages all three integration backends: CLI terminal, Copilot SDK, Squad SDK
+- Per-project default integration type, overridable per-session
+- Reports backend availability to HQ (which integrations are installed and functional)
+- Graceful degradation — if squad-sdk isn't installed, only cli and sdk variants are available
+
+**2. Copilot SDK Lifecycle**
+- Spawns `CopilotClient({ cwd })` on daemon start
 - Manages client lifecycle — start, stop, error recovery with `autoRestart: true`
 - Reports SDK connection state to HQ: `disconnected → connecting → connected → error`
-- Requires Copilot CLI installed and in PATH
+- Shared across both `copilot-sdk` and `squad-sdk` variants (squad wraps the same client)
 
-**2. Session Discovery & Monitoring**
+**3. Session Discovery & Monitoring**
 - On startup: `client.listSessions()` → reports all existing sessions to HQ
 - Periodic polling picks up sessions created externally (e.g. from VS Code)
-- `client.getLastSessionId()` provides quick resume hints
+- Terminal sessions tracked separately via PTY process table
 
-**3. Session Creation (from HQ)**
-- HQ sends "create session" → daemon calls `client.createSession({ model, tools, systemMessage })`
-- HQ can specify model, system message (append mode), and which custom tools to attach
-- Streaming always enabled for real-time relay
+**4. copilot-cli Session Management**
+- Spawns `copilot` binary in a PTY via `node-pty`
+- Tracks PTY as a session in the unified session list
+- Buffers terminal output while UI is detached
+- Reattaches on resume — replays buffered output, resumes live relay
+- Kills PTY on session end
 
-**4. Session Resume/Attach (from HQ)**
-- HQ sends "resume session" → daemon calls `client.resumeSession(id, { tools })`
-- Reattaches event listeners for streaming to HQ
+**5. copilot-sdk Session Management**
+- Creates/resumes sessions via `client.createSession()` / `client.resumeSession()`
+- Wires event listeners for full firehose streaming to HQ
+- Multi-agent coordinator: orchestrator session with sub-agent sessions as tools
+- Sub-agent lifecycle managed by daemon — spawn, collect results, clean up
 
-**5. Full Event Firehose**
-- Every session gets `session.on()` listeners that stream ALL events to HQ:
-  - `assistant.message_delta` / `assistant.message` — conversation
-  - `assistant.reasoning_delta` / `assistant.reasoning` — thinking
-  - `tool.execution_start` / `tool.execution_complete` — tool activity
-  - `session.idle` / `session.error` / `session.start` — lifecycle
-- HQ server filters before forwarding to browser clients
+**6. squad-sdk Session Management**
+- Creates `SquadCoordinator` with project-specific agent definitions
+- Bridges squad EventBus events to HQ WebSocket relay
+- Exposes squad tools (`squad_route`, `squad_decide`, `squad_memory`) through HQ
+- Agent casting and routing handled by squad-sdk internals
 
-**6. Prompt Injection (from HQ)**
-- HQ sends prompt → daemon calls `session.send({ prompt, attachments? })`
-- Supports file attachments from the project directory
-- Supports `session.abort()` from HQ to cancel runaway operations
+**7. Full Event Firehose**
+- Every session (all variants) streams ALL events to HQ:
+  - SDK events: `assistant.message_delta`, `tool.execution_start`, `session.idle`, etc.
+  - Terminal events: output data, resize, exit
+  - Squad events: agent spawned, route decision, fan-out started, results collected
+- Events flow as-is — no mapping, no renaming. HQ forwards to browser.
 
-**7. Custom HQ-Aware Tools**
-- Registered on session creation via `defineTool()`:
+**8. Custom HQ-Aware Tools**
+- Registered on every SDK/Squad session via `defineTool()`:
   - `report_progress` — agent reports task status → relayed to HQ dashboard
-  - `request_human_review` — agent requests human attention → creates attention item in HQ
+  - `request_human_review` — agent requests human attention → creates attention item
   - `report_blocker` — agent signals it's blocked → HQ shows "needs attention" badge
 - Tool handlers send messages back to HQ via WebSocket
 
-**8. System Message Injection**
-- Daemon appends context to every session's system message (append mode, preserves guardrails):
+**9. System Message Injection**
+- Daemon appends context to every SDK/Squad session's system message (append mode):
   *"You are working on project X in the launchpad-hq system. Use report_progress, request_human_review, and report_blocker tools to communicate with the human operator."*
 - Makes agents automatically HQ-aware without user prompting
 
-**9. Project State Reporter**
+**10. Project State Reporter**
 - Git status: branch, uncommitted changes, ahead/behind
 - Periodically reports to HQ via `status-update` messages
-
-**10. Terminal PTY (separate from Copilot)**
-- Spawns local shell for manual access via `node-pty`
-- Relays I/O to HQ for remote terminal in browser (xterm.js)
 
 ### Phone Access
 
@@ -233,6 +281,7 @@ Hub-and-spoke. HQ is the hub. Daemons are the spokes. Daemons always connect out
 │          │  │          │         │          │
 │ Copilot  │  │ Copilot  │         │ Copilot  │
 │ SDK      │  │ SDK      │         │ SDK      │
+│ Squad SDK│  │ CLI PTY  │         │ Squad SDK│
 │ node-pty │  │ node-pty │         │ node-pty │
 └──────────┘  └──────────┘         └──────────┘
   (WSL/DC)     (WSL only)          (local/remote)
@@ -310,9 +359,9 @@ Daemon authentication is separate — HQ generates a shared secret token per pro
 | Technology | Purpose |
 |---|---|
 | **ws** | WebSocket client — outbound connection to HQ |
-| **node-pty** | PTY spawning — terminal sessions inside the project environment |
-| **GitHub Copilot SDK** | Local session discovery, conversation state, prompt injection |
-| **@github/copilot-sdk** | Copilot CLI integration — session discovery, creation, events, prompt injection |
+| **node-pty** | PTY spawning — terminal sessions (copilot-cli + manual) |
+| **@github/copilot-sdk** | Copilot integration — session lifecycle, events, multi-agent coordination |
+| **@bradygaster/squad-sdk** | Multi-agent framework — routing, casting, EventBus, spawnParallel |
 
 ### Infrastructure
 
