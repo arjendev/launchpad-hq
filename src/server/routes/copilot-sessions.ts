@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import type { SessionConfigWire } from "../../shared/protocol.js";
+import type { SessionConfigWire, SessionType } from "../../shared/protocol.js";
 import { randomUUID } from "node:crypto";
 
 // ---------------------------------------------------------------------------
@@ -170,18 +170,18 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
   /** POST /api/copilot/aggregated/sessions/:sessionId/resume — Resume a session */
   server.post<{
     Params: { sessionId: string };
-    Body: { config?: Partial<SessionConfigWire> };
+    Body: { config?: Partial<SessionConfigWire>; sessionType?: SessionType };
   }>(
     "/api/copilot/aggregated/sessions/:sessionId/resume",
     async (request, reply) => {
       const { sessionId } = request.params;
-      const { config } = request.body ?? {};
+      const { config, sessionType } = request.body ?? {};
       const requestId = randomUUID();
 
       const ok = sendToDaemon(server, sessionId, reply, () => ({
         type: "copilot-resume-session",
         timestamp: Date.now(),
-        payload: { requestId, sessionId, config },
+        payload: { requestId, sessionId, sessionType, config },
       }));
       if (!ok) return;
 
@@ -392,10 +392,10 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
   /** POST /api/daemons/:owner/:repo/copilot/sessions — Create new session on a specific daemon */
   server.post<{
     Params: { owner: string; repo: string };
-    Body: { model?: string };
+    Body: { model?: string; sessionType?: SessionType };
   }>("/api/daemons/:owner/:repo/copilot/sessions", async (request, reply) => {
     const id = `${request.params.owner}/${request.params.repo}`;
-    const { model } = request.body ?? {};
+    const { model, sessionType } = request.body ?? {};
 
     const daemon = server.daemonRegistry.getDaemon(id);
     if (!daemon) {
@@ -410,6 +410,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
       timestamp: Date.now(),
       payload: {
         requestId,
+        sessionType,
         config: model ? { model } : undefined,
       },
     });
