@@ -255,6 +255,10 @@ export class DaemonWsHandler {
         this.registry.emit("copilot:mode-response" as never, this.wsToDaemonId.get(ws), msg.payload);
         break;
 
+      case "copilot-agent-response":
+        this.registry.emit("copilot:agent-response" as never, this.wsToDaemonId.get(ws), msg.payload);
+        break;
+
       case "copilot-plan-response":
         this.registry.emit("copilot:plan-response" as never, this.wsToDaemonId.get(ws), msg.payload);
         break;

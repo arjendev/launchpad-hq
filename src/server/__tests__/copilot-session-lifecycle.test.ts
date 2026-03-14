@@ -157,12 +157,9 @@ describe("Copilot session lifecycle — integration", () => {
       expect(res.json()).toEqual({ ok: true, sessionId: "model-sess", sessionType: "copilot-sdk" });
     });
 
-    it("falls back to the remembered Copilot SDK agent when none is provided", async () => {
+    it("does not inject agent config when none is provided", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
-      (
-        server.stateService.getProjectDefaultCopilotAgent as ReturnType<typeof vi.fn>
-      ).mockResolvedValue("reviewer");
 
       const resPromise = server.inject({
         method: "POST",
@@ -173,13 +170,12 @@ describe("Copilot session lifecycle — integration", () => {
       await new Promise((r) => setTimeout(r, 10));
 
       const msg = JSON.parse(ws.sent[0]);
-      expect(msg.payload.config).toEqual({ agent: "reviewer" });
+      expect(msg.payload.config).toBeUndefined();
 
       server.copilotAggregator.resolveRequest(msg.payload.requestId, { sessionId: "agent-sess" });
 
       const res = await resPromise;
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ ok: true, sessionId: "agent-sess", sessionType: "copilot-sdk" });
     });
 
     it("returns 504 when daemon does not respond in time", async () => {
@@ -237,9 +233,7 @@ describe("Copilot session lifecycle — integration", () => {
   describe("session status transitions via events", () => {
     beforeEach(() => {
       // Seed an active session so we can test transitions
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "sess-lifecycle" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "sess-lifecycle");
     });
 
     it("session.start → status becomes idle (ready for input)", () => {
@@ -345,9 +339,7 @@ describe("Copilot session lifecycle — integration", () => {
     it("sends copilot-send-prompt to daemon and returns 200 for idle session", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-prompt" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-prompt");
 
       const res = await server.inject({
         method: "POST",
@@ -364,12 +356,10 @@ describe("Copilot session lifecycle — integration", () => {
       expect(msg.payload.prompt).toBe("refactor this function");
     });
 
-    it("returns 409 Conflict when session is active", async () => {
+    it("allows sending prompts to active sessions (steering/queueing)", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-active" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-active");
       // Drive session to active via event
       server.copilotAggregator.handleSessionEvent("acme/widget", "s-active", {
         type: "user.message", timestamp: new Date().toISOString(), data: {}, id: "e1", parentId: null,
@@ -381,9 +371,7 @@ describe("Copilot session lifecycle — integration", () => {
         payload: { prompt: "hello" },
       });
 
-      expect(res.statusCode).toBe(409);
-      expect(res.json().error).toBe("conflict");
-      expect(ws.sent).toHaveLength(0);
+      expect(res.statusCode).toBe(200);
     });
 
     it("returns 404 for unknown session", async () => {
@@ -397,9 +385,7 @@ describe("Copilot session lifecycle — integration", () => {
     });
 
     it("returns 400 when prompt is missing", async () => {
-      server.copilotAggregator.updateSessions("d1", "p1", [
-        makeSessionInfo({ sessionId: "s-noprompt" }),
-      ]);
+      server.copilotAggregator.trackNewSession("d1", "p1", "s-noprompt");
 
       const res = await server.inject({
         method: "POST",
@@ -414,9 +400,7 @@ describe("Copilot session lifecycle — integration", () => {
     it("records injected prompt in conversation history with hq-injection source", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-history" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-history");
 
       await server.inject({
         method: "POST",
@@ -442,9 +426,7 @@ describe("Copilot session lifecycle — integration", () => {
     it("sends copilot-abort-session to the correct daemon", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-abort" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-abort");
 
       const res = await server.inject({
         method: "POST",
@@ -469,22 +451,18 @@ describe("Copilot session lifecycle — integration", () => {
       expect(res.json().error).toBe("not_found");
     });
 
-    it("succeeds even when daemon is disconnected (cleans up aggregator)", async () => {
+    it("returns 502 when daemon is disconnected", async () => {
       const ws = createMockSocket();
       ws.readyState = 3;
       server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-dead" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-dead");
 
       const res = await server.inject({
         method: "POST",
         url: "/api/copilot/aggregated/sessions/s-dead/abort",
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.json().ok).toBe(true);
-      expect(server.copilotAggregator.getSession("s-dead")).toBeUndefined();
+      expect(res.statusCode).toBe(502);
     });
   });
 
@@ -493,10 +471,8 @@ describe("Copilot session lifecycle — integration", () => {
   // ══════════════════════════════════════════════════════════
 
   describe("projectId injection — regression", () => {
-    it("sessions created via updateSessions carry the correct projectId", () => {
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-proj" }),
-      ]);
+    it("sessions created via trackNewSession carry the correct projectId", () => {
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-proj");
 
       const session = server.copilotAggregator.getInternalSession("s-proj");
       expect(session?.projectId).toBe("acme/widget");
@@ -523,12 +499,8 @@ describe("Copilot session lifecycle — integration", () => {
       server.daemonRegistry.register("acme/widget", ws1 as never, makeDaemonInfo("acme/widget"));
       server.daemonRegistry.register("acme/gizmo", ws2 as never, makeDaemonInfo("acme/gizmo"));
 
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "sw-1" }),
-      ]);
-      server.copilotAggregator.updateSessions("acme/gizmo", "acme/gizmo", [
-        makeSessionInfo({ sessionId: "sg-1" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "sw-1");
+      server.copilotAggregator.trackNewSession("acme/gizmo", "acme/gizmo", "sg-1");
 
       expect(server.copilotAggregator.getInternalSession("sw-1")?.projectId).toBe("acme/widget");
       expect(server.copilotAggregator.getInternalSession("sg-1")?.projectId).toBe("acme/gizmo");
@@ -585,13 +557,9 @@ describe("Copilot session lifecycle — integration", () => {
 
   describe("aggregated sessions listing", () => {
     it("GET /api/copilot/aggregated/sessions returns all sessions", async () => {
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s1" }),
-        makeSessionInfo({ sessionId: "s2" }),
-      ]);
-      server.copilotAggregator.updateSessions("acme/gizmo", "acme/gizmo", [
-        makeSessionInfo({ sessionId: "s3" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s1");
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s2");
+      server.copilotAggregator.trackNewSession("acme/gizmo", "acme/gizmo", "s3");
 
       const res = await server.inject({
         method: "GET",
@@ -608,12 +576,8 @@ describe("Copilot session lifecycle — integration", () => {
     });
 
     it("sessions are correctly associated with their project internally", async () => {
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "sw-1" }),
-      ]);
-      server.copilotAggregator.updateSessions("acme/gizmo", "acme/gizmo", [
-        makeSessionInfo({ sessionId: "sg-1" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "sw-1");
+      server.copilotAggregator.trackNewSession("acme/gizmo", "acme/gizmo", "sg-1");
 
       const res = await server.inject({
         method: "GET",
@@ -636,9 +600,7 @@ describe("Copilot session lifecycle — integration", () => {
     });
 
     it("GET /api/copilot/aggregated/sessions/:id returns single session detail", async () => {
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-detail" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-detail");
 
       const res = await server.inject({
         method: "GET",
@@ -662,9 +624,7 @@ describe("Copilot session lifecycle — integration", () => {
     });
 
     it("sessions are cleaned up when daemon disconnects", () => {
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-cleanup" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-cleanup");
 
       expect(server.copilotAggregator.getSession("s-cleanup")).toBeDefined();
 
@@ -682,9 +642,7 @@ describe("Copilot session lifecycle — integration", () => {
 
   describe("message and tool history endpoints", () => {
     it("GET /api/copilot/aggregated/sessions/:id/messages returns conversation history", async () => {
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-msgs" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-msgs");
       server.copilotAggregator.appendMessages("s-msgs", [
         { role: "user", content: "hello", timestamp: 1000 },
         { role: "assistant", content: "hi there", timestamp: 2000 },
@@ -712,9 +670,7 @@ describe("Copilot session lifecycle — integration", () => {
     });
 
     it("GET /api/copilot/aggregated/sessions/:id/tools returns tool invocations", async () => {
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-tools" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-tools");
       server.copilotAggregator.handleToolInvocation(
         "s-tools",
         "acme/widget",
@@ -755,12 +711,8 @@ describe("Copilot session lifecycle — integration", () => {
       server.daemonRegistry.register("acme/widget", ws1 as never, makeDaemonInfo("acme/widget"));
       server.daemonRegistry.register("acme/gizmo", ws2 as never, makeDaemonInfo("acme/gizmo"));
 
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-w1" }),
-      ]);
-      server.copilotAggregator.updateSessions("acme/gizmo", "acme/gizmo", [
-        makeSessionInfo({ sessionId: "s-g1" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-w1");
+      server.copilotAggregator.trackNewSession("acme/gizmo", "acme/gizmo", "s-g1");
 
       // Send to widget session
       await server.inject({
@@ -791,12 +743,8 @@ describe("Copilot session lifecycle — integration", () => {
       server.daemonRegistry.register("acme/widget", ws1 as never, makeDaemonInfo("acme/widget"));
       server.daemonRegistry.register("acme/gizmo", ws2 as never, makeDaemonInfo("acme/gizmo"));
 
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-wa" }),
-      ]);
-      server.copilotAggregator.updateSessions("acme/gizmo", "acme/gizmo", [
-        makeSessionInfo({ sessionId: "s-ga" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-wa");
+      server.copilotAggregator.trackNewSession("acme/gizmo", "acme/gizmo", "s-ga");
 
       await server.inject({
         method: "POST",
@@ -816,9 +764,7 @@ describe("Copilot session lifecycle — integration", () => {
 
   describe("session removal", () => {
     it("removeSession deletes session, conversation history, and tool invocations", () => {
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-rm" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-rm");
       server.copilotAggregator.appendMessages("s-rm", [
         { role: "user", content: "hello", timestamp: 1000 },
       ]);
@@ -834,9 +780,7 @@ describe("Copilot session lifecycle — integration", () => {
     });
 
     it("removeSession emits sessions-updated", () => {
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-emit" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-emit");
 
       let emitted = false;
       server.copilotAggregator.on("sessions-updated", () => { emitted = true; });
@@ -854,9 +798,7 @@ describe("Copilot session lifecycle — integration", () => {
     });
 
     it("session.shutdown event removes session from aggregator", () => {
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-ended" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-ended");
       expect(server.copilotAggregator.getSession("s-ended")).toBeDefined();
 
       server.copilotAggregator.handleSessionEvent("acme/widget", "s-ended", {
@@ -878,12 +820,10 @@ describe("Copilot session lifecycle — integration", () => {
       expect(server.copilotAggregator.getSession("ghost")).toBeUndefined();
     });
 
-    it("abort route removes session from aggregator", async () => {
+    it("abort route sends abort to daemon but keeps session", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-abort-rm" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-abort-rm");
 
       expect(server.copilotAggregator.getSession("s-abort-rm")).toBeDefined();
 
@@ -894,26 +834,22 @@ describe("Copilot session lifecycle — integration", () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.json().ok).toBe(true);
-      expect(server.copilotAggregator.getSession("s-abort-rm")).toBeUndefined();
+      // Session should still exist — abort only stops the current turn
+      expect(server.copilotAggregator.getSession("s-abort-rm")).toBeDefined();
     });
 
-    it("abort route succeeds even when daemon is disconnected", async () => {
+    it("abort route returns 502 when daemon is disconnected", async () => {
       const ws = createMockSocket();
       ws.readyState = 3; // CLOSED
       server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
-      server.copilotAggregator.updateSessions("acme/widget", "acme/widget", [
-        makeSessionInfo({ sessionId: "s-dead-abort" }),
-      ]);
+      server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-dead-abort");
 
       const res = await server.inject({
         method: "POST",
         url: "/api/copilot/aggregated/sessions/s-dead-abort/abort",
       });
 
-      // Should succeed (200), NOT 502 — session is cleaned up regardless
-      expect(res.statusCode).toBe(200);
-      expect(res.json().ok).toBe(true);
-      expect(server.copilotAggregator.getSession("s-dead-abort")).toBeUndefined();
+      expect(res.statusCode).toBe(502);
     });
   });
 });

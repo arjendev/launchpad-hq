@@ -138,24 +138,99 @@ export type CopilotSessionEvent = SessionEvent;
 
 export type AggregatedSessionStatus = "active" | "idle" | "error" | "ended";
 
+/** High-level phase derived from SDK event flow */
+export type SessionPhase =
+  | "idle"
+  | "thinking"
+  | "tool"
+  | "subagent"
+  | "waiting"
+  | "error";
+
+/** An active tool call tracked by the aggregator */
+export interface ActiveToolCall {
+  id: string;
+  name: string;
+  status: "running" | "completed" | "failed";
+  startedAt: number;
+  progress?: string;
+}
+
+/** An active subagent tracked by the aggregator */
+export interface ActiveSubagent {
+  id: string;
+  name: string;
+  displayName?: string;
+  status: "running" | "completed" | "failed";
+  startedAt: number;
+  intent?: string;
+  activeToolCalls: ActiveToolCall[];
+  recentEvents: Array<{ type: string; summary: string; timestamp: number }>;
+}
+
+/** A background task reported by the SDK while session is idle */
+export interface BackgroundTask {
+  id: string;
+  description: string;
+  status: "running" | "completed";
+}
+
+/** State when the SDK is waiting for user input */
+export interface WaitingState {
+  type: "user-input" | "elicitation" | "plan-exit" | "permission";
+  requestId: string;
+  question?: string;
+  choices?: string[];
+  toolName?: string;
+  toolArgs?: Record<string, unknown>;
+}
+
+/** Structured activity state derived from SDK events */
+export interface SessionActivity {
+  phase: SessionPhase;
+  intent: string | null;
+  activeToolCalls: ActiveToolCall[];
+  activeSubagents: ActiveSubagent[];
+  backgroundTasks: BackgroundTask[];
+  waitingState: WaitingState | null;
+  tokenUsage: { used: number; limit?: number } | null;
+  turnCount: number;
+}
+
+/** Default idle activity state — useful for tests and initial values */
+export const DEFAULT_SESSION_ACTIVITY: SessionActivity = {
+  phase: "idle",
+  intent: null,
+  activeToolCalls: [],
+  activeSubagents: [],
+  backgroundTasks: [],
+  waitingState: null,
+  tokenUsage: null,
+  turnCount: 0,
+};
+
 export interface AggregatedSession {
   sessionId: string;
-  sessionType?: "copilot-cli" | "copilot-sdk" | "squad-sdk";
+  sessionType?: "copilot-cli" | "copilot-sdk";
   status: AggregatedSessionStatus;
   model?: string;
   title?: string;
-  mode?: string;
+  mode?: CopilotSessionMode;
   summary?: string;
   startedAt: number;
   updatedAt: number;
   lastEvent?: { type: string; timestamp: number };
+  activity: SessionActivity;
 }
+
+export type CopilotSessionMode = "interactive" | "plan" | "autopilot";
+export type PromptDeliveryMode = "enqueue" | "immediate";
 
 // ── New endpoint response types ────
 
 export interface ModeResponse {
   sessionId: string;
-  mode: string;
+  mode: CopilotSessionMode;
 }
 
 export interface PlanResponse {
@@ -176,7 +251,9 @@ export interface ModelsResponse {
 export interface CopilotAgentCatalogEntry {
   id: string;
   name: string;
+  displayName?: string;
   description?: string;
+  userInvocable?: boolean;
 }
 
 export interface CopilotAgentCatalogResponse {
@@ -186,6 +263,12 @@ export interface CopilotAgentCatalogResponse {
 export interface CopilotAgentPreferenceResponse {
   agentId: string | null;
   agentName?: string | null;
+}
+
+export interface CopilotSessionAgentResponse {
+  sessionId: string;
+  agentId: string | null;
+  agentName: string | null;
 }
 
 export interface AggregatedSessionMessage {

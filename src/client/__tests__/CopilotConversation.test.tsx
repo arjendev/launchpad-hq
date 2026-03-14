@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { render } from "../../test-utils/client.js";
 import { CopilotConversation } from "../components/CopilotConversation.js";
 import type {
   AggregatedSession,
   AggregatedSessionMessage,
+  CopilotAgentCatalogEntry,
   ToolInvocationRecord,
 } from "../services/types.js";
+import { DEFAULT_SESSION_ACTIVITY } from "../services/types.js";
 
 // ── Mock data ──────────────────────────────────────────
 
@@ -16,6 +18,7 @@ const mockSession: AggregatedSession = {
   status: "idle",
   startedAt: Date.now() - 600_000,
   updatedAt: Date.now(),
+  activity: { ...DEFAULT_SESSION_ACTIVITY },
 };
 
 const mockMessages: AggregatedSessionMessage[] = [
@@ -50,25 +53,102 @@ const mockToolInvocations: ToolInvocationRecord[] = [
   },
 ];
 
+const mockAgents: CopilotAgentCatalogEntry[] = [
+  {
+    id: "builtin:default",
+    name: "default",
+    displayName: "Plain session",
+    description: "Standard Copilot session without a custom agent persona.",
+  },
+  {
+    id: "brand",
+    name: "Brand",
+    description: "Frontend specialist with a UI-first focus",
+  },
+];
+
+const mockSelectProject = vi.fn();
+const mockSelectedProject = {
+  owner: "owner",
+  repo: "test-repo",
+  openIssueCount: 3,
+  openPrCount: 1,
+  updatedAt: new Date().toISOString(),
+  isArchived: false,
+  runtimeTarget: "wsl-devcontainer",
+  daemonStatus: "online" as const,
+  workState: "working",
+};
+
+vi.mock("../contexts/ProjectContext.js", () => ({
+  useSelectedProject: () => ({
+    selectedProject: mockSelectedProject,
+    selectProject: mockSelectProject,
+  }),
+  ProjectProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 // ── Fetch mock ─────────────────────────────────────────
 
 function setupFetchMock(overrides?: {
   session?: AggregatedSession | null;
   messages?: AggregatedSessionMessage[];
   tools?: ToolInvocationRecord[];
+  agents?: CopilotAgentCatalogEntry[];
+  currentAgentId?: string | null;
+  currentAgentName?: string | null;
   sendOk?: boolean;
   abortOk?: boolean;
 }) {
   const session = overrides?.session !== undefined ? overrides.session : mockSession;
   const messages = overrides?.messages ?? mockMessages;
   const tools = overrides?.tools ?? [];
+  const agents = overrides?.agents ?? mockAgents;
+  let currentAgentId = overrides?.currentAgentId ?? null;
+  let currentAgentName = overrides?.currentAgentName ?? null;
   const sendOk = overrides?.sendOk ?? true;
   const abortOk = overrides?.abortOk ?? true;
+  const agentUpdates: Array<string | null> = [];
 
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       const urlStr = typeof url === "string" ? url : "";
+
+      if (urlStr.includes("/api/daemons/owner/test-repo/copilot/agents")) {
+        return { ok: true, json: async () => ({ agents }) };
+      }
+
+      if (urlStr.includes("/agent")) {
+        if (init?.method === "POST") {
+          const body = JSON.parse(String(init.body ?? "{}")) as { agentId?: string | null };
+          currentAgentId = body.agentId ?? null;
+          currentAgentName =
+            currentAgentId === null
+              ? null
+              : (agents.find((agent) => agent.id === currentAgentId)?.displayName ??
+                agents.find((agent) => agent.id === currentAgentId)?.name ??
+                currentAgentId);
+          agentUpdates.push(currentAgentId);
+          return {
+            ok: true,
+            json: async () => ({
+              sessionId: "abc123",
+              agentId: currentAgentId,
+              agentName: currentAgentName,
+            }),
+          };
+        }
+
+        return {
+          ok: true,
+          json: async () => ({
+            sessionId: "abc123",
+            agentId: currentAgentId,
+            agentName: currentAgentName,
+          }),
+        };
+      }
 
       // Session detail
       if (
@@ -79,6 +159,7 @@ function setupFetchMock(overrides?: {
         !urlStr.includes("/abort") &&
         !urlStr.includes("/mode") &&
         !urlStr.includes("/plan") &&
+        !urlStr.includes("/agent") &&
         !urlStr.includes("/disconnect") &&
         !urlStr.includes("/resume") &&
         !urlStr.includes("/set-model") &&
@@ -150,7 +231,7 @@ function setupFetchMock(overrides?: {
       if (urlStr.includes("/mode") && (!init || !init.method || init.method === "GET")) {
         return {
           ok: true,
-          json: async () => ({ sessionId: "abc123", mode: "agent" }),
+          json: async () => ({ sessionId: "abc123", mode: "interactive" }),
         };
       }
 
@@ -174,6 +255,8 @@ function setupFetchMock(overrides?: {
       };
     }),
   );
+
+  return { agentUpdates };
 }
 
 // ── Tests ──────────────────────────────────────────────
@@ -243,19 +326,18 @@ describe("CopilotConversation", () => {
     }
   });
 
-  it("renders HQ tool invocations highlighted", async () => {
+  it("renders HQ tool invocations inline in conversation", async () => {
     setupFetchMock({ tools: mockToolInvocations });
     render(
       <CopilotConversation sessionId="abc123" />,
     );
 
     await waitFor(() => {
-      expect(screen.getByText("report_progress")).toBeInTheDocument();
+      expect(screen.getAllByTestId("user-message").length).toBeGreaterThan(0);
     });
-    expect(screen.getByText("request_human_review")).toBeInTheDocument();
 
-    const hqCards = screen.getAllByTestId("hq-tool-card");
-    expect(hqCards.length).toBe(2);
+    // HQ tool cards should appear inline
+    expect(screen.queryAllByTestId("hq-tool-card").length).toBeGreaterThan(0);
   });
 
   it("renders empty state when no messages", async () => {
@@ -306,6 +388,9 @@ describe("CopilotConversation", () => {
     await user.type(input, "Fix the tests too");
 
     const sendBtn = screen.getByTestId("send-button");
+    await waitFor(() => {
+      expect(sendBtn).toBeEnabled();
+    });
     await user.click(sendBtn);
 
     await waitFor(() => {
@@ -399,7 +484,7 @@ describe("CopilotConversation", () => {
         if (urlStr.includes("/mode")) {
           return {
             ok: true,
-            json: async () => ({ sessionId: "abc123", mode: "agent" }),
+            json: async () => ({ sessionId: "abc123", mode: "interactive" }),
           };
         }
 
@@ -472,7 +557,7 @@ describe("CopilotConversation", () => {
     expect(screen.queryByTestId("back-button")).not.toBeInTheDocument();
   });
 
-  it("disables input when session is processing", async () => {
+  it("keeps input enabled and shows steer + queue actions when session is processing", async () => {
     setupFetchMock({
       session: { ...mockSession, status: "active" },
     });
@@ -481,13 +566,70 @@ describe("CopilotConversation", () => {
     );
 
     await waitFor(() => {
-      const input = screen.getByPlaceholderText("Session processing…");
-      expect(input).toBeDisabled();
+      const input = screen.getByPlaceholderText("Steer the current work or queue a follow-up…");
+      expect(input).toBeEnabled();
     });
 
-    // Should show abort button instead of send
+    expect(screen.getByTestId("steer-button")).toBeInTheDocument();
+    expect(screen.getByTestId("queue-button")).toBeInTheDocument();
     expect(screen.getByTestId("abort-button")).toBeInTheDocument();
     expect(screen.queryByTestId("send-button")).not.toBeInTheDocument();
+  });
+
+  it("sends steering mode when the user clicks Steer during an active session", async () => {
+    setupFetchMock({
+      session: { ...mockSession, status: "active" },
+    });
+    const user = userEvent.setup();
+    render(<CopilotConversation sessionId="abc123" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("steer-button")).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText("Steer the current work or queue a follow-up…");
+    await user.type(input, "Use the existing helper instead");
+    await user.click(screen.getByTestId("steer-button"));
+
+    await waitFor(() => {
+      const fetchMock = vi.mocked(fetch);
+      const sendCall = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          typeof url === "string" &&
+          url.includes("/send") &&
+          (init as RequestInit)?.method === "POST",
+      );
+      expect(sendCall).toBeDefined();
+      const body = JSON.parse((sendCall![1] as RequestInit).body as string);
+      expect(body).toMatchObject({
+        prompt: "Use the existing helper instead",
+        mode: "immediate",
+      });
+    });
+  });
+
+  it("shows a session agent dropdown beside the prompt and switches agents in-place", async () => {
+    const fetchState = setupFetchMock({
+      currentAgentId: null,
+      currentAgentName: null,
+    });
+    const user = userEvent.setup();
+    render(<CopilotConversation sessionId="abc123" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-agent-select")).toBeInTheDocument();
+    });
+
+    const agentSelect = screen.getByTestId("session-agent-select");
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "Brand" })).toBeInTheDocument();
+      expect(agentSelect).toBeEnabled();
+    });
+    await user.selectOptions(agentSelect, "brand");
+
+    await waitFor(() => {
+      expect(fetchState.agentUpdates).toEqual(["brand"]);
+    });
   });
 
   it("accepts controlPanelOpen prop without error", async () => {

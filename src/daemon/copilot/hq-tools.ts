@@ -1,24 +1,23 @@
-/**
- * Custom HQ-aware tool definitions for Copilot sessions.
- *
- * These tools allow a Copilot agent to communicate with the
- * human operator at HQ — reporting progress, requesting review,
- * and signaling blockers.
- *
- * Uses the SDK's `defineTool()` for proper registration.
- */
-
-import type { Tool } from '@github/copilot-sdk';
+import { defineTool } from '@github/copilot-sdk';
+import type { Tool, ToolInvocation } from '@github/copilot-sdk';
 import type { DaemonToHqMessage, CopilotHqToolName } from '../../shared/protocol.js';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let sdkDefineTool: any = null;
-try {
-  const sdk = await import('@github/copilot-sdk');
-  sdkDefineTool = sdk.defineTool;
-} catch {
-  // SDK not available — tools will be plain objects
-}
+type ReportProgressArgs = {
+  status: 'working' | 'completed' | 'blocked';
+  summary: string;
+  details?: string;
+};
+
+type RequestHumanReviewArgs = {
+  reason: string;
+  context?: string;
+  urgency: 'low' | 'medium' | 'high';
+};
+
+type ReportBlockerArgs = {
+  blocker: string;
+  attempted?: string[];
+};
 
 export function createHqTools(
   sendToHq: (msg: DaemonToHqMessage) => void,
@@ -63,8 +62,8 @@ export function createHqTools(
         },
         required: ['status', 'summary'],
       },
-      handler: async (args: Record<string, unknown>) => {
-        sendToolInvocation('unknown', 'report_progress', args);
+      handler: async (args: ReportProgressArgs, invocation: ToolInvocation) => {
+        sendToolInvocation(invocation.sessionId, 'report_progress', args);
         return { acknowledged: true, message: 'Progress reported to operator.' };
       },
     },
@@ -91,8 +90,8 @@ export function createHqTools(
         },
         required: ['reason', 'urgency'],
       },
-      handler: async (args: Record<string, unknown>) => {
-        sendToolInvocation('unknown', 'request_human_review', args);
+      handler: async (args: RequestHumanReviewArgs, invocation: ToolInvocation) => {
+        sendToolInvocation(invocation.sessionId, 'request_human_review', args);
         return { acknowledged: true, message: 'Review request sent to operator.' };
       },
     },
@@ -115,23 +114,28 @@ export function createHqTools(
         },
         required: ['blocker'],
       },
-      handler: async (args: Record<string, unknown>) => {
-        sendToolInvocation('unknown', 'report_blocker', args);
+      handler: async (args: ReportBlockerArgs, invocation: ToolInvocation) => {
+        sendToolInvocation(invocation.sessionId, 'report_blocker', args);
         return { acknowledged: true, message: 'Blocker reported to operator.' };
       },
     },
   ] as const;
 
-  // Use SDK's defineTool when available for proper registration
-  if (sdkDefineTool) {
-    return toolSpecs.map((spec) =>
-      sdkDefineTool(spec.name, {
-        description: spec.description,
-        parameters: spec.parameters,
-        handler: spec.handler,
-      }),
-    ) as unknown as Tool[];
-  }
-
-  return toolSpecs as unknown as Tool[];
+  return [
+    defineTool<ReportProgressArgs>(toolSpecs[0].name, {
+      description: toolSpecs[0].description,
+      parameters: toolSpecs[0].parameters,
+      handler: toolSpecs[0].handler,
+    }),
+    defineTool<RequestHumanReviewArgs>(toolSpecs[1].name, {
+      description: toolSpecs[1].description,
+      parameters: toolSpecs[1].parameters,
+      handler: toolSpecs[1].handler,
+    }),
+    defineTool<ReportBlockerArgs>(toolSpecs[2].name, {
+      description: toolSpecs[2].description,
+      parameters: toolSpecs[2].parameters,
+      handler: toolSpecs[2].handler,
+    }),
+  ] as Tool[];
 }

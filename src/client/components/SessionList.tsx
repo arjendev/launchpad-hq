@@ -4,36 +4,25 @@ import {
   Button,
   Group,
   Loader,
-  Menu,
+  Modal,
+  SegmentedControl,
   Stack,
   Text,
   Tooltip,
   UnstyledButton,
 } from "@mantine/core";
+import { useState } from "react";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { useSelectedSession } from "../contexts/SessionContext.js";
 import {
   useAggregatedSessions,
-  useCopilotAgentCatalog,
-  useCopilotAgentPreference,
+  useAvailableSdkSessions,
   useCreateSession,
   useDaemonForProject,
-  useUpdateCopilotAgentPreference,
 } from "../services/hooks.js";
-import type {
-  AggregatedSession,
-  AggregatedSessionStatus,
-  CopilotAgentCatalogEntry,
-} from "../services/types.js";
-
-const DEFAULT_SDK_AGENT_LABEL = "Default";
-
-type CreateSessionRequest = {
-  sessionType?: AggregatedSession["sessionType"];
-  agentId?: string | null;
-  agentName?: string | null;
-  rememberAgent?: boolean;
-};
+import type { AggregatedSession, AggregatedSessionStatus } from "../services/types.js";
+import { DEFAULT_SESSION_ACTIVITY } from "../services/types.js";
+import type { SessionActivity } from "../services/types.js";
 
 // ── Helpers ────────────────────────────────────────────
 
@@ -58,63 +47,37 @@ const statusColor: Record<AggregatedSessionStatus, string> = {
 
 function sessionTypeColor(type?: string): string {
   switch (type) {
-    case "copilot-cli":
-      return "teal";
-    case "copilot-sdk":
-      return "blue";
-    case "squad-sdk":
-      return "violet";
-    default:
-      return "gray";
+    case "copilot-cli": return "teal";
+    case "copilot-sdk": return "blue";
+    default: return "gray";
   }
 }
 
 function sessionTypeLabel(type?: string): string {
   switch (type) {
-    case "copilot-cli":
-      return "CLI";
-    case "copilot-sdk":
-      return "SDK";
-    case "squad-sdk":
-      return "Squad";
-    default:
-      return "SDK";
+    case "copilot-cli": return "CLI";
+    case "copilot-sdk": return "SDK";
+    default: return "SDK";
   }
 }
 
-function findAgentById(agents: CopilotAgentCatalogEntry[], agentId: string | null | undefined) {
-  if (!agentId) return null;
-  return agents.find((agent) => agent.id === agentId) ?? null;
-}
-
-function SessionCreateOption({
-  label,
-  description,
-  current,
-}: {
-  label: string;
-  description?: string;
-  current?: boolean;
-}) {
-  return (
-    <Group justify="space-between" align="flex-start" gap="xs" wrap="nowrap">
-      <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-        <Text size="sm" fw={500}>
-          {label}
-        </Text>
-        {description ? (
-          <Text size="xs" c="dimmed" lineClamp={2}>
-            {description}
-          </Text>
-        ) : null}
-      </Stack>
-      {current ? (
-        <Badge size="xs" color="blue" variant="light">
-          Current
-        </Badge>
-      ) : null}
-    </Group>
-  );
+function getActivityPill(activity: SessionActivity | undefined): { emoji: string; label: string; color: string } | null {
+  if (!activity || activity.phase === "idle") {
+    if (activity?.backgroundTasks?.length) {
+      return { emoji: "🔄", label: `${activity.backgroundTasks.length} bg`, color: "gray" };
+    }
+    return null;
+  }
+  const firstTool = activity.activeToolCalls[0];
+  const firstSub = activity.activeSubagents[0];
+  switch (activity.phase) {
+    case "thinking": return { emoji: "🧠", label: "Thinking", color: "blue" };
+    case "tool": return { emoji: "🔧", label: firstTool?.name ?? "Tool", color: "orange" };
+    case "subagent": return { emoji: "🤖", label: firstSub?.displayName ?? firstSub?.name ?? "Agent", color: "violet" };
+    case "waiting": return { emoji: "⏳", label: "Waiting", color: "yellow" };
+    case "error": return { emoji: "❌", label: "Error", color: "red" };
+    default: return null;
+  }
 }
 
 // ── Session Item ───────────────────────────────────────
@@ -128,6 +91,9 @@ function SessionItem({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const activity = session.activity;
+  const activityPill = getActivityPill(activity);
+
   return (
     <UnstyledButton
       component="div"
@@ -155,6 +121,11 @@ function SessionItem({
             <Badge size="xs" color={sessionTypeColor(session.sessionType)} variant="outline">
               {sessionTypeLabel(session.sessionType)}
             </Badge>
+            {activityPill && (
+              <Badge size="xs" color={activityPill.color} variant="light" data-testid="activity-pill">
+                {activityPill.emoji} {activityPill.label}
+              </Badge>
+            )}
             <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
               {timeAgo(session.updatedAt)}
             </Text>
@@ -168,141 +139,69 @@ function SessionItem({
   );
 }
 
-// ── New Session Controls ───────────────────────────────
+// ── Resume Session Modal ──────────────────────────────
 
-function NewSessionControls({
-  isOnline,
-  isPending,
-  sdkAgents,
-  sdkAgentLabel,
-  sdkAgentId,
-  sdkAgentTooltip,
-  isAgentCatalogLoading,
-  onCreate,
+function ResumeSessionModal({
+  opened,
+  onClose,
+  onResume,
+  owner,
+  repo,
+  trackedSessionIds,
 }: {
-  isOnline: boolean;
-  isPending: boolean;
-  sdkAgents: CopilotAgentCatalogEntry[];
-  sdkAgentLabel: string;
-  sdkAgentId: string | null;
-  sdkAgentTooltip: string;
-  isAgentCatalogLoading: boolean;
-  onCreate: (request: CreateSessionRequest) => void;
+  opened: boolean;
+  onClose: () => void;
+  onResume: (sessionId: string) => void;
+  owner: string;
+  repo: string;
+  trackedSessionIds: Set<string>;
 }) {
+  const { data, isLoading, isError } = useAvailableSdkSessions(
+    opened ? owner : undefined,
+    opened ? repo : undefined,
+  );
+
+  // Filter out sessions already tracked in the aggregator
+  const available = (data?.sessions ?? []).filter(
+    (s) => !trackedSessionIds.has(s.sessionId),
+  );
+
   return (
-    <Group gap="xs" px="xs" pt="xs" wrap="nowrap">
-      <Menu shadow="md" width={300}>
-        <Menu.Target>
-          <Tooltip label={isOnline ? "Start a new Copilot session" : "Daemon offline"}>
-            <Button
-              variant="light"
-              size="compact-xs"
-              style={{ flex: 1 }}
-              disabled={!isOnline}
-              loading={isPending}
-            >
-              ➕ New
-            </Button>
-          </Tooltip>
-        </Menu.Target>
-
-        <Menu.Dropdown>
-          <Menu.Item onClick={() => onCreate({ sessionType: "copilot-cli" })}>
-            Copilot CLI
-          </Menu.Item>
-
-          <Menu.Item
-            aria-label={`Create Copilot SDK session with remembered agent ${sdkAgentLabel}`}
-            onClick={() =>
-              onCreate({
-                sessionType: "copilot-sdk",
-                agentId: sdkAgentId,
-                agentName: sdkAgentId ? sdkAgentLabel : null,
-              })
-            }
-            rightSection={
-              <Badge size="xs" color="blue" variant="light">
-                {sdkAgentLabel}
-              </Badge>
-            }
+    <Modal opened={opened} onClose={onClose} title="Resume a session" size="md">
+      {isLoading && (
+        <Stack align="center" p="md"><Loader size="sm" /></Stack>
+      )}
+      {isError && (
+        <Text size="sm" c="red" p="xs">Failed to load sessions from daemon</Text>
+      )}
+      {!isLoading && !isError && available.length === 0 && (
+        <Text size="sm" c="dimmed" ta="center" p="md">
+          No additional sessions available to resume
+        </Text>
+      )}
+      <Stack gap={4}>
+        {available.map((s) => (
+          <UnstyledButton
+            key={s.sessionId}
+            p="xs"
+            style={{ borderRadius: "var(--mantine-radius-sm)" }}
+            onClick={() => { onResume(s.sessionId); onClose(); }}
+            w="100%"
           >
-            Copilot SDK
-          </Menu.Item>
-
-          <Menu.Label>Switch Copilot SDK agent</Menu.Label>
-
-          <Menu.Item
-            aria-label="Create default Copilot SDK session and remember it"
-            onClick={() =>
-              onCreate({
-                sessionType: "copilot-sdk",
-                agentId: null,
-                agentName: null,
-                rememberAgent: true,
-              })
-            }
-          >
-            <SessionCreateOption
-              label={DEFAULT_SDK_AGENT_LABEL}
-              description="Plain session with no custom agent"
-              current={sdkAgentId === null}
-            />
-          </Menu.Item>
-
-          {isAgentCatalogLoading ? (
-            <Menu.Item disabled leftSection={<Loader size="xs" />}>
-              Loading agents…
-            </Menu.Item>
-          ) : sdkAgents.length > 0 ? (
-            sdkAgents.map((agent) => (
-              <Menu.Item
-                key={agent.id}
-                aria-label={`Create Copilot SDK session with ${agent.name} and remember it`}
-                onClick={() =>
-                  onCreate({
-                    sessionType: "copilot-sdk",
-                    agentId: agent.id,
-                    agentName: agent.name,
-                    rememberAgent: true,
-                  })
-                }
-              >
-                <SessionCreateOption
-                  label={agent.name}
-                  description={agent.description}
-                  current={sdkAgentId === agent.id}
-                />
-              </Menu.Item>
-            ))
-          ) : (
-            <Menu.Item disabled>No discovered agents yet</Menu.Item>
-          )}
-
-          <Menu.Divider />
-
-          <Menu.Item onClick={() => onCreate({ sessionType: "squad-sdk" })}>Squad SDK</Menu.Item>
-        </Menu.Dropdown>
-      </Menu>
-
-      <Tooltip label={sdkAgentTooltip}>
-        <Badge
-          color="blue"
-          variant="light"
-          size="sm"
-          style={{ flexShrink: 0, maxWidth: 150 }}
-          styles={{
-            label: {
-              display: "block",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            },
-          }}
-        >
-          SDK: {sdkAgentLabel}
-        </Badge>
-      </Tooltip>
-    </Group>
+            <Group gap={6} wrap="nowrap">
+              <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                <Text size="xs" fw={500} truncate>
+                  {s.summary || s.sessionId.slice(0, 12)}
+                </Text>
+                <Text size="xs" c="dimmed">
+                  {new Date(s.modifiedTime).toLocaleString()} · {s.sessionId.slice(0, 8)}
+                </Text>
+              </Stack>
+            </Group>
+          </UnstyledButton>
+        ))}
+      </Stack>
+    </Modal>
   );
 }
 
@@ -311,6 +210,8 @@ function NewSessionControls({
 export function SessionList() {
   const { selectedProject } = useSelectedProject();
   const { selectedSession, selectSession } = useSelectedSession();
+  const [resumeModalOpen, setResumeModalOpen] = useState(false);
+  const [sessionMode, setSessionMode] = useState<"copilot-sdk" | "copilot-cli">("copilot-sdk");
 
   const owner = selectedProject?.owner;
   const repo = selectedProject?.repo;
@@ -319,60 +220,17 @@ export function SessionList() {
   const { sessions, isLoading } = useAggregatedSessions(projectId);
   const { daemon } = useDaemonForProject(projectId);
   const createSession = useCreateSession();
-  const updateCopilotAgentPreference = useUpdateCopilotAgentPreference();
-  const { data: copilotAgentCatalog, isLoading: isAgentCatalogLoading } = useCopilotAgentCatalog(
-    owner,
-    repo,
-  );
-  const { data: copilotAgentPreference } = useCopilotAgentPreference(owner, repo);
   const isOnline = !!daemon;
 
-  const sdkAgents = copilotAgentCatalog?.agents ?? [];
-  const rememberedAgent = findAgentById(sdkAgents, copilotAgentPreference?.agentId);
-  const rememberedAgentLabel =
-    rememberedAgent?.name ??
-    copilotAgentPreference?.agentName ??
-    copilotAgentPreference?.agentId ??
-    DEFAULT_SDK_AGENT_LABEL;
-  const rememberedAgentAvailable =
-    !copilotAgentPreference?.agentId || !!rememberedAgent || !copilotAgentCatalog;
-  const currentSdkAgentId = rememberedAgentAvailable
-    ? (copilotAgentPreference?.agentId ?? null)
-    : null;
-  const currentSdkAgentLabel = rememberedAgentAvailable
-    ? rememberedAgentLabel
-    : DEFAULT_SDK_AGENT_LABEL;
-  const sdkAgentTooltip =
-    copilotAgentPreference?.agentId && !rememberedAgentAvailable
-      ? `Saved agent ${rememberedAgentLabel} is unavailable, so new SDK sessions will use Default`
-      : `Copilot SDK will start with ${currentSdkAgentLabel}`;
+  const trackedSessionIds = new Set(sessions.map((s) => s.sessionId));
 
-  const handleCreate = async ({
-    sessionType,
-    agentId = null,
-    agentName = null,
-    rememberAgent = false,
-  }: CreateSessionRequest) => {
+  const handleCreate = async (sessionType: AggregatedSession["sessionType"]) => {
     if (!selectedProject) return;
-
-    if (
-      sessionType === "copilot-sdk" &&
-      rememberAgent &&
-      agentId !== (copilotAgentPreference?.agentId ?? null)
-    ) {
-      updateCopilotAgentPreference.mutate({
-        owner: selectedProject.owner,
-        repo: selectedProject.repo,
-        agentId,
-        agentName,
-      });
-    }
 
     const result = await createSession.mutateAsync({
       owner: selectedProject.owner,
       repo: selectedProject.repo,
       sessionType,
-      agentId: sessionType === "copilot-sdk" ? agentId : undefined,
     });
 
     if (result.sessionId) {
@@ -382,72 +240,48 @@ export function SessionList() {
         status: "idle",
         startedAt: Date.now(),
         updatedAt: Date.now(),
+        activity: { ...DEFAULT_SESSION_ACTIVITY },
       };
       selectSession(newSession, { resume: false });
     }
   };
 
+  const handleResume = (sessionId: string) => {
+    const fakeSession: AggregatedSession = {
+      sessionId,
+      sessionType: "copilot-sdk",
+      status: "idle",
+      startedAt: Date.now(),
+      updatedAt: Date.now(),
+      activity: { ...DEFAULT_SESSION_ACTIVITY },
+    };
+    selectSession(fakeSession);
+  };
+
+  const handleResumeLast = () => {
+    // Find the most recently updated SDK session (from available sessions, not tracked)
+    // For now, trigger the modal — the "Resume Last" button will use the available sessions query
+    if (!owner || !repo) return;
+    // Fetch and resume the most recent one
+    fetch(`/api/daemons/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/copilot/sessions`)
+      .then((r) => r.json())
+      .then((data: { sessions?: Array<{ sessionId: string; modifiedTime: string }> }) => {
+        const available = (data.sessions ?? [])
+          .filter((s) => !trackedSessionIds.has(s.sessionId))
+          .sort((a, b) => new Date(b.modifiedTime).getTime() - new Date(a.modifiedTime).getTime());
+        if (available[0]) {
+          handleResume(available[0].sessionId);
+        }
+      })
+      .catch(() => {});
+  };
+
   if (!selectedProject) {
     return (
       <Stack gap={0} h="100%">
-        <Text size="xs" fw={600} p="xs" pb={4}>
-          Sessions
-        </Text>
+        <Text size="xs" fw={600} p="xs" pb={4}>Sessions</Text>
         <Stack align="center" justify="center" p="md" style={{ flex: 1 }}>
-          <Text size="xs" c="dimmed" ta="center">
-            Select a project first
-          </Text>
-        </Stack>
-      </Stack>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <Stack gap={0} h="100%">
-        <Text size="xs" fw={600} p="xs" pb={4}>
-          Sessions
-        </Text>
-        <NewSessionControls
-          isOnline={isOnline}
-          isPending={createSession.isPending}
-          sdkAgents={sdkAgents}
-          sdkAgentLabel={currentSdkAgentLabel}
-          sdkAgentId={currentSdkAgentId}
-          sdkAgentTooltip={sdkAgentTooltip}
-          isAgentCatalogLoading={isAgentCatalogLoading}
-          onCreate={handleCreate}
-        />
-        <Stack align="center" justify="center" p="md" style={{ flex: 1 }}>
-          <Loader size="sm" />
-        </Stack>
-      </Stack>
-    );
-  }
-
-  if (sessions.length === 0) {
-    return (
-      <Stack gap={0} h="100%">
-        <Text size="xs" fw={600} p="xs" pb={4}>
-          Sessions
-        </Text>
-        <NewSessionControls
-          isOnline={isOnline}
-          isPending={createSession.isPending}
-          sdkAgents={sdkAgents}
-          sdkAgentLabel={currentSdkAgentLabel}
-          sdkAgentId={currentSdkAgentId}
-          sdkAgentTooltip={sdkAgentTooltip}
-          isAgentCatalogLoading={isAgentCatalogLoading}
-          onCreate={handleCreate}
-        />
-        <Stack align="center" justify="center" p="md" style={{ flex: 1 }}>
-          <Text size="xs" c="dimmed" ta="center">
-            No sessions yet
-          </Text>
-          <Text size="xs" c="dimmed" ta="center">
-            Create one to get started
-          </Text>
+          <Text size="xs" c="dimmed" ta="center">Select a project first</Text>
         </Stack>
       </Stack>
     );
@@ -455,33 +289,96 @@ export function SessionList() {
 
   return (
     <Stack gap={0} h="100%">
-      <Text size="xs" fw={600} p="xs" pb={4}>
-        Sessions
-      </Text>
+      <Text size="xs" fw={600} p="xs" pb={4}>Sessions</Text>
 
-      <NewSessionControls
-        isOnline={isOnline}
-        isPending={createSession.isPending}
-        sdkAgents={sdkAgents}
-        sdkAgentLabel={currentSdkAgentLabel}
-        sdkAgentId={currentSdkAgentId}
-        sdkAgentTooltip={sdkAgentTooltip}
-        isAgentCatalogLoading={isAgentCatalogLoading}
-        onCreate={handleCreate}
-      />
-
-      <Stack gap={2} px="xs" py="xs" style={{ flex: 1, overflowY: "auto" }}>
-        {sessions.map((session) => (
-          <SessionItem
-            key={session.sessionId}
-            session={session}
-            selected={selectedSession?.sessionId === session.sessionId}
-            onSelect={() =>
-              selectSession(selectedSession?.sessionId === session.sessionId ? null : session)
-            }
-          />
-        ))}
+      {/* Session type toggle + action buttons */}
+      <Stack gap={4} px="xs" pt="xs">
+        <SegmentedControl
+          size="xs"
+          value={sessionMode}
+          onChange={(v) => setSessionMode(v as "copilot-sdk" | "copilot-cli")}
+          data={[
+            { value: "copilot-sdk", label: "SDK" },
+            { value: "copilot-cli", label: "CLI" },
+          ]}
+          fullWidth
+        />
+        <Tooltip label={isOnline ? `Start a new ${sessionMode === "copilot-cli" ? "CLI" : "SDK"} session` : "Daemon offline"}>
+          <Button
+            variant="light"
+            size="compact-xs"
+            fullWidth
+            disabled={!isOnline}
+            loading={createSession.isPending}
+            onClick={() => handleCreate(sessionMode)}
+          >
+            ➕ New Session
+          </Button>
+        </Tooltip>
+        {sessionMode === "copilot-sdk" && (
+          <Group gap={4} wrap="nowrap">
+            <Tooltip label="Resume the most recent session">
+              <Button
+                variant="subtle"
+                size="compact-xs"
+                style={{ flex: 1 }}
+                disabled={!isOnline}
+                onClick={handleResumeLast}
+              >
+                ⏪ Continue
+              </Button>
+            </Tooltip>
+            <Tooltip label="Pick a session to resume">
+              <Button
+                variant="subtle"
+                size="compact-xs"
+                style={{ flex: 1 }}
+                disabled={!isOnline}
+                onClick={() => setResumeModalOpen(true)}
+              >
+                📋 Pick
+              </Button>
+            </Tooltip>
+          </Group>
+        )}
       </Stack>
+
+      {/* Active sessions list */}
+      {isLoading ? (
+        <Stack align="center" justify="center" p="md" style={{ flex: 1 }}>
+          <Loader size="sm" />
+        </Stack>
+      ) : sessions.length === 0 ? (
+        <Stack align="center" justify="center" p="md" style={{ flex: 1 }}>
+          <Text size="xs" c="dimmed" ta="center">No active sessions</Text>
+          <Text size="xs" c="dimmed" ta="center">Create or resume one to get started</Text>
+        </Stack>
+      ) : (
+        <Stack gap={2} px="xs" py="xs" style={{ flex: 1, overflowY: "auto" }}>
+          {sessions.map((session) => (
+            <SessionItem
+              key={session.sessionId}
+              session={session}
+              selected={selectedSession?.sessionId === session.sessionId}
+              onSelect={() =>
+                selectSession(selectedSession?.sessionId === session.sessionId ? null : session)
+              }
+            />
+          ))}
+        </Stack>
+      )}
+
+      {/* Resume picker modal */}
+      {owner && repo && (
+        <ResumeSessionModal
+          opened={resumeModalOpen}
+          onClose={() => setResumeModalOpen(false)}
+          onResume={handleResume}
+          owner={owner}
+          repo={repo}
+          trackedSessionIds={trackedSessionIds}
+        />
+      )}
     </Stack>
   );
 }

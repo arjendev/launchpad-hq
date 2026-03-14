@@ -259,12 +259,18 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
     const fit = fitRef.current;
     if (!fit) return;
 
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const onResize = () => {
-      try {
-        fit.fit();
-      } catch {
-        // noop
-      }
+      // Debounce to avoid spamming the CLI PTY with rapid resize events
+      // which causes it to redraw its TUI help text repeatedly
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        try {
+          fit.fit();
+        } catch {
+          // noop
+        }
+      }, 150);
     };
 
     window.addEventListener("resize", onResize);
@@ -274,6 +280,7 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
     if (containerRef.current) ro.observe(containerRef.current);
 
     return () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
       window.removeEventListener("resize", onResize);
       ro.disconnect();
     };
@@ -281,7 +288,7 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
 
   // ── Render ──────────────────────────────────────────
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+    <div style={{ position: "relative", width: "100%", height: "100%", overflowX: "auto" }}>
       {spawning && (
         <div
           style={{
@@ -302,6 +309,7 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
         ref={containerRef}
         data-testid="terminal-container"
         style={{
+          minWidth: 600,
           width: "100%",
           height: "100%",
           opacity: spawning ? 0 : 1,

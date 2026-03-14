@@ -24,8 +24,11 @@ import type {
   ModeResponse,
   PlanResponse,
   ModelsResponse,
+  PromptDeliveryMode,
+  CopilotSessionMode,
   CopilotAgentCatalogResponse,
   CopilotAgentPreferenceResponse,
+  CopilotSessionAgentResponse,
 } from "./types.js";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -333,15 +336,30 @@ export function useSessionTools(sessionId: string | null) {
   });
 }
 
+/** Fetch available SDK sessions from a daemon (for resume picker). Not cached — always fresh. */
+export function useAvailableSdkSessions(owner?: string, repo?: string) {
+  return useQuery<{ sessions: Array<{ sessionId: string; summary?: string; startTime: string; modifiedTime: string }> }>({
+    queryKey: ["available-sdk-sessions", owner, repo],
+    queryFn: () =>
+      fetchJson(`/api/daemons/${encodeURIComponent(owner!)}/${encodeURIComponent(repo!)}/copilot/sessions`),
+    enabled: !!owner && !!repo,
+    staleTime: 0, // Always re-fetch
+  });
+}
+
 /** Send a prompt to a Copilot session. */
 export function useSendPrompt() {
   const qc = useQueryClient();
-  return useMutation<{ ok: boolean }, Error, { sessionId: string; prompt: string }>({
-    mutationFn: ({ sessionId, prompt }) =>
+  return useMutation<
+    { ok: boolean },
+    Error,
+    { sessionId: string; prompt: string; mode?: PromptDeliveryMode }
+  >({
+    mutationFn: ({ sessionId, prompt, mode }) =>
       fetchJson(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, ...(mode ? { mode } : {}) }),
       }),
     onSuccess: (_data, variables) => {
       void qc.invalidateQueries({ queryKey: ["session-messages", variables.sessionId] });
@@ -376,7 +394,7 @@ export function useCreateSession() {
           body: JSON.stringify({
             ...(model ? { model } : {}),
             ...(sessionType ? { sessionType } : {}),
-            ...(sessionType === "copilot-sdk" && agentId ? { agentId } : {}),
+            ...(sessionType === "copilot-sdk" && agentId !== undefined ? { agentId } : {}),
           }),
         },
       ),
@@ -459,7 +477,7 @@ export function useGetMode(sessionId: string | null) {
 /** Set the mode for a Copilot session. */
 export function useSetMode() {
   const qc = useQueryClient();
-  return useMutation<{ ok: boolean }, Error, { sessionId: string; mode: string }>({
+  return useMutation<{ ok: boolean }, Error, { sessionId: string; mode: CopilotSessionMode }>({
     mutationFn: ({ sessionId, mode }) =>
       fetchJson(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/mode`, {
         method: "POST",
@@ -470,6 +488,44 @@ export function useSetMode() {
       void qc.invalidateQueries({ queryKey: ["session-mode", sessionId] });
       void qc.invalidateQueries({ queryKey: ["aggregated-session", sessionId] });
       void qc.invalidateQueries({ queryKey: ["aggregated-sessions"] });
+    },
+  });
+}
+
+/** Get the current agent for a session. */
+export function useGetSessionAgent(sessionId: string | null) {
+  return useQuery<CopilotSessionAgentResponse>({
+    queryKey: ["session-agent", sessionId],
+    queryFn: () =>
+      fetchJson<CopilotSessionAgentResponse>(
+        `/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId!)}/agent`,
+      ),
+    enabled: !!sessionId,
+  });
+}
+
+/** Set the current agent for a session. */
+export function useSetSessionAgent() {
+  const qc = useQueryClient();
+  return useMutation<
+    CopilotSessionAgentResponse,
+    Error,
+    { sessionId: string; agentId: string | null }
+  >({
+    mutationFn: ({ sessionId, agentId }) =>
+      fetchJson<CopilotSessionAgentResponse>(
+        `/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/agent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agentId }),
+        },
+      ),
+    onSuccess: (data, { sessionId }) => {
+      qc.setQueryData(["session-agent", sessionId], data);
+    },
+    onSettled: (_data, _error, { sessionId }) => {
+      void qc.invalidateQueries({ queryKey: ["session-agent", sessionId] });
     },
   });
 }
@@ -693,9 +749,9 @@ function formatEventContent(eventType: string, data: Record<string, unknown>): s
     case "assistant.usage":
       return `Usage: ${JSON.stringify(data)}`;
     case "tool.execution_partial_result":
-      return `Partial: ${data.result ?? ""}`;
+      return `Partial: ${data.partialOutput ?? ""}`;
     case "tool.execution_progress":
-      return `Progress: ${data.message ?? ""}`;
+      return `Progress: ${data.progressMessage ?? ""}`;
     case "permission.requested":
       return `Permission needed: ${data.tool ?? data.action ?? ""}`;
     case "permission.completed":
@@ -704,35 +760,18 @@ function formatEventContent(eventType: string, data: Record<string, unknown>): s
       return `Question: ${data.message ?? ""}`;
     case "elicitation.completed":
       return `Answer: ${data.response ?? ""}`;
+    case "subagent.selected":
+      return `Selected agent: ${data.agentDisplayName ?? data.agentName ?? "unknown"}`;
+    case "subagent.started":
+      return `Started agent: ${data.agentDisplayName ?? data.agentName ?? "unknown"}`;
+    case "subagent.completed":
+      return `Completed agent: ${data.agentDisplayName ?? data.agentName ?? "unknown"}`;
+    case "subagent.failed":
+      return `Agent failed: ${data.agentDisplayName ?? data.agentName ?? "unknown"} — ${data.error ?? ""}`;
+    case "subagent.deselected":
+      return "Returned to the default agent";
     case "abort":
       return "Aborted";
-    // Squad-specific events
-    case "squad.agent.spawned":
-      return `🤖 Agent spawned: ${data.agentName ?? data.agent ?? "unknown"}`;
-    case "squad.agent.completed":
-      return `✅ Agent completed: ${data.agentName ?? data.agent ?? "unknown"}`;
-    case "squad.agent.failed":
-      return `❌ Agent failed: ${data.agentName ?? data.agent ?? "unknown"} — ${data.error ?? ""}`;
-    case "squad.route.decided":
-      return `🧭 Route: ${data.route ?? data.agent ?? "unknown"} (${data.strategy ?? ""})`;
-    case "squad.route.fallback":
-      return `⚠️ Route fallback: ${data.reason ?? "no matching route"}`;
-    case "squad.fan_out.started":
-      return `📡 Fan-out started: ${(data.agents as string[])?.join(", ") ?? data.count ?? ""} agents`;
-    case "squad.fan_out.completed":
-      return `📡 Fan-out completed: ${(data.results as unknown[])?.length ?? data.count ?? ""} results`;
-    case "squad.coordinator.started":
-      return "🎯 Coordinator processing message";
-    case "squad.coordinator.completed":
-      return `🎯 Coordinator done: strategy=${data.strategy ?? "unknown"}, ${data.durationMs ?? "?"}ms`;
-    case "squad.coordinator.direct_response":
-      return "💬 Direct response (no agents needed)";
-    case "squad.session.created":
-      return "📋 Squad session created";
-    case "squad.session.resumed":
-      return "▶️ Squad session resumed";
-    case "squad.session.ended":
-      return "⏹️ Squad session ended";
     default: {
       const summary = Object.entries(data)
         .filter(([, v]) => v !== undefined && v !== null)
@@ -743,8 +782,17 @@ function formatEventContent(eventType: string, data: Record<string, unknown>): s
   }
 }
 
+/** Raw SDK event as received over WebSocket */
+export interface RawSessionEvent {
+  type: string;
+  data: Record<string, unknown>;
+  timestamp: number;
+  id?: string;
+}
+
 export function useConversationEntries(sessionId: string | null): {
   entries: ConversationEntry[];
+  rawEvents: RawSessionEvent[];
   isLoading: boolean;
   isError: boolean;
   error: Error | null;
@@ -770,6 +818,21 @@ export function useConversationEntries(sessionId: string | null): {
 
   // Accumulate real-time events
   const [realtimeEntries, setRealtimeEntries] = useState<ConversationEntry[]>([]);
+
+  // Track all raw SDK events for the debug viewer
+  const [rawEvents, setRawEvents] = useState<RawSessionEvent[]>([]);
+
+  // Track latest assistant.usage for annotating the next assistant message
+  const lastUsageRef = useRef<{ model: string; duration: number; inputTokens: number; outputTokens: number; initiator: string } | null>(null);
+
+  // Track tool.execution_start args by toolCallId for correlating with completions
+  const toolStartsRef = useRef<Map<string, Record<string, unknown>>>(new Map());
+
+  // Track subagent display names by toolCallId
+  const subagentNamesRef = useRef<Map<string, string>>(new Map());
+
+  // Track the selected main agent name (from subagent.selected)
+  const mainAgentNameRef = useRef<string | null>(null);
 
   // Subscribe directly to WebSocket copilot channel to avoid event batching loss.
   // Using useSubscription (which stores only the latest event in useState) causes
@@ -799,12 +862,21 @@ export function useConversationEntries(sessionId: string | null): {
         const event = wsEvent.event;
         const ts = new Date(event.timestamp).getTime();
 
+        // Capture raw event for debug viewer
+        setRawEvents((prev) => [...prev, {
+          type: event.type,
+          data: event.data as Record<string, unknown>,
+          timestamp: ts,
+          id: (event as Record<string, unknown>).id as string | undefined,
+        }]);
+
         switch (event.type) {
           case "user.message":
             // User prompts sent from HQ are written to canonical REST history in the
             // send endpoint before the daemon echoes `user.message`. Rendering both
             // sources produces duplicate user rows with different timestamps.
             void qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+            void qc.invalidateQueries({ queryKey: ["aggregated-session", sessionId] });
             break;
 
           case "assistant.message_delta": {
@@ -825,37 +897,80 @@ export function useConversationEntries(sessionId: string | null): {
             break;
           }
 
-          case "assistant.message":
+          case "assistant.message": {
             // Final assistant message replaces streaming content
             streamingRef.current = null;
             setStreamingEntry(null);
-            setRealtimeEntries((prev) => [
-              ...prev,
-              {
-                id: `rt-asst-${ts}`,
-                type: "assistant",
-                content: (event.data as { content?: string }).content ?? "",
-                timestamp: ts,
-              },
-            ]);
+            const msgData = event.data as { content?: string; toolRequests?: unknown[]; parentToolCallId?: string };
+            const content = msgData.content ?? "";
+            // Capture usage metadata from the preceding assistant.usage event
+            const usageMeta = lastUsageRef.current;
+            lastUsageRef.current = null;
+            // Skip messages with only whitespace content — these are tool-request-only
+            // messages where the SDK wraps toolRequests in a near-empty assistant.message.
+            if (content.trim()) {
+              const eData: Record<string, unknown> = {};
+              if (msgData.parentToolCallId) {
+                eData.parentToolCallId = msgData.parentToolCallId;
+                // Look up the subagent display name from the task tool description
+                const subName = subagentNamesRef.current.get(msgData.parentToolCallId);
+                if (subName) eData.subagentName = subName;
+              } else {
+                // Main agent message — attach the agent display name
+                if (mainAgentNameRef.current) eData.agentName = mainAgentNameRef.current;
+              }
+              if (usageMeta) {
+                eData.model = usageMeta.model;
+                eData.duration = usageMeta.duration;
+                eData.inputTokens = usageMeta.inputTokens;
+                eData.outputTokens = usageMeta.outputTokens;
+                eData.initiator = usageMeta.initiator;
+              }
+              setRealtimeEntries((prev) => [
+                ...prev,
+                {
+                  id: `rt-asst-${ts}`,
+                  type: "assistant",
+                  content: content.trim(),
+                  timestamp: ts,
+                  ...(Object.keys(eData).length > 0 ? { eventData: eData } : {}),
+                },
+              ]);
+            }
             void qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
             break;
+          }
 
-          case "tool.execution_start":
+          case "tool.execution_start": {
+            const toolData = event.data as { toolCallId?: string; toolName?: string; arguments?: Record<string, unknown> };
+            // Save args for correlation with completion
+            if (toolData.toolCallId) {
+              toolStartsRef.current.set(toolData.toolCallId, toolData.arguments ?? {});
+            }
+            // Extract description for task tools to use as subagent display name
+            if (toolData.toolName === "task" && toolData.toolCallId) {
+              const desc = toolData.arguments?.description as string | undefined;
+              if (desc) subagentNamesRef.current.set(toolData.toolCallId, desc);
+            }
             setRealtimeEntries((prev) => [
               ...prev,
               {
                 id: `rt-tool-${ts}`,
                 type: "tool",
-                content: (event.data as { toolName?: string }).toolName ?? "",
-                toolName: (event.data as { toolName?: string }).toolName,
+                content: toolData.toolName ?? "",
+                toolName: toolData.toolName,
                 toolStatus: "running",
                 timestamp: ts,
+                eventData: event.data as Record<string, unknown>,
               },
             ]);
             break;
+          }
 
-          case "tool.execution_complete":
+          case "tool.execution_complete": {
+            const completeData = event.data as { toolCallId?: string; success?: boolean; result?: { content?: string; detailedContent?: string } };
+            // Look up original args from the start event
+            const origArgs = completeData.toolCallId ? toolStartsRef.current.get(completeData.toolCallId) : undefined;
             setRealtimeEntries((prev) => {
               const idx = [...prev]
                 .reverse()
@@ -863,28 +978,36 @@ export function useConversationEntries(sessionId: string | null): {
               if (idx >= 0) {
                 const realIdx = prev.length - 1 - idx;
                 const updated = [...prev];
-                const data = event.data as { success?: boolean; result?: { content?: string } };
                 updated[realIdx] = {
                   ...updated[realIdx],
-                  toolStatus: data.success ? "completed" : "failed",
-                  content: data.result?.content ?? updated[realIdx].content,
+                  toolStatus: completeData.success ? "completed" : "failed",
+                  content: completeData.result?.content ?? updated[realIdx].content,
+                  eventData: {
+                    ...updated[realIdx].eventData,
+                    ...event.data as Record<string, unknown>,
+                    ...(origArgs ? { originalArguments: origArgs } : {}),
+                  },
                 };
                 return updated;
               }
-              const data = event.data as { success?: boolean; result?: { content?: string } };
               return [
                 ...prev,
                 {
                   id: `rt-toolcomplete-${ts}`,
                   type: "tool",
-                  content: data.result?.content ?? "",
+                  content: completeData.result?.content ?? "",
                   toolName: "tool",
-                  toolStatus: data.success ? "completed" : "failed",
+                  toolStatus: completeData.success ? "completed" : "failed",
                   timestamp: ts,
+                  eventData: {
+                    ...event.data as Record<string, unknown>,
+                    ...(origArgs ? { originalArguments: origArgs } : {}),
+                  },
                 },
               ];
             });
             break;
+          }
 
           case "session.idle":
             setRealtimeEntries((prev) => [
@@ -896,6 +1019,8 @@ export function useConversationEntries(sessionId: string | null): {
                 timestamp: ts,
               },
             ]);
+            // Refresh session status so isProcessing updates immediately
+            void qc.invalidateQueries({ queryKey: ["aggregated-session", sessionId] });
             break;
 
           case "session.error":
@@ -943,6 +1068,49 @@ export function useConversationEntries(sessionId: string | null): {
             ]);
             break;
 
+          case "assistant.usage": {
+            const ud = event.data as { model?: string; duration?: number; inputTokens?: number; outputTokens?: number; initiator?: string };
+            lastUsageRef.current = {
+              model: ud.model ?? "",
+              duration: ud.duration ?? 0,
+              inputTokens: ud.inputTokens ?? 0,
+              outputTokens: ud.outputTokens ?? 0,
+              initiator: ud.initiator ?? "",
+            };
+            // Still emit as event entry for the inline renderer
+            setRealtimeEntries((prev) => [
+              ...prev,
+              {
+                id: `rt-evt-${event.type}-${ts}`,
+                type: "event" as const,
+                content: formatEventContent(event.type, event.data as Record<string, unknown>),
+                timestamp: ts,
+                eventType: event.type,
+                eventData: event.data as Record<string, unknown>,
+              },
+            ]);
+            break;
+          }
+
+          case "subagent.selected": {
+            // Track the main agent's display name
+            const selData = event.data as { agentDisplayName?: string; agentName?: string };
+            mainAgentNameRef.current = selData.agentDisplayName ?? selData.agentName ?? null;
+            // Emit as event entry
+            setRealtimeEntries((prev) => [
+              ...prev,
+              {
+                id: `rt-evt-${event.type}-${ts}`,
+                type: "event" as const,
+                content: formatEventContent(event.type, event.data as Record<string, unknown>),
+                timestamp: ts,
+                eventType: event.type,
+                eventData: event.data as Record<string, unknown>,
+              },
+            ]);
+            break;
+          }
+
           default: {
             setRealtimeEntries((prev) => [
               ...prev,
@@ -985,10 +1153,15 @@ export function useConversationEntries(sessionId: string | null): {
     if (sessionId !== prevSessionRef.current) {
       prevSessionRef.current = sessionId;
       setRealtimeEntries([]);
+      setRawEvents([]);
       setStreamingEntry(null);
       streamingRef.current = null;
       setReasoningEntry(null);
       reasoningRef.current = null;
+      lastUsageRef.current = null;
+      toolStartsRef.current.clear();
+      subagentNamesRef.current.clear();
+      mainAgentNameRef.current = null;
     }
   }, [sessionId]);
 
@@ -1050,6 +1223,7 @@ export function useConversationEntries(sessionId: string | null): {
 
   return {
     entries,
+    rawEvents,
     isLoading: messagesLoading,
     isError: messagesError,
     error: messagesErr,

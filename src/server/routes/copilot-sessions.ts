@@ -1,8 +1,13 @@
 import type { FastifyPluginAsync } from "fastify";
-import type { SessionConfigWire, SessionType } from "../../shared/protocol.js";
+import type {
+  CopilotSessionMode,
+  PromptDeliveryMode,
+  SessionConfigWire,
+  SessionType,
+} from "../../shared/protocol.js";
 import { randomUUID } from "node:crypto";
 
-type CreateSessionConfig = SessionConfigWire & { agent?: string | null };
+type CreateSessionConfig = SessionConfigWire;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -10,6 +15,54 @@ type CreateSessionConfig = SessionConfigWire & { agent?: string | null };
 
 const notFound = { error: "not_found", message: "Session not found" } as const;
 const sendFailed = { error: "send_failed", message: "Daemon not connected" } as const;
+const COPILOT_SESSION_MODES = new Set<CopilotSessionMode>(["interactive", "plan", "autopilot"]);
+type SessionAgentResponse = {
+  sessionId: string;
+  agentId: string | null;
+  agentName: string | null;
+  error?: string;
+};
+
+function normalizeAgentSelection(
+  value: unknown,
+  fieldName: "agent" | "agentId",
+): { ok: true; value: string | null | undefined } | { ok: false; message: string } {
+  if (value === undefined) {
+    return { ok: true, value: undefined };
+  }
+
+  if (value === null) {
+    return { ok: true, value: null };
+  }
+
+  if (typeof value !== "string") {
+    return { ok: false, message: `'${fieldName}' must be a string or null` };
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return {
+      ok: false,
+      message: `'${fieldName}' cannot be an empty string. Use null for the default agent.`,
+    };
+  }
+
+  return { ok: true, value: trimmed };
+}
+
+function isCopilotSessionMode(value: unknown): value is CopilotSessionMode {
+  return typeof value === "string" && COPILOT_SESSION_MODES.has(value as CopilotSessionMode);
+}
+
+function agentResponseStatus(message: string): number {
+  if (message.includes("Unknown Copilot agent selection")) {
+    return 400;
+  }
+  if (message.includes("No active session")) {
+    return 409;
+  }
+  return 500;
+}
 
 /** Look up internal session (with daemonId) and send a message to its daemon.
  *  Returns the reply on failure, or undefined on success. */
@@ -98,12 +151,12 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
   /** POST /api/copilot/aggregated/sessions/:sessionId/send — Send prompt to session */
   server.post<{
     Params: { sessionId: string };
-    Body: { prompt: string };
+    Body: { prompt: string; mode?: PromptDeliveryMode };
   }>(
     "/api/copilot/aggregated/sessions/:sessionId/send",
     async (request, reply) => {
       const { sessionId } = request.params;
-      const { prompt } = request.body ?? {};
+      const { prompt, mode } = request.body ?? {};
 
       if (!prompt) {
         return reply
@@ -114,12 +167,6 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
       const internal = server.copilotAggregator.getInternalSession(sessionId);
       if (!internal) {
         return reply.status(404).send(notFound);
-      }
-
-      if (internal.status === "active") {
-        return reply
-          .status(409)
-          .send({ error: "conflict", message: "Session is currently processing" });
       }
 
       // Record the injected prompt in conversation history
@@ -135,7 +182,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
       const sent = server.daemonRegistry.sendToDaemon(internal.daemonId, {
         type: "copilot-send-prompt",
         timestamp: Date.now(),
-        payload: { sessionId, prompt },
+        payload: { sessionId, prompt, ...(mode ? { mode } : {}) },
       });
 
       if (!sent) {
@@ -146,24 +193,18 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
     },
   );
 
-  /** POST /api/copilot/aggregated/sessions/:sessionId/abort — Abort session */
+  /** POST /api/copilot/aggregated/sessions/:sessionId/abort — Abort current turn */
   server.post<{ Params: { sessionId: string } }>(
     "/api/copilot/aggregated/sessions/:sessionId/abort",
     async (request, reply) => {
       const { sessionId } = request.params;
-      const internal = server.copilotAggregator.getInternalSession(sessionId);
 
-      if (!internal) {
-        return reply.status(404).send(notFound);
-      }
-
-      server.daemonRegistry.sendToDaemon(internal.daemonId, {
+      const ok = sendToDaemon(server, sessionId, reply, () => ({
         type: "copilot-abort-session",
         timestamp: Date.now(),
         payload: { sessionId },
-      });
-
-      server.copilotAggregator.removeSession(sessionId);
+      }));
+      if (!ok) return;
 
       return reply.send({ ok: true });
     },
@@ -184,14 +225,6 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
       if (!internal) {
         return reply.status(404).send(notFound);
       }
-
-      // Disconnect first to clean up stale daemon-side event listeners,
-      // preventing duplicate event forwarding on repeated resumes.
-      server.daemonRegistry.sendToDaemon(internal.daemonId, {
-        type: "copilot-disconnect-session",
-        timestamp: Date.now(),
-        payload: { sessionId },
-      });
 
       const sent = server.daemonRegistry.sendToDaemon(internal.daemonId, {
         type: "copilot-resume-session",
@@ -247,6 +280,13 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         return reply
           .status(400)
           .send({ error: "bad_request", message: "Missing 'mode' field" });
+      }
+
+      if (!isCopilotSessionMode(mode)) {
+        return reply.status(400).send({
+          error: "bad_request",
+          message: "Mode must be one of: interactive, plan, autopilot",
+        });
       }
 
       const ok = sendToDaemon(server, sessionId, reply, () => ({
@@ -341,6 +381,50 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
     },
   );
 
+  /** POST /api/copilot/aggregated/sessions/:sessionId/permission-response — Relay permission decision to daemon */
+  server.post<{ Params: { sessionId: string }; Body: { requestId: string; decision: 'allow' | 'deny' } }>(
+    "/api/copilot/aggregated/sessions/:sessionId/permission-response",
+    async (request, reply) => {
+      const { sessionId } = request.params;
+      const { requestId, decision } = request.body ?? {} as Record<string, unknown>;
+
+      if (!requestId || !decision || !['allow', 'deny'].includes(decision as string)) {
+        return reply.status(400).send({ error: "bad_request", message: "requestId and decision ('allow' | 'deny') are required" });
+      }
+
+      const ok = sendToDaemon(server, sessionId, reply, () => ({
+        type: "copilot-permission-response",
+        timestamp: Date.now(),
+        payload: { requestId: requestId as string, sessionId, decision: decision as 'allow' | 'deny' },
+      }));
+      if (!ok) return;
+
+      return reply.send({ ok: true });
+    },
+  );
+
+  /** POST /api/copilot/aggregated/sessions/:sessionId/user-input-response — Relay user input answer to daemon */
+  server.post<{ Params: { sessionId: string }; Body: { requestId: string; answer: string; wasFreeform?: boolean } }>(
+    "/api/copilot/aggregated/sessions/:sessionId/user-input-response",
+    async (request, reply) => {
+      const { sessionId } = request.params;
+      const { requestId, answer, wasFreeform } = request.body ?? {} as Record<string, unknown>;
+
+      if (!requestId || typeof answer !== 'string') {
+        return reply.status(400).send({ error: "bad_request", message: "requestId and answer (string) are required" });
+      }
+
+      const ok = sendToDaemon(server, sessionId, reply, () => ({
+        type: "copilot-user-input-response",
+        timestamp: Date.now(),
+        payload: { requestId: requestId as string, sessionId, answer: answer as string, wasFreeform: Boolean(wasFreeform) },
+      }));
+      if (!ok) return;
+
+      return reply.send({ ok: true });
+    },
+  );
+
   // ── Request-response routes (wait for daemon reply) ───
 
   /** GET /api/copilot/aggregated/sessions/:sessionId/mode — Get current mode */
@@ -360,6 +444,92 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
       try {
         const result = await server.copilotAggregator.waitForResponse<{ mode: string }>(requestId);
         return reply.send(result);
+      } catch {
+        return reply
+          .status(504)
+          .send({ error: "timeout", message: "Daemon did not respond in time" });
+      }
+    },
+  );
+
+  /** GET /api/copilot/aggregated/sessions/:sessionId/agent — Get current agent */
+  server.get<{ Params: { sessionId: string } }>(
+    "/api/copilot/aggregated/sessions/:sessionId/agent",
+    async (request, reply) => {
+      const { sessionId } = request.params;
+      const requestId = randomUUID();
+
+      const ok = sendToDaemon(server, sessionId, reply, () => ({
+        type: "copilot-get-agent",
+        timestamp: Date.now(),
+        payload: { requestId, sessionId },
+      }));
+      if (!ok) return;
+
+      try {
+        const result =
+          await server.copilotAggregator.waitForResponse<SessionAgentResponse>(requestId);
+        if (result.error) {
+          return reply
+            .status(agentResponseStatus(result.error))
+            .send({ error: "agent_error", message: result.error });
+        }
+        return reply.send({
+          sessionId,
+          agentId: result.agentId ?? null,
+          agentName: result.agentName ?? null,
+        });
+      } catch {
+        return reply
+          .status(504)
+          .send({ error: "timeout", message: "Daemon did not respond in time" });
+      }
+    },
+  );
+
+  /** POST /api/copilot/aggregated/sessions/:sessionId/agent — Switch current agent */
+  server.post<{
+    Params: { sessionId: string };
+    Body: { agentId?: string | null };
+  }>(
+    "/api/copilot/aggregated/sessions/:sessionId/agent",
+    async (request, reply) => {
+      const { sessionId } = request.params;
+      const parsedAgentId = normalizeAgentSelection(
+        (request.body as { agentId?: unknown } | undefined)?.agentId,
+        "agentId",
+      );
+      if (!parsedAgentId.ok) {
+        return reply.status(400).send({ error: "bad_request", message: parsedAgentId.message });
+      }
+      if (parsedAgentId.value === undefined) {
+        return reply
+          .status(400)
+          .send({ error: "bad_request", message: "Missing 'agentId' field" });
+      }
+      const agentId = parsedAgentId.value;
+
+      const requestId = randomUUID();
+      const ok = sendToDaemon(server, sessionId, reply, () => ({
+        type: "copilot-set-agent",
+        timestamp: Date.now(),
+        payload: { requestId, sessionId, agentId },
+      }));
+      if (!ok) return;
+
+      try {
+        const result =
+          await server.copilotAggregator.waitForResponse<SessionAgentResponse>(requestId);
+        if (result.error) {
+          return reply
+            .status(agentResponseStatus(result.error))
+            .send({ error: "agent_error", message: result.error });
+        }
+        return reply.send({
+          sessionId,
+          agentId: result.agentId ?? null,
+          agentName: result.agentName ?? null,
+        });
       } catch {
         return reply
           .status(504)
@@ -429,11 +599,45 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
   /** POST /api/daemons/:owner/:repo/copilot/sessions — Create new session on a specific daemon */
   server.post<{
     Params: { owner: string; repo: string };
-    Body: { model?: string; sessionType?: SessionType; agent?: string | null };
+    Body: {
+      model?: string;
+      sessionType?: SessionType;
+      agentId?: string | null;
+      agent?: string | null;
+    };
   }>("/api/daemons/:owner/:repo/copilot/sessions", async (request, reply) => {
     const id = `${request.params.owner}/${request.params.repo}`;
     const { model, sessionType } = request.body ?? {};
-    const rawAgent = (request.body as { agent?: unknown } | undefined)?.agent;
+    const parsedAgentId = normalizeAgentSelection(
+      (request.body as { agentId?: unknown } | undefined)?.agentId,
+      "agentId",
+    );
+    if (!parsedAgentId.ok) {
+      return reply.status(400).send({ error: "bad_request", message: parsedAgentId.message });
+    }
+    const parsedLegacyAgent = normalizeAgentSelection(
+      (request.body as { agent?: unknown } | undefined)?.agent,
+      "agent",
+    );
+    if (!parsedLegacyAgent.ok) {
+      return reply
+        .status(400)
+        .send({ error: "bad_request", message: parsedLegacyAgent.message });
+    }
+
+    if (
+      parsedAgentId.value !== undefined &&
+      parsedLegacyAgent.value !== undefined &&
+      parsedAgentId.value !== parsedLegacyAgent.value
+    ) {
+      return reply.status(400).send({
+        error: "bad_request",
+        message: "'agentId' and legacy 'agent' must match when both are provided",
+      });
+    }
+
+    const explicitAgentId =
+      parsedAgentId.value !== undefined ? parsedAgentId.value : parsedLegacyAgent.value;
 
     const daemon = server.daemonRegistry.getDaemon(id);
     if (!daemon) {
@@ -442,39 +646,14 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         .send({ error: "not_found", message: "Daemon not found" });
     }
 
-    if (rawAgent !== undefined && rawAgent !== null && typeof rawAgent !== "string") {
-      return reply
-        .status(400)
-        .send({ error: "bad_request", message: "'agent' must be a string or null" });
-    }
-
-    const explicitAgent =
-      typeof rawAgent === "string" ? rawAgent.trim() : rawAgent;
-
-    if (explicitAgent === "") {
-      return reply
-        .status(400)
-        .send({ error: "bad_request", message: "'agent' cannot be an empty string. Use null for the default agent." });
-    }
-
     const effectiveSessionType = sessionType ?? "copilot-sdk";
-    const rememberedAgent =
-      effectiveSessionType === "copilot-sdk" && rawAgent === undefined
-        ? await server.stateService.getProjectDefaultCopilotAgent(
-            request.params.owner,
-            request.params.repo,
-          )
-        : undefined;
-
     const config: CreateSessionConfig = {};
     if (model) {
       config.model = model;
     }
     if (effectiveSessionType === "copilot-sdk") {
-      if (rawAgent !== undefined) {
-        config.agent = explicitAgent;
-      } else if (rememberedAgent) {
-        config.agent = rememberedAgent;
+      if (explicitAgentId !== undefined) {
+        config.agentId = explicitAgentId;
       }
     }
 

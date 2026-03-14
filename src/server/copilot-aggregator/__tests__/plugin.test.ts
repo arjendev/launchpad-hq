@@ -103,9 +103,7 @@ describe("Copilot aggregator plugin", () => {
 
   it("cleans up sessions when daemon disconnects", () => {
     // Seed sessions for daemon d1
-    server.copilotAggregator.updateSessions("d1", "proj-1", [
-      { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-    ]);
+    server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
 
     expect(server.copilotAggregator.size).toBe(1);
 
@@ -128,9 +126,7 @@ describe("Copilot aggregator plugin", () => {
   it("broadcasts sessions-updated to copilot channel", () => {
     const broadcastSpy = vi.spyOn(server.ws, "broadcast");
 
-    server.copilotAggregator.updateSessions("d1", "proj-1", [
-      { sessionId: "s1", startTime: new Date(1000), modifiedTime: new Date(2000), isRemote: false },
-    ]);
+    server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
 
     expect(broadcastSpy).toHaveBeenCalledWith("copilot", expect.objectContaining({
       type: "copilot:sessions-updated",

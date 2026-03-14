@@ -21,6 +21,7 @@ import type {
   SessionMetadata,
   ModelInfo,
   GetAuthStatusResponse,
+  MessageOptions,
 } from '@github/copilot-sdk';
 
 export type { ConnectionState, SessionEvent, SessionEventType, SessionMetadata, ModelInfo, GetAuthStatusResponse };
@@ -30,7 +31,13 @@ export type { ConnectionState, SessionEvent, SessionEventType, SessionMetadata, 
 // ---------------------------------------------------------------------------
 
 /** Integration variant for a Copilot session */
-export type SessionType = 'copilot-cli' | 'copilot-sdk' | 'squad-sdk';
+export type SessionType = 'copilot-cli' | 'copilot-sdk';
+
+/** Delivery mode for a prompt sent to an active Copilot session */
+export type PromptDeliveryMode = NonNullable<MessageOptions['mode']>;
+
+/** SDK session mode values exposed through session.rpc.mode.* */
+export type CopilotSessionMode = 'interactive' | 'plan' | 'autopilot';
 
 // ---------------------------------------------------------------------------
 // Shared domain types
@@ -73,6 +80,65 @@ export interface CopilotMessage {
 // HQ-specific enriched session (aggregator output)
 // ---------------------------------------------------------------------------
 
+/** High-level phase derived from SDK event flow */
+export type SessionPhase =
+  | 'idle'
+  | 'thinking'
+  | 'tool'
+  | 'subagent'
+  | 'waiting'
+  | 'error';
+
+/** An active tool call tracked by the aggregator */
+export interface ActiveToolCall {
+  id: string;
+  name: string;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: number;
+  progress?: string;
+}
+
+/** An active subagent tracked by the aggregator */
+export interface ActiveSubagent {
+  id: string;
+  name: string;
+  displayName?: string;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: number;
+  intent?: string;
+  activeToolCalls: ActiveToolCall[];
+  recentEvents: Array<{ type: string; summary: string; timestamp: number }>;
+}
+
+/** A background task reported by the SDK while session is idle */
+export interface BackgroundTask {
+  id: string;
+  description: string;
+  status: 'running' | 'completed';
+}
+
+/** State when the SDK is waiting for user input */
+export interface WaitingState {
+  type: 'user-input' | 'elicitation' | 'plan-exit' | 'permission';
+  requestId: string;
+  question?: string;
+  choices?: string[];
+  toolName?: string;
+  toolArgs?: Record<string, unknown>;
+}
+
+/** Structured activity state derived from SDK events */
+export interface SessionActivity {
+  phase: SessionPhase;
+  intent: string | null;
+  activeToolCalls: ActiveToolCall[];
+  activeSubagents: ActiveSubagent[];
+  backgroundTasks: BackgroundTask[];
+  waitingState: WaitingState | null;
+  tokenUsage: { used: number; limit?: number } | null;
+  turnCount: number;
+}
+
 /** Aggregated view of a session — client-facing (no internal routing fields) */
 export interface AggregatedSession {
   sessionId: string;
@@ -80,11 +146,12 @@ export interface AggregatedSession {
   status: 'idle' | 'active' | 'error' | 'ended';
   model?: string;
   title?: string;
-  mode?: string;
+  mode?: CopilotSessionMode;
   summary?: string;
   startedAt: number;
   updatedAt: number;
   lastEvent?: { type: string; timestamp: number };
+  activity: SessionActivity;
 }
 
 /** Tool definition (wire-safe — no handler) for session configuration */
@@ -113,26 +180,10 @@ export interface CopilotAgentCatalogEntry {
 export interface SessionConfigWire {
   sessionType?: SessionType;
   model?: string;
-  agentId?: string;
+  agentId?: string | null;
   systemMessage?: { mode: 'append' | 'replace'; content: string };
   tools?: ToolDefinitionWire[];
   streaming?: boolean;
-}
-
-/** Sub-agent definition for multi-agent coordination */
-export interface SubAgentDefinitionWire {
-  name: string;
-  description: string;
-  model?: string;
-  systemMessage?: string;
-}
-
-/** Configuration for creating a coordinated multi-agent session */
-export interface CoordinatorConfigWire {
-  model?: string;
-  systemMessage?: string;
-  agents: SubAgentDefinitionWire[];
-  infiniteSessions?: boolean;
 }
 
 /** Attention item surfaced by the daemon */
@@ -251,11 +302,21 @@ export interface CopilotModelsListMessage extends BaseMessage<'copilot-models-li
 
 // Daemon → HQ: mode query response
 export interface CopilotModeResponseMessage extends BaseMessage<'copilot-mode-response'> {
-  payload: { requestId: string; sessionId: string; mode: string };
+  payload: { requestId: string; sessionId: string; mode: CopilotSessionMode };
 }
 
 export interface CopilotPlanResponseMessage extends BaseMessage<'copilot-plan-response'> {
   payload: { requestId: string; sessionId: string; plan: { exists: boolean; content: string | null; path: string | null } };
+}
+
+export interface CopilotAgentResponseMessage extends BaseMessage<'copilot-agent-response'> {
+  payload: {
+    requestId: string;
+    sessionId: string;
+    agentId: string | null;
+    agentName: string | null;
+    error?: string;
+  };
 }
 
 // Daemon → HQ: auth status
@@ -325,6 +386,7 @@ export type DaemonToHqMessage =
   | CopilotModelsListMessage
   | CopilotModeResponseMessage
   | CopilotPlanResponseMessage
+  | CopilotAgentResponseMessage
   | CopilotAuthStatusMessage
   | AttentionItemMessage
   | CopilotToolInvocationMessage
@@ -422,7 +484,8 @@ export interface CopilotSendPromptMessage extends BaseMessage<'copilot-send-prom
   payload: {
     sessionId: string;
     prompt: string;
-    attachments?: Array<{ type: string; path: string }>;
+    attachments?: MessageOptions['attachments'];
+    mode?: PromptDeliveryMode;
   };
 }
 
@@ -448,7 +511,15 @@ export interface CopilotGetModeMessage extends BaseMessage<'copilot-get-mode'> {
 }
 
 export interface CopilotSetModeMessage extends BaseMessage<'copilot-set-mode'> {
-  payload: { sessionId: string; mode: string };
+  payload: { sessionId: string; mode: CopilotSessionMode };
+}
+
+export interface CopilotGetAgentMessage extends BaseMessage<'copilot-get-agent'> {
+  payload: { requestId: string; sessionId: string };
+}
+
+export interface CopilotSetAgentMessage extends BaseMessage<'copilot-set-agent'> {
+  payload: { requestId: string; sessionId: string; agentId: string | null };
 }
 
 export interface CopilotGetPlanMessage extends BaseMessage<'copilot-get-plan'> {
@@ -473,13 +544,6 @@ export interface CopilotListModelsMessage extends BaseMessage<'copilot-list-mode
 
 export interface CopilotDeleteSessionMessage extends BaseMessage<'copilot-delete-session'> {
   payload: { sessionId: string };
-}
-
-export interface CopilotCreateCoordinatedSessionMessage extends BaseMessage<'copilot-create-coordinated-session'> {
-  payload: {
-    requestId: string;
-    config: CoordinatorConfigWire;
-  };
 }
 
 /** HQ → Daemon: permission decision from user */
@@ -519,13 +583,14 @@ export type HqToDaemonMessage =
   | CopilotSetModelMessage
   | CopilotGetModeMessage
   | CopilotSetModeMessage
+  | CopilotGetAgentMessage
+  | CopilotSetAgentMessage
   | CopilotGetPlanMessage
   | CopilotUpdatePlanMessage
   | CopilotDeletePlanMessage
   | CopilotDisconnectSessionMessage
   | CopilotListModelsMessage
   | CopilotDeleteSessionMessage
-  | CopilotCreateCoordinatedSessionMessage
   | CopilotPermissionResponseMessage
   | CopilotUserInputResponseMessage;
 
