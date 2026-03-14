@@ -249,3 +249,9 @@ Wave 1 delivered foundational daemon architecture, frontend UI, and backend data
 - Title derivation: `args.title ?? args.message ?? args.reason ?? tool name` — covers all tool arg shapes.
 - Fire-and-forget persistence in the tool-invocation handler — no `await` so it doesn't block the event loop; errors logged.
 - Separate "inbox" WS channel (not reusing "attention") to allow targeted subscriptions.
+
+## Session: UI Redesign — Progressive Depth Navigation (2026-03-14)
+
+**Delivered:** Inbox backend fully implemented. Tool invocations (request_human_review, report_blocker) now create inbox messages. Per-project persistence. Fire-and-forget pattern unblocks frontend.
+
+**Key work:** Romilly-7 built complete inbox backend — types, StateManager persistence (per-project files in launchpad-state), tool-invocation wiring to create messages + WS broadcast, 3 REST routes + count endpoint. Title fallback chain handles both tool types. Separate "inbox" WS channel for targeted UI subscriptions.
