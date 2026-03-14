@@ -228,3 +228,21 @@ Key achievements:
 - **Implementation roadmap:** Phase 1 (P2, current grooming): Pre-login temporary tunnel. Phase 2 (P3+): Add token generation for passwordless mobile access. Phase 3 (P4+): Org/tenant, persistent tunnels.
 - **Security model:** Tokens are tunnel-access tokens (not user identity). Keep short-lived (4h default). Pair with launchpad's own session/JWT for user identity. Token validates automatically at devtunnel relay (no backend storage needed).
 - **For QR code:** Anonymous mode works for MVP if tunnel expires quickly, but token-based is better (more secure, still simple to implement). Pre-login model defeats QR UX on mobile (scan → login → access).
+
+### 2026-03-14: TunnelManager Implementation (Issue #23)
+- `src/server/tunnel.ts` — single file containing types, TunnelError class, TunnelManager class, singleton factory
+- TunnelManager extends EventEmitter, emits `status-change` (TunnelState) and `error` (TunnelError) events
+- `start(port)` spawns `devtunnel host -p {port} --allow-anonymous`, parses tunnel URL from stdout via regex (`https://*.devtunnels.ms`), also extracts `Tunnel ID:` line if present, falls back to subdomain extraction
+- `stop()` follows SelfDaemonSpawner pattern: SIGTERM → 5s timeout → SIGKILL, cleans up state
+- `generateToken(expiration)` calls `devtunnel token {id} --scopes connect --expiration {exp}` via execFile
+- `getShareUrl()` returns `https://{tunnel-url}?access_token={token}` — null if tunnel not running or no token generated yet
+- `isCliAvailable()` checks `devtunnel --version` via execFile
+- Typed errors: `TunnelError` with code field: `CLI_NOT_FOUND`, `STARTUP_TIMEOUT`, `PROCESS_ERROR`, `TOKEN_ERROR`
+- Singleton via `getTunnelManager(options)` + `resetTunnelManager()` for tests — Romilly imports this for Fastify plugin integration
+- Follows existing patterns: child process lifecycle from `SelfDaemonSpawner`, `execFile` for one-shot commands (like GitHub auth module), custom error class with code field
+
+### Cross-Team Summary (2026-03-14 orchestration)
+- Romilly integrated TunnelManager into Fastify tunnel plugin routes with `fp` pattern, exposing decorator for CLI access
+- Brand implemented TunnelButton/Modal UI with real-time status polling (5s intervals), QR fetching, and copy-to-clipboard
+- Coordinator fixed TS2783 duplicate error property in tunnel routes
+- All work committed; ready for Phase 3+ token auth enhancements

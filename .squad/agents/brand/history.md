@@ -336,3 +336,17 @@ Key decisions:
 ### Context for Brand
 The QR code feature is a Phase 3+ enhancement. Pre-work (P2 temporary tunnel) is being handled by Cooper + TARS. Once P2 is complete, Brand will own the "Share" button UI, QR modal design, and token expiration timer component. The backend token generation is handled server-side; Brand's role is display + UX.
 
+
+### 2026-03-14: Dev Tunnel QR UI (Issue #23)
+- **TunnelButton.tsx**: ActionIcon in header right-side Group, uses `IconWorldShare` from tabler. Status-colored (gray/green/blue/red) with CSS pulse animation when running. Follows ThemeToggle pattern (Tooltip + ActionIcon).
+- **TunnelModal.tsx**: Mantine Modal with three states — stopped (start button + explanation), transitioning (loader), running (QR code image from `/api/tunnel/qr`, copyable URL via CopyButton, stop button). Uses `useTunnelQr(enabled)` to lazy-fetch QR only when modal is open and tunnel is running.
+- **Hooks**: `useTunnelStatus()` polls `/api/tunnel` every 5s. `useTunnelQr(enabled)` fetches QR with 30s stale time. `useStartTunnel()` / `useStopTunnel()` mutations invalidate both tunnel and tunnel-qr query keys.
+- **Types**: `TunnelState`, `TunnelInfo`, `TunnelQrResponse` added to `services/types.ts`.
+- **Styling**: `@keyframes tunnel-pulse` added to `theme.css`. QR image gets white background + padding for scanability.
+- **Pattern note**: No WebSocket channel for tunnel — REST polling is sufficient for infrequent status changes. If Romilly adds a WS channel later, can upgrade to subscription pattern.
+
+### Cross-Team Summary (2026-03-14 orchestration)
+- TARS completed TunnelManager with EventEmitter status tracking and token generation
+- Romilly integrated Fastify tunnel plugin with 4 routes, QR endpoint, WS broadcasts, and `--tunnel` CLI flag
+- Coordinator fixed TS2783 duplicate error property
+- All work committed; tunnel feature ready for Phase 3+ authentication research
