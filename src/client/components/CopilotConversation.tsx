@@ -3,6 +3,7 @@ import {
   Badge,
   Box,
   Button,
+  Code,
   Collapse,
   Divider,
   Group,
@@ -32,6 +33,7 @@ import type { ConversationEntry } from "../services/types.js";
 
 export interface CopilotConversationProps {
   sessionId: string;
+  sessionType?: string;
   onClose?: () => void;
 }
 
@@ -228,12 +230,13 @@ const ErrorBanner = memo(function ErrorBanner({
 
 const EventCard = memo(function EventCard({ entry }: { entry: ConversationEntry }) {
   const eventType = entry.eventType ?? "unknown";
+  const isSquad = eventType.startsWith("squad.");
   const isSession = eventType.startsWith("session.");
   const isAssistant = eventType.startsWith("assistant.");
   const isTool = eventType.startsWith("tool.");
   const isPermission = eventType.startsWith("permission.") || eventType.startsWith("elicitation.");
 
-  const color = isSession ? "blue" : isAssistant ? "grape" : isTool ? "orange" : isPermission ? "yellow" : "gray";
+  const color = isSquad ? "violet" : isSession ? "blue" : isAssistant ? "grape" : isTool ? "orange" : isPermission ? "yellow" : "gray";
 
   return (
     <Paper
@@ -393,10 +396,55 @@ function SdkControlPanel({ sessionId }: { sessionId: string }) {
   );
 }
 
+// ── Agent Roster for Squad sessions ────────────────────
+
+function AgentRoster({ entries }: { entries: ConversationEntry[] }) {
+  const agents = new Map<string, { name: string; status: "active" | "completed" | "failed" }>();
+
+  for (const entry of entries) {
+    if (entry.type !== "event") continue;
+    const name = (entry.eventData?.agentName ?? entry.eventData?.agent) as string | undefined;
+    if (!name) continue;
+
+    if (entry.eventType === "squad.agent.spawned") {
+      agents.set(name, { name, status: "active" });
+    } else if (entry.eventType === "squad.agent.completed") {
+      agents.set(name, { name, status: "completed" });
+    } else if (entry.eventType === "squad.agent.failed") {
+      agents.set(name, { name, status: "failed" });
+    }
+  }
+
+  if (agents.size === 0) return null;
+
+  const statusIcon = (status: string) => {
+    switch (status) {
+      case "active": return "🔄";
+      case "completed": return "✅";
+      case "failed": return "❌";
+      default: return "⚪";
+    }
+  };
+
+  return (
+    <Paper withBorder p="xs" radius="sm" mb="xs" bg="var(--mantine-color-violet-light)">
+      <Text size="xs" fw={600} mb={4}>🤖 Squad Agents</Text>
+      <Group gap="xs" wrap="wrap">
+        {Array.from(agents.values()).map(a => (
+          <Badge key={a.name} size="sm" color="violet" variant="light" leftSection={statusIcon(a.status)}>
+            {a.name}
+          </Badge>
+        ))}
+      </Group>
+    </Paper>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────
 
 export function CopilotConversation({
   sessionId,
+  sessionType,
   onClose,
 }: CopilotConversationProps) {
   const { data: session } = useAggregatedSession(sessionId);
@@ -550,6 +598,7 @@ export function CopilotConversation({
         )}
 
         <Stack gap="sm">
+          {sessionType === "squad-sdk" && <AgentRoster entries={entries} />}
           {entries.map((entry) => (
             <ConversationMessage key={entry.id} entry={entry} />
           ))}

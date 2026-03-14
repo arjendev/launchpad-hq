@@ -558,6 +558,33 @@ function formatEventContent(eventType: string, data: Record<string, unknown>): s
     case "elicitation.requested": return `Question: ${data.message ?? ""}`;
     case "elicitation.completed": return `Answer: ${data.response ?? ""}`;
     case "abort": return "Aborted";
+    // Squad-specific events
+    case "squad.agent.spawned":
+      return `🤖 Agent spawned: ${data.agentName ?? data.agent ?? "unknown"}`;
+    case "squad.agent.completed":
+      return `✅ Agent completed: ${data.agentName ?? data.agent ?? "unknown"}`;
+    case "squad.agent.failed":
+      return `❌ Agent failed: ${data.agentName ?? data.agent ?? "unknown"} — ${data.error ?? ""}`;
+    case "squad.route.decided":
+      return `🧭 Route: ${data.route ?? data.agent ?? "unknown"} (${data.strategy ?? ""})`;
+    case "squad.route.fallback":
+      return `⚠️ Route fallback: ${data.reason ?? "no matching route"}`;
+    case "squad.fan_out.started":
+      return `📡 Fan-out started: ${(data.agents as string[])?.join(", ") ?? data.count ?? ""} agents`;
+    case "squad.fan_out.completed":
+      return `📡 Fan-out completed: ${(data.results as unknown[])?.length ?? data.count ?? ""} results`;
+    case "squad.coordinator.started":
+      return "🎯 Coordinator processing message";
+    case "squad.coordinator.completed":
+      return `🎯 Coordinator done: strategy=${data.strategy ?? "unknown"}, ${data.durationMs ?? "?"}ms`;
+    case "squad.coordinator.direct_response":
+      return "💬 Direct response (no agents needed)";
+    case "squad.session.created":
+      return "📋 Squad session created";
+    case "squad.session.resumed":
+      return "▶️ Squad session resumed";
+    case "squad.session.ended":
+      return "⏹️ Squad session ended";
     default: {
       const summary = Object.entries(data)
         .filter(([, v]) => v !== undefined && v !== null)
