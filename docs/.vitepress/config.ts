@@ -4,6 +4,11 @@ export default defineConfig({
   title: 'Launchpad HQ',
   description: 'Command and control center for managing multiple projects',
   base: '/launchpad-hq/',
+  vite: {
+    server: {
+      host: true,
+    },
+  },
   themeConfig: {
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
