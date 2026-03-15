@@ -167,6 +167,13 @@ export function SettingsPage() {
     setTunnelResult(null);
 
     if (value === "always") {
+      // If tunnel is already running, show URL immediately without bootstrapping flash
+      if (liveTunnel?.status === "running" && liveTunnel.info?.url) {
+        setTunnelResult({ url: liveTunnel.info.url });
+        saveSetting({ tunnel: { mode: "always", configured: settings?.tunnel.configured ?? false } });
+        return;
+      }
+
       // Immediately attempt to bootstrap the tunnel
       setTunnelBootstrapping(true);
       const patch: Partial<LaunchpadConfig> = {
@@ -259,6 +266,10 @@ export function SettingsPage() {
               </Text>
               {stateMode === "git" && (
                 <>
+                  <Alert color="blue" variant="light" icon={<IconInfoCircle size={16} />}>
+                    Launchpad uses your GitHub CLI authentication (<code>gh auth login</code>) to
+                    access the state repository. Make sure you&apos;re logged in before selecting this option.
+                  </Alert>
                   <Group gap="xs" grow>
                     <TextInput
                       label="GitHub Owner / Org"
@@ -309,6 +320,7 @@ export function SettingsPage() {
               description="When creating a new Copilot session from the dashboard, which mode should be the default? You can always create either type of session later — this just sets the default."
             >
               <SegmentedControl
+                key={isLoading ? "loading" : "loaded"}
                 value={sessionType}
                 onChange={handleSessionTypeChange}
                 data={[

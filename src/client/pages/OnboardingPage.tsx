@@ -24,6 +24,7 @@ import {
   IconCheck,
   IconRocket,
   IconX,
+  IconInfoCircle,
 } from "@tabler/icons-react";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -31,6 +32,7 @@ import {
   useUpdateSettings,
   useListModels,
   useValidateRepo,
+  useTunnelStatus,
 } from "../services/hooks.js";
 import type { LaunchpadConfig } from "../services/types.js";
 import { ThemeToggle } from "../components/ThemeToggle.js";
@@ -51,6 +53,7 @@ export function OnboardingPage() {
   const updateSettings = useUpdateSettings();
   const { data: modelsData } = useListModels();
   const validateRepo = useValidateRepo();
+  const { data: tunnel } = useTunnelStatus();
 
   const [active, setActive] = useState(0);
 
@@ -104,6 +107,19 @@ export function OnboardingPage() {
     setTunnelResult(null);
 
     if (value === "always") {
+      // If tunnel is already running, show URL immediately without bootstrapping flash
+      if (tunnel?.status === "running" && tunnel.info?.url) {
+        setTunnelResult({ url: tunnel.info.url });
+        const patch: Partial<LaunchpadConfig> = {
+          tunnel: {
+            mode: "always",
+            configured: settings?.tunnel.configured ?? false,
+          },
+        };
+        updateSettings.mutate(patch);
+        return;
+      }
+
       // Immediately attempt to bootstrap the tunnel
       setTunnelBootstrapping(true);
       const patch: Partial<LaunchpadConfig> = {
@@ -203,6 +219,10 @@ export function OnboardingPage() {
                     </Text>
                     {stateMode === "git" && (
                       <>
+                        <Alert color="blue" variant="light" icon={<IconInfoCircle size={16} />}>
+                          Launchpad uses your GitHub CLI authentication (<code>gh auth login</code>) to
+                          access the state repository. Make sure you&apos;re logged in before selecting this option.
+                        </Alert>
                         <Group gap="xs" grow>
                           <TextInput
                             label="GitHub Owner / Org"
@@ -251,6 +271,7 @@ export function OnboardingPage() {
 
               {/* Step 1: Copilot Session */}
               <Stepper.Step label="Copilot" icon={<IconRobot size={18} />}>
+                {active === 1 && (
                 <Paper p="lg" withBorder mt="md">
                   <Stack gap="sm">
                     <Title order={5}>🤖 Copilot Session Preference</Title>
@@ -275,6 +296,7 @@ export function OnboardingPage() {
                     </Text>
                   </Stack>
                 </Paper>
+                )}
               </Stepper.Step>
 
               {/* Step 2: AI Model */}
@@ -300,6 +322,7 @@ export function OnboardingPage() {
 
               {/* Step 3: Dev Tunnel */}
               <Stepper.Step label="Tunnel" icon={<IconWorldShare size={18} />}>
+                {active === 3 && (
                 <Paper p="lg" withBorder mt="md">
                   <Stack gap="sm">
                     <Title order={5}>🌐 Dev Tunnel Configuration</Title>
@@ -332,6 +355,11 @@ export function OnboardingPage() {
                         Tunnel running! URL: <strong>{tunnelResult.url}</strong>
                       </Alert>
                     )}
+                    {!tunnelBootstrapping && !tunnelResult && tunnelMode === "always" && tunnel?.status === "running" && tunnel.info?.url && (
+                      <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
+                        Tunnel running! URL: <strong>{tunnel.info.url}</strong>
+                      </Alert>
+                    )}
                     {tunnelResult?.error && (
                       <Alert color="yellow" variant="light" icon={<IconX size={16} />}>
                         {tunnelResult.error.toLowerCase().includes("auth") ||
@@ -343,6 +371,7 @@ export function OnboardingPage() {
                     )}
                   </Stack>
                 </Paper>
+                )}
               </Stepper.Step>
 
               {/* Completed state */}
