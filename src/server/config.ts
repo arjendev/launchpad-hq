@@ -25,7 +25,10 @@ export interface ServerConfig {
 }
 
 export function loadConfig(): ServerConfig {
-  const isDev = process.env.NODE_ENV !== "production";
+  // Detect if running from built dist/ (npx, production) vs source (dev with tsx)
+  const isBuilt =
+    import.meta.url.includes("/dist/") || import.meta.url.includes("\\dist\\");
+  const isDev = !isBuilt && process.env.NODE_ENV !== "production";
   const args = process.argv.slice(2);
   const port = Number(process.env.PORT) || 3000;
 
