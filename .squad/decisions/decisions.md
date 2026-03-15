@@ -16,6 +16,26 @@ Remove the mock Copilot adapter — the real SDK is available, no need for mock 
 
 ## Architecture Decisions (TARS)
 
+### 2026-03-15: EventEmitter error listener pattern
+
+All EventEmitter subclasses in the server MUST register a default `error` event listener in their constructor. Without one, Node.js throws unhandled errors that crash the process.
+
+**Pattern:**
+```typescript
+constructor(options) {
+  super();
+  this.on("error", (err) => {
+    this.logger?.warn({ err: err.message }, `Error: ${err.message}`);
+  });
+}
+```
+
+**Rationale:** The TunnelManager was crashing the entire server when `devtunnel` CLI was missing or auth expired. This is a Node.js foot-gun — any EventEmitter that emits `error` with no listener throws. The fix is defensive: always install a default listener, let consumers add additional ones.
+
+**Also established:**
+- `tunnelErrorGuidance()` pattern: map error codes to actionable user messages. Reuse this for any CLI-wrapping module.
+- Tunnel auto-start is fire-and-forget (`.then()`) — never block server boot on optional features.
+
 ### 2026-03-14: SDK Event Type Mapping at Adapter Boundary
 **By:** TARS  
 **Date:** 2026-03-14
@@ -63,7 +83,48 @@ When the daemon runs backgrounded (e.g. devcontainer `postStartCommand`), `proce
 #### Impact
 Terminal relay now works reliably in both interactive and backgrounded daemon contexts. `buildShellEnv()` is exported for potential reuse by other daemon modules that need sane shell environments.
 
+## Architecture Decisions (Romilly)
+
+### 2026-03-15: State management modes — LocalStateManager + GitStateManager
+
+StateManager has been refactored to support two pluggable backends:
+- **LocalStateManager:** Reads/writes to `~/.launchpad/config.json` for offline-first operation
+- **GitStateManager:** Persists to `launchpad-state` repo via GitHub API for multi-device sync
+
+Both implement the `StateService` interface, making them consumer-agnostic. The choice of backend is determined at runtime based on environment (e.g., offline vs. connected).
+
+**LaunchpadConfig Type:** Centralized in `src/server/state/types.ts` and shared with the onboarding wizard:
+```typescript
+interface LaunchpadConfig {
+  trackedRepos: ProjectConfig[];
+  copilot?: { /* agent preferences, etc */ };
+  tunnel?: { configured: boolean; mode: string; };
+  onboardingComplete?: boolean;
+}
+```
+
+**Settings API:**
+- `GET /api/settings` — read current config
+- `PUT /api/settings` — save config with validation
+
+**Rationale:** Separation of concerns allows offline operation (LocalStateManager) while supporting cloud sync (GitStateManager). The shared LaunchpadConfig type prevents drift between the settings API and the onboarding wizard.
+
 ## UI Decisions (Brand)
+
+### 2026-03-15: Onboarding wizard framework (@clack/prompts)
+
+The onboarding wizard runs in the CLI before server import using `@clack/prompts` for terminal UI. It steps through copilot setup, tunnel configuration, and other initialization tasks, then persists the final LaunchpadConfig via Romilly's `/api/settings` PUT endpoint.
+
+**Key choices:**
+1. **@clack/prompts over inquirer** — Cleaner API, built-in `isCancel()` for Ctrl+C detection, smaller bundle.
+2. **Shared LaunchpadConfig type** — Extended Romilly's type in `src/server/state/types.ts` rather than creating a parallel one. Prevents type drift.
+3. **Async save via Romilly's launchpad-config.ts** — Config persistence uses the shared `saveLaunchpadConfig()`. The wizard's `onSave` callback allows test injection.
+4. **Non-interactive fallback** — When no TTY is detected (CI, Docker, piped input), the wizard auto-applies defaults and marks onboarding complete. No prompts shown.
+
+**Framework:** WizardStep interface with `prompt()`, `validate()`, `apply()` hooks enables pluggable step implementations.
+
+**Impact on other agents:**
+- **TARS (#45):** DevTunnel step must set `tunnel.configured` and `tunnel.mode` in the config.
 
 ### 2026-03-14: Create Session UI — Button-first, no model selector
 **Author:** Brand  
