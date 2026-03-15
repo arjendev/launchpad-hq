@@ -304,3 +304,29 @@ Dependencies: #40 is P0 blocker for wizard steps #41–#44 owned by Brand/TARS. 
 - **Tests:** 908 passing. Added 8 new tests for bootstrap config round-tripping, launchpad-config.json in GitStateManager (read/write/sync), and GET settings endpoint.
 - **Key insight:** Bootstrap fields must ALWAYS come from local — you can't bootstrap from git without knowing where git is. The merge strategy is: defaults ← remote ← bootstrap overrides.
 - **Commit:** 9c1b8f6
+
+### 2026-03-15: Issue #54 — Preview Proxy (Server Side, Option A)
+
+**Scope:** Server-side preview proxy — path-based routing through the HQ DevTunnel.
+
+**Proxy chain:** Phone → DevTunnel → HQ Fastify `/preview/:projectId/*` → daemon WS → localhost:previewPort → response back.
+
+**Files changed (server domain):**
+- `src/server/daemon-registry/registry.ts` — Added `previewPort`, `previewAutoDetected`, `previewDetectedFrom` to `TrackedDaemon` and `DaemonSummary`. Added `updatePreviewConfig()` and `findDaemonByProjectId()` methods.
+- `src/server/daemon-registry/handler.ts` — Added cases for `preview-config` (stores config + broadcasts on "preview" channel), `preview-proxy-response` (emits on registry for request matching), `preview-ws-data` and `preview-ws-close` (Phase 3 WS relay).
+- `src/server/routes/preview.ts` — New Fastify plugin. Wildcard `/preview/:projectId/*` proxy route with Map-based request/response matching (Promise + timeout). REST API: GET /api/preview (list), GET /api/preview/:projectId (detail), GET /api/preview/:projectId/qr (QR code via `qrcode` lib). Phase 3: start/stop control routes, WS relay helpers with channel tracking.
+- `src/server/ws/types.ts` — Added `"preview"` to `Channel` union and `VALID_CHANNELS`.
+- `src/server/index.ts` — Registered `previewRoutes` plugin after tunnel plugin.
+- `src/server/__tests__/preview.test.ts` — 15 tests: registry preview fields (5), handler message routing (2), request/response matching + timeout (3), WS relay helpers (4), QR generation (1).
+
+**Key patterns:**
+- **Request/response matching:** `Map<string, { resolve, reject, timeout }>` keyed by requestId. `resolvePreviewResponse()` exported for handler.ts to call. 30s timeout → 504 Gateway Timeout.
+- **Base64 body encoding:** Request body encoded as base64 for binary safety over WS. Response body decoded from base64 before forwarding.
+- **Hop-by-hop header stripping:** Removes connection, keep-alive, transfer-encoding, etc. from both request and response headers.
+- **URL-encoded projectId:** Supports `owner%2Frepo` in URL path via `decodeURIComponent()`.
+- **Plugin dependencies:** `["websocket", "daemon-registry", "tunnel"]` — registered after tunnel plugin for QR URL generation.
+
+**TARS parallel work:** Protocol types already in `src/shared/protocol.ts` — no inline type stubs needed. TARS's daemon-side preview handler/detect files were included in the combined commit.
+
+**Tests:** 969 passing (15 new). Typecheck + build clean.
+**Commit:** 4b5bdd1
