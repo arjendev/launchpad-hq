@@ -39,7 +39,37 @@ export interface DashboardResponse {
 export interface AddProjectRequest {
   owner: string;
   repo: string;
-  runtimeTarget: string;
+  runtimeTarget?: string;
+}
+
+// ── Discover types (match server /api/discover endpoints) ────
+
+export interface DiscoverUser {
+  login: string;
+  type: "User" | "Organization";
+  avatarUrl: string;
+}
+
+export interface DiscoverUsersResponse {
+  users: DiscoverUser[];
+}
+
+export interface DiscoverRepo {
+  owner: string;
+  repo: string;
+  fullName: string;
+  description: string | null;
+  url: string;
+  private: boolean;
+  language: string | null;
+  updatedAt: string;
+  tracked: boolean;
+}
+
+export interface DiscoverReposResponse {
+  repos: DiscoverRepo[];
+  page: number;
+  perPage: number;
 }
 
 export interface ApiError {

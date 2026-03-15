@@ -8,6 +8,8 @@ import type {
   IssuesResponse,
   GitHubIssue,
   ApiError,
+  DiscoverUsersResponse,
+  DiscoverReposResponse,
   DaemonSummary,
   AggregatedSession,
   SessionMessagesResponse,
@@ -79,6 +81,36 @@ export function useRemoveProject() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
+  });
+}
+
+/** Search GitHub users/orgs. Query is debounced on the caller side. */
+export function useDiscoverUsers(query: string) {
+  return useQuery<DiscoverUsersResponse>({
+    queryKey: ["discover-users", query],
+    queryFn: () =>
+      fetchJson<DiscoverUsersResponse>(
+        `/api/discover/users?q=${encodeURIComponent(query)}`,
+      ),
+    enabled: query.length >= 2,
+    staleTime: 30_000,
+  });
+}
+
+/** List/search repos for a GitHub owner. */
+export function useDiscoverRepos(owner: string, search?: string) {
+  return useQuery<DiscoverReposResponse>({
+    queryKey: ["discover-repos", owner, search ?? ""],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (owner) params.set("owner", owner);
+      if (search) params.set("q", search);
+      return fetchJson<DiscoverReposResponse>(
+        `/api/discover/repos?${params.toString()}`,
+      );
+    },
+    enabled: owner.length > 0,
+    staleTime: 30_000,
   });
 }
 

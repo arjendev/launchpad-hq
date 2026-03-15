@@ -14,7 +14,7 @@ import {
 } from "@mantine/core";
 import { useDashboard, useRemoveProject, useInboxCount } from "../services/hooks.js";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
-import { AddProjectDialog } from "./AddProjectDialog.js";
+import { AddProjectWizard } from "./AddProjectWizard.js";
 import type { DashboardProject } from "../services/types.js";
 
 function statusColor(project: DashboardProject): string {
@@ -232,7 +232,7 @@ export function ProjectList() {
         );
       })}
 
-      <AddProjectDialog
+      <AddProjectWizard
         opened={addDialogOpen}
         onClose={() => setAddDialogOpen(false)}
       />
