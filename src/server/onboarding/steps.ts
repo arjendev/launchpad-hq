@@ -1,10 +1,12 @@
 /**
  * Onboarding wizard steps.
- * Steps #41-#43 are fully implemented; #44 (devtunnel) remains a placeholder.
+ * Steps #41-#44 are fully implemented.
  */
 
 import * as p from "@clack/prompts";
 import type { LaunchpadConfig, WizardStep } from "./types.js";
+import type { DevtunnelOps } from "./devtunnel-ops.js";
+import { createDevtunnelOps } from "./devtunnel-ops.js";
 
 // ── Curated model list (easy to update in one place) ────────────────────────
 
@@ -175,25 +177,152 @@ export const modelStep: WizardStep = {
   },
 };
 
-// ── Step 4: Dev Tunnel — placeholder (#44) ──────────────────────────────────
+// ── Step 4: Dev Tunnel configuration (#44) ──────────────────────────────────
 
-function placeholderStep(id: string, title: string): WizardStep {
+/**
+ * Factory for the devtunnel wizard step — accepts optional DevtunnelOps
+ * for dependency injection in tests.
+ */
+export function createDevtunnelStep(ops?: DevtunnelOps): WizardStep {
+  const devtunnelOps = ops ?? createDevtunnelOps();
+
+  /** Handle the "always" mode configuration sub-flow. */
+  async function configureAlwaysMode(): Promise<Record<string, unknown>> {
+    const s = p.spinner();
+
+    // 1. Check CLI availability
+    s.start("Checking devtunnel CLI…");
+    const cliAvailable = await devtunnelOps.isCliInstalled();
+    if (!cliAvailable) {
+      s.stop("devtunnel CLI not found");
+      p.log.warning("The devtunnel CLI is not installed.");
+      p.log.info("Install it from: https://aka.ms/devtunnels/install");
+      p.log.info("Falling back to on-demand mode.");
+      return { mode: "on-demand", configured: false };
+    }
+    s.stop("devtunnel CLI found ✓");
+
+    // 2. Check existing authentication
+    s.start("Checking authentication…");
+    const alreadyAuthed = await devtunnelOps.isAuthenticated();
+    if (alreadyAuthed) {
+      s.stop("Already authenticated ✓");
+      p.log.info("DevTunnel will auto-start on every HQ launch.");
+      return { mode: "always", configured: true };
+    }
+    s.stop("Not yet authenticated");
+
+    // 3. Offer to authenticate now
+    const configureNow = await p.confirm({
+      message: "Would you like to configure DevTunnel authentication now?",
+      initialValue: true,
+    });
+
+    if (p.isCancel(configureNow) || !configureNow) {
+      p.log.info("No problem! Mode set to on-demand.");
+      p.log.info("To configure later, run: devtunnel user login");
+      p.log.info("Then restart HQ with: npx launchpad-hq --tunnel");
+      return { mode: "on-demand", configured: false };
+    }
+
+    // 4. Guide user through auth
+    p.note(
+      [
+        "You need to log in with your Entra ID (Microsoft) account.",
+        "",
+        "Run this command in another terminal:",
+        "",
+        "  devtunnel user login",
+        "",
+        "Complete the login in your browser, then come back here.",
+      ].join("\n"),
+      "🔑 Authentication Required",
+    );
+
+    // 5. Poll for authentication
+    s.start("Waiting for authentication… (up to 2 minutes)");
+    const authSuccess = await devtunnelOps.waitForAuth();
+    if (authSuccess) {
+      s.stop("Authenticated ✓");
+      p.log.info("DevTunnel will auto-start on every HQ launch.");
+      return { mode: "always", configured: true };
+    }
+
+    s.stop("Authentication not detected within timeout");
+    p.log.info("No worries! Mode set to on-demand.");
+    p.log.info("To configure later, run: devtunnel user login");
+    p.log.info("Then restart HQ with: npx launchpad-hq --tunnel");
+    return { mode: "on-demand", configured: false };
+  }
+
   return {
-    id,
-    title,
+    id: "devtunnel",
+    title: "Dev Tunnel Configuration",
+
     async prompt() {
-      return {};
+      p.note(
+        [
+          "DevTunnels let you access your HQ dashboard from your phone or any",
+          "browser, even outside your local network. This uses Microsoft",
+          "DevTunnels with Entra ID (Azure AD) authentication for secure access.",
+          "",
+          "🔒 You'll need a Microsoft Entra ID account to use DevTunnels.",
+        ].join("\n"),
+        "🌐 Remote Access (DevTunnels)",
+      );
+
+      const mode = await p.select({
+        message: "How should DevTunnels work?",
+        options: [
+          { value: "on-demand", label: "On-demand", hint: "start tunnels manually when you need them" },
+          { value: "always", label: "Always", hint: "auto-start a tunnel every time HQ launches" },
+        ],
+        initialValue: "on-demand",
+      });
+
+      if (p.isCancel(mode)) {
+        return { mode: "on-demand", configured: false };
+      }
+
+      if (mode === "on-demand") {
+        return { mode: "on-demand", configured: false };
+      }
+
+      // "always" selected — attempt configuration
+      try {
+        return await configureAlwaysMode();
+      } catch {
+        // Never crash — graceful fallback (#45 principle)
+        p.log.warning("Something went wrong during tunnel configuration.");
+        p.log.info("Mode set to on-demand. Configure later with: devtunnel user login");
+        return { mode: "on-demand", configured: false };
+      }
     },
-    validate() {
+
+    validate(values) {
+      const mode = values.mode as string | undefined;
+      if (mode !== "always" && mode !== "on-demand") {
+        return "Invalid tunnel mode.";
+      }
+      if (typeof values.configured !== "boolean") {
+        return "Missing configuration status.";
+      }
       return null;
     },
-    apply(config: LaunchpadConfig) {
-      return config;
+
+    apply(config, values) {
+      return {
+        ...config,
+        tunnel: {
+          mode: values.mode as "always" | "on-demand",
+          configured: values.configured as boolean,
+        },
+      };
     },
   };
 }
 
-export const devtunnelStep = placeholderStep("devtunnel", "Dev Tunnel Configuration");
+export const devtunnelStep = createDevtunnelStep();
 
 export const defaultSteps: WizardStep[] = [
   stateModeStep,
