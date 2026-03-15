@@ -192,6 +192,12 @@ async function start() {
       );
     }
   } catch (err) {
+    if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+      console.error(`\n⚠️  Port ${config.port} is already in use.`);
+      console.error(`   Either a previous HQ instance is still running, or another service is using this port.`);
+      console.error(`   Fix: kill the process using the port, or start with --port <other>\n`);
+      process.exit(1);
+    }
     server.log.error(err);
     process.exit(1);
   }
