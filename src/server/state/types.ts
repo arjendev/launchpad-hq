@@ -85,6 +85,8 @@ export interface StateService {
   getInbox(owner: string, repo: string): Promise<ProjectInbox>;
   /** Persist a project's inbox to the state repo. */
   saveInbox(owner: string, repo: string, inbox: ProjectInbox): Promise<void>;
+  /** Flush any pending debounced writes immediately (e.g. on shutdown). */
+  flush(): Promise<void>;
 }
 
 /** A single inbox message created by an agent tool invocation. */

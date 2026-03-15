@@ -1,4 +1,4 @@
-import { GitHubStateClient } from "./github-state-client.js";
+import { GitHubStateClient, ShaConflictError } from "./github-state-client.js";
 import { LocalCache } from "./local-cache.js";
 import type {
   ProjectConfig,
@@ -24,6 +24,9 @@ const FILES = {
   launchpadConfig: "launchpad-config.json",
 } as const;
 
+/** Default debounce delay in milliseconds. */
+const DEBOUNCE_MS = 2_000;
+
 export interface StateManagerDeps {
   client: GitHubStateClient;
   cache: LocalCache;
@@ -38,6 +41,14 @@ export interface StateManagerOptions {
   cacheRoot?: string;
   /** Inject dependencies (for testing). */
   deps?: StateManagerDeps;
+  /** Override debounce delay in ms (default: 2000). Set to 0 to disable debouncing. */
+  debounceMs?: number;
+}
+
+interface PendingWrite {
+  data: unknown;
+  timer: ReturnType<typeof setTimeout>;
+  waiters: Array<{ resolve: () => void; reject: (err: Error) => void }>;
 }
 
 /**
@@ -45,10 +56,18 @@ export interface StateManagerOptions {
  *
  * Read path:  local cache → GitHub API (on cache miss / startup sync)
  * Write path: GitHub API → local cache (write-through)
+ *
+ * Writes are debounced per file path: rapid successive calls coalesce into a
+ * single GitHub API write after a configurable delay. All callers receive a
+ * promise that resolves (or rejects) when the actual write completes.
+ *
+ * On 409 SHA conflicts the write is retried once after refreshing the SHA.
  */
 export class GitStateManager implements StateService {
   private readonly client: GitHubStateClient;
   private readonly cache: LocalCache;
+  private readonly debounceMs: number;
+  private readonly pendingWrites = new Map<string, PendingWrite>();
 
   constructor(opts: StateManagerOptions) {
     if (opts.deps) {
@@ -58,6 +77,7 @@ export class GitStateManager implements StateService {
       this.client = new GitHubStateClient(opts.token, opts.owner, opts.repo);
       this.cache = new LocalCache(opts.cacheRoot);
     }
+    this.debounceMs = opts.debounceMs ?? DEBOUNCE_MS;
   }
 
   // ---- public API -----------------------------------------------------------
@@ -121,6 +141,15 @@ export class GitStateManager implements StateService {
       this.pullFile(FILES.enrichment),
       this.pullFile(FILES.launchpadConfig),
     ]);
+  }
+
+  /**
+   * Flush all pending debounced writes immediately.
+   * Call this on server shutdown to ensure no data is lost.
+   */
+  async flush(): Promise<void> {
+    const paths = [...this.pendingWrites.keys()];
+    await Promise.all(paths.map((p) => this.executePendingWrite(p)));
   }
 
   async getProjectByToken(token: string): Promise<ProjectEntry | undefined> {
@@ -199,10 +228,63 @@ export class GitStateManager implements StateService {
   }
 
   /**
-   * Write a state file to GitHub then update local cache (write-through).
-   * Uses last-write-wins: always reads the current SHA before writing.
+   * Schedule a debounced write for the given path.
+   * Returns a promise that resolves when the write eventually completes.
+   * If debounceMs is 0, writes immediately (useful for testing).
    */
-  private async writeState(path: string, data: unknown): Promise<void> {
+  private writeState(path: string, data: unknown): Promise<void> {
+    if (this.debounceMs <= 0) {
+      return this.doWrite(path, data);
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const existing = this.pendingWrites.get(path);
+      if (existing) {
+        clearTimeout(existing.timer);
+        existing.data = data;
+        existing.waiters.push({ resolve, reject });
+        existing.timer = setTimeout(
+          () => void this.executePendingWrite(path),
+          this.debounceMs,
+        );
+      } else {
+        const pending: PendingWrite = {
+          data,
+          timer: setTimeout(
+            () => void this.executePendingWrite(path),
+            this.debounceMs,
+          ),
+          waiters: [{ resolve, reject }],
+        };
+        this.pendingWrites.set(path, pending);
+      }
+    });
+  }
+
+  /**
+   * Execute a pending write immediately, resolving/rejecting all waiters.
+   * Safe to call even if the path has no pending write.
+   */
+  private async executePendingWrite(path: string): Promise<void> {
+    const pending = this.pendingWrites.get(path);
+    if (!pending) return;
+
+    clearTimeout(pending.timer);
+    this.pendingWrites.delete(path);
+
+    try {
+      await this.doWrite(path, pending.data);
+      for (const w of pending.waiters) w.resolve();
+    } catch (err) {
+      for (const w of pending.waiters) w.reject(err as Error);
+    }
+  }
+
+  /**
+   * Perform the actual GitHub write with 409-conflict retry.
+   * On a SHA conflict, refreshes the SHA from GitHub and retries once.
+   */
+  private async doWrite(path: string, data: unknown): Promise<void> {
     const content = JSON.stringify(data, null, 2) + "\n";
 
     // Get current SHA (needed by GitHub API for updates)
@@ -215,8 +297,20 @@ export class GitStateManager implements StateService {
       sha = remote?.sha;
     }
 
-    const newSha = await this.client.writeFile(path, content, sha);
-    await this.cache.write(path, content, newSha);
+    try {
+      const newSha = await this.client.writeFile(path, content, sha);
+      await this.cache.write(path, content, newSha);
+    } catch (err) {
+      if (err instanceof ShaConflictError) {
+        // Retry once: refresh SHA from GitHub and write again
+        const remote = await this.client.readFile(path);
+        const freshSha = remote?.sha;
+        const newSha = await this.client.writeFile(path, content, freshSha);
+        await this.cache.write(path, content, newSha);
+      } else {
+        throw err;
+      }
+    }
   }
 
   /** Pull a single file from GitHub into the cache. */

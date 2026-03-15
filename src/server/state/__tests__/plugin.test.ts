@@ -155,6 +155,7 @@ describe("statePlugin", () => {
         async saveInbox() {
           throw new Error("not implemented");
         }
+        async flush() {}
         async getProjectByToken() {
           return undefined;
         }
@@ -239,6 +240,7 @@ describe("statePlugin", () => {
     vi.doMock("../local-state-manager.js", () => ({
       LocalStateManager: class LocalStateManager {
         async sync() {}
+        async flush() {}
         async getConfig() {
           return localConfig;
         }
@@ -311,6 +313,7 @@ describe("statePlugin", () => {
         async saveInbox() {
           throw new Error("not implemented");
         }
+        async flush() {}
         async getProjectByToken() {
           return undefined;
         }
@@ -361,6 +364,7 @@ describe("statePlugin", () => {
         saveEnrichment: vi.fn().mockResolvedValue(undefined),
         getLaunchpadConfig: vi.fn().mockResolvedValue(defaultLaunchpadConfig()),
         saveLaunchpadConfig: vi.fn().mockResolvedValue(undefined),
+        flush: vi.fn().mockResolvedValue(undefined),
         getInbox: vi.fn(),
         saveInbox: vi.fn(),
         getProjectByToken: vi.fn(),

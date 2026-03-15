@@ -5,6 +5,14 @@ const USER_AGENT = "launchpad-hq";
 const API_VERSION = "2022-11-28";
 const DEFAULT_STATE_REPO = "launchpad-state";
 
+/** Thrown when the GitHub Contents API returns 409 (SHA mismatch). */
+export class ShaConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ShaConflictError";
+  }
+}
+
 /** Low-level client for the user's launchpad-state GitHub repo. */
 export class GitHubStateClient {
   private readonly repoName: string;
@@ -98,6 +106,11 @@ export class GitHubStateClient {
       `/repos/${this.owner}/${this.repoName}/contents/${path}`,
       body,
     );
+    if (res.status === 409) {
+      throw new ShaConflictError(
+        (await this.apiError("writeFile", res)).message,
+      );
+    }
     if (res.status !== 200 && res.status !== 201) {
       throw await this.apiError("writeFile", res);
     }

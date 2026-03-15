@@ -177,6 +177,11 @@ async function statePlugin(fastify: FastifyInstance) {
   fastify.decorate("launchpadConfig", lpConfig);
   fastify.decorate("stateService", stateManager);
 
+  // Flush pending debounced writes on shutdown
+  fastify.addHook("onClose", async () => {
+    await fastify.stateService.flush();
+  });
+
   fastify.decorate(
     "reinitializeStateService",
     async (newConfig: LaunchpadConfig) => {

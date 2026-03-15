@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { StateManager } from "../state-manager.js";
+import { StateManager, GitStateManager } from "../state-manager.js";
+import { ShaConflictError } from "../github-state-client.js";
 import type { GitHubStateClient } from "../github-state-client.js";
 import type { LocalCache } from "../local-cache.js";
 import type { ProjectConfig, ProjectEntry, EnrichmentData, UserPreferences, LaunchpadConfig } from "../types.js";
@@ -17,7 +18,7 @@ function makeProject(overrides: Partial<ProjectEntry> & Pick<ProjectEntry, "owne
   };
 }
 
-function createMocks() {
+function createMocks(opts?: { debounceMs?: number }) {
   const client = {
     ensureRepo: vi.fn().mockResolvedValue(undefined),
     readFile: vi.fn().mockResolvedValue(null),
@@ -39,6 +40,7 @@ function createMocks() {
   const manager = new StateManager({
     token: "ghp_test",
     owner: "testuser",
+    debounceMs: opts?.debounceMs ?? 0,
     deps: { client: client as unknown as GitHubStateClient, cache: cache as unknown as LocalCache },
   });
 
@@ -482,6 +484,174 @@ describe("StateManager", () => {
         expectedContent,
         "new-sha-123",
       );
+    });
+  });
+
+  // ---- debounce -------------------------------------------------------------
+
+  describe("debounce", () => {
+    it("coalesces rapid writes into a single GitHub call", async () => {
+      vi.useFakeTimers();
+
+      const { manager, client, cache } = createMocks({ debounceMs: 2000 });
+
+      const config1: ProjectConfig = { version: 1, projects: [] };
+      const config2: ProjectConfig = {
+        version: 1,
+        projects: [makeProject({ owner: "acme", repo: "ui" })],
+      };
+      const config3: ProjectConfig = {
+        version: 1,
+        projects: [
+          makeProject({ owner: "acme", repo: "ui" }),
+          makeProject({ owner: "acme", repo: "api" }),
+        ],
+      };
+
+      // Fire three saves rapidly — don't await yet
+      const p1 = manager.saveConfig(config1);
+      const p2 = manager.saveConfig(config2);
+      const p3 = manager.saveConfig(config3);
+
+      // No writes should have happened yet
+      expect(client.writeFile).not.toHaveBeenCalled();
+
+      // Advance timer past the debounce window
+      await vi.advanceTimersByTimeAsync(2500);
+
+      // All promises should resolve
+      await Promise.all([p1, p2, p3]);
+
+      // Only ONE write to GitHub — with the LAST config
+      expect(client.writeFile).toHaveBeenCalledOnce();
+      const writtenContent = (client.writeFile.mock.calls[0] as [string, string])[1];
+      const writtenData = JSON.parse(writtenContent) as ProjectConfig;
+      expect(writtenData.projects).toHaveLength(2);
+
+      vi.useRealTimers();
+    });
+
+    it("debounces different files independently", async () => {
+      vi.useFakeTimers();
+
+      const { manager, client } = createMocks({ debounceMs: 2000 });
+
+      const config: ProjectConfig = { version: 1, projects: [] };
+      const prefs: UserPreferences = { version: 1, theme: "dark" };
+
+      const p1 = manager.saveConfig(config);
+      const p2 = manager.savePreferences(prefs);
+
+      await vi.advanceTimersByTimeAsync(2500);
+      await Promise.all([p1, p2]);
+
+      // Both files should have been written (one call each)
+      expect(client.writeFile).toHaveBeenCalledTimes(2);
+
+      vi.useRealTimers();
+    });
+
+    it("rejects all waiters if the write fails", async () => {
+      vi.useFakeTimers();
+
+      const { manager, client } = createMocks({ debounceMs: 2000 });
+      client.writeFile.mockRejectedValue(new Error("network down"));
+
+      const p1 = manager.saveConfig({ version: 1, projects: [] });
+      const p2 = manager.saveConfig({ version: 1, projects: [] });
+
+      // Attach no-op catch to prevent unhandled rejection warnings
+      p1.catch(() => {});
+      p2.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(2500);
+
+      await expect(p1).rejects.toThrow("network down");
+      await expect(p2).rejects.toThrow("network down");
+
+      vi.useRealTimers();
+    });
+  });
+
+  // ---- flush ----------------------------------------------------------------
+
+  describe("flush()", () => {
+    it("immediately writes all pending debounced data", async () => {
+      vi.useFakeTimers();
+
+      const { manager, client } = createMocks({ debounceMs: 2000 });
+
+      const config: ProjectConfig = { version: 1, projects: [] };
+      const savePromise = manager.saveConfig(config);
+
+      // Nothing written yet
+      expect(client.writeFile).not.toHaveBeenCalled();
+
+      // Flush forces the write
+      await manager.flush();
+      await savePromise;
+
+      expect(client.writeFile).toHaveBeenCalledOnce();
+
+      vi.useRealTimers();
+    });
+
+    it("is a no-op when nothing is pending", async () => {
+      const { manager } = createMocks({ debounceMs: 2000 });
+
+      // Should not throw
+      await manager.flush();
+    });
+  });
+
+  // ---- 409 retry ------------------------------------------------------------
+
+  describe("409 SHA conflict retry", () => {
+    it("retries once after refreshing SHA on 409", async () => {
+      const { manager, client, cache } = createMocks();
+
+      cache.read.mockResolvedValue({ content: "{}", sha: "stale-sha" });
+
+      // First write fails with 409, second succeeds
+      client.writeFile
+        .mockRejectedValueOnce(new ShaConflictError("409 conflict"))
+        .mockResolvedValueOnce("fresh-sha-456");
+
+      // readFile returns fresh SHA on retry
+      client.readFile.mockResolvedValue({
+        sha: "current-sha",
+        content: "{}",
+        path: "config.json",
+      });
+
+      const config: ProjectConfig = { version: 1, projects: [] };
+      await manager.saveConfig(config);
+
+      // writeFile called twice: once with stale SHA, once with fresh SHA
+      expect(client.writeFile).toHaveBeenCalledTimes(2);
+      expect((client.writeFile.mock.calls[0] as [string, string, string])[2]).toBe("stale-sha");
+      expect((client.writeFile.mock.calls[1] as [string, string, string])[2]).toBe("current-sha");
+
+      // Cache updated with the final SHA
+      expect(cache.write).toHaveBeenCalledWith(
+        "config.json",
+        expect.any(String),
+        "fresh-sha-456",
+      );
+    });
+
+    it("propagates non-409 errors without retrying", async () => {
+      const { manager, client, cache } = createMocks();
+
+      cache.read.mockResolvedValue({ content: "{}", sha: "sha-1" });
+      client.writeFile.mockRejectedValue(new Error("500 server error"));
+
+      await expect(
+        manager.saveConfig({ version: 1, projects: [] }),
+      ).rejects.toThrow("500 server error");
+
+      // Only one attempt
+      expect(client.writeFile).toHaveBeenCalledOnce();
     });
   });
 });

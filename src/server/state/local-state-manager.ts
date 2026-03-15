@@ -97,6 +97,11 @@ export class LocalStateManager implements StateService {
     await mkdir(this.root, { recursive: true });
   }
 
+  /** No-op — local writes are immediate, no debouncing needed. */
+  async flush(): Promise<void> {
+    /* nothing pending */
+  }
+
   async getProjectByToken(token: string): Promise<ProjectEntry | undefined> {
     const config = await this.getConfig();
     return config.projects.find((p) => p.daemonToken === token);

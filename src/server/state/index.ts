@@ -1,6 +1,6 @@
 export { GitStateManager, StateManager, type StateManagerOptions, type StateManagerDeps } from "./state-manager.js";
 export { LocalStateManager, type LocalStateManagerOptions } from "./local-state-manager.js";
-export { GitHubStateClient } from "./github-state-client.js";
+export { GitHubStateClient, ShaConflictError } from "./github-state-client.js";
 export { LocalCache } from "./local-cache.js";
 export {
   loadLaunchpadConfig,
