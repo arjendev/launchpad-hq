@@ -15,7 +15,15 @@ DevTunnel configuration is part of the [onboarding wizard](../guide/onboarding) 
 - Microsoft Dev Tunnels CLI installed
 - Azure account for tunnel authentication
 
-### Enabling
+### Via CLI
+
+Start HQ with the `--tunnel` flag:
+
+```bash
+npx github:arjendev/launchpad-hq --tunnel
+```
+
+### Via Settings
 
 1. Open **Settings** (gear icon in the top bar)
 2. Navigate to the **DevTunnel** section
@@ -35,8 +43,10 @@ The top bar displays a clickable DevTunnel indicator. Clicking it shows a QR cod
 Once connected via the tunnel, remote devices get:
 
 - Full three-pane dashboard
-- Real-time WebSocket updates
+- Real-time WebSocket updates (auto-upgraded to `wss://`)
 - Project and session management
+
+The browser automatically detects the HTTPS tunnel URL and upgrades the WebSocket connection to `wss://`. TLS terminates at the tunnel endpoint — daemon↔HQ traffic stays plain `ws://` locally.
 
 ::: warning
 Changing tunnel mode in Settings requires a restart to take effect.
