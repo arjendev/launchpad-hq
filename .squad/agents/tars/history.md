@@ -297,3 +297,9 @@ Cooper groomed onboarding wizard epic and created 7 GitHub issues assigned acros
 - **Total tests**: 908 baseline → 969 final (+61: 22 + 15 + 20 + 4 coordination tests)
 - **Build & typecheck**: Clean, no regressions
 - **Decisions merged** to `.squad/decisions.md`: Brand UI architecture, Romilly server-side design, TARS daemon-side proxy chain
+
+### 2026-03-15: Diagnostic Logging for Preview Port Auto-Detection
+- **Task**: Arjen reported another project's daemon not discovering preview ports. Added diagnostic logging to trace the full detection pipeline.
+- **Changes**: `preview-detect.ts` — logs project path, each devcontainer.json candidate (found/not found), parsed forwardPorts, package.json scripts examined, port flag/framework matches, port scan results, final outcome. `index.ts` — logs explicit vs auto-detect decision path and detection result. `preview.ts` — logs preview-config sent to HQ and incoming proxy requests.
+- **Style**: `🔍 Preview detect:` for detection, `📡 Preview proxy:` for proxy events.
+- **Verification**: Typecheck clean, build clean, all 969 tests pass.
