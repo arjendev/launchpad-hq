@@ -1,4 +1,4 @@
-declare module 'node-pty' {
+declare module '@homebridge/node-pty-prebuilt-multiarch' {
   export function spawn(
     shell: string,
     args: string[],

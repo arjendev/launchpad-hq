@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DaemonTerminalManager } from '../terminal/manager.js';
 
 // ---------------------------------------------------------------------------
-// Mock node-pty — the manager uses dynamic import, so we mock at module level
+// Mock @homebridge/node-pty-prebuilt-multiarch — the manager uses dynamic import, so we mock at module level
 // ---------------------------------------------------------------------------
 
 function createMockPty() {
@@ -32,10 +32,10 @@ function createMockPty() {
   };
 }
 
-// We cannot actually import node-pty in tests, so we test the manager
-// by directly manipulating its internal state via spawn with a mock.
-// The manager uses a dynamic import pattern; for unit tests we verify
-// the "no node-pty" path and the public API contracts.
+// We cannot actually import @homebridge/node-pty-prebuilt-multiarch in tests,
+// so we test the manager by directly manipulating its internal state via spawn
+// with a mock. The manager uses a dynamic import pattern; for unit tests we
+// verify the "no pty" path and the public API contracts.
 
 describe('DaemonTerminalManager', () => {
   let manager: DaemonTerminalManager;
@@ -44,14 +44,14 @@ describe('DaemonTerminalManager', () => {
     manager = new DaemonTerminalManager();
   });
 
-  describe('without node-pty loaded', () => {
+  describe('without pty loaded', () => {
     it('can be constructed', () => {
       expect(manager).toBeDefined();
     });
 
-    it('init detects node-pty availability', async () => {
+    it('init detects pty availability', async () => {
       const available = await manager.init();
-      // node-pty is now a regular dependency — init should succeed
+      // pty is now a regular dependency — init should succeed
       expect(typeof available).toBe('boolean');
     });
 
@@ -80,8 +80,8 @@ describe('DaemonTerminalManager', () => {
     });
   });
 
-  describe('with mocked node-pty (simulated sessions)', () => {
-    // Since we can't actually have node-pty spawn real PTYs in tests,
+  describe('with mocked pty (simulated sessions)', () => {
+    // Since we can't actually have pty spawn real PTYs in tests,
     // we test the data/exit handler wiring by directly invoking the manager's
     // onData/onExit registration, which works independently of spawn.
 
@@ -102,7 +102,7 @@ describe('DaemonTerminalManager', () => {
 
 // ---------------------------------------------------------------------------
 // Test the manager with an injected mock PTY session
-// This tests the actual data flow without needing node-pty
+// This tests the actual data flow without needing the pty module
 // ---------------------------------------------------------------------------
 
 describe('DaemonTerminalManager (with injected mock session)', () => {

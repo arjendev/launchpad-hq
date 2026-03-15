@@ -5,7 +5,7 @@
  * process. Users interact via the HQ UI (xterm.js). Sessions can be detached
  * (UI closed, process keeps running) and reattached (buffered output replayed).
  */
-import * as pty from 'node-pty';
+import * as pty from '@homebridge/node-pty-prebuilt-multiarch';
 import { randomUUID } from 'node:crypto';
 import type {
   DaemonToHqMessage,
@@ -16,7 +16,7 @@ import { logSdk } from '../logger.js';
 
 export type SendToHq = (msg: DaemonToHqMessage) => void;
 
-/** Minimal PTY handle — the subset of node-pty's IPty we actually use */
+/** Minimal PTY handle — the subset of IPty we actually use */
 interface PtyHandle {
   onData: (handler: (data: string) => void) => { dispose(): void };
   onExit: (handler: (e: { exitCode: number; signal?: number }) => void) => { dispose(): void };

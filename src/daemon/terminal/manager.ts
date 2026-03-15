@@ -1,15 +1,15 @@
 /**
  * Daemon-side PTY session manager.
  *
- * Uses a dynamic import for node-pty so the module is optional —
- * if node-pty isn't installed the manager can still be constructed
+ * Uses a dynamic import for @homebridge/node-pty-prebuilt-multiarch so the
+ * module is optional — if it isn't installed the manager can still be constructed
  * but spawn() will throw.
  */
 
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
-// node-pty types (subset we use)
+// PTY types (subset we use from @homebridge/node-pty-prebuilt-multiarch)
 interface IPty {
   onData: (handler: (data: string) => void) => { dispose: () => void };
   onExit: (handler: (e: { exitCode: number; signal?: number }) => void) => { dispose: () => void };
@@ -33,7 +33,7 @@ let nodePtyLoaded = false;
 async function loadNodePty(): Promise<NodePtyModule | null> {
   if (nodePtyLoaded) return nodePty;
   try {
-    nodePty = (await import('node-pty')) as unknown as NodePtyModule;
+    nodePty = (await import('@homebridge/node-pty-prebuilt-multiarch')) as unknown as NodePtyModule;
   } catch {
     nodePty = null;
   }
@@ -72,7 +72,7 @@ export function buildShellEnv(processEnv: Record<string, string | undefined>): R
     if (value !== undefined) env[key] = value;
   }
 
-  // TERM — always match the PTY name we pass to node-pty
+  // TERM — always match the PTY name we pass to the pty module
   env['TERM'] = 'xterm-256color';
 
   // COLORTERM — enable truecolor support
@@ -124,7 +124,7 @@ export class DaemonTerminalManager {
   private dataHandlers = new Map<string, (data: string) => void>();
   private exitHandlers = new Map<string, (exitCode: number) => void>();
 
-  /** Ensure node-pty is loaded. Call once at startup. */
+  /** Ensure pty module is loaded. Call once at startup. */
   async init(): Promise<boolean> {
     const mod = await loadNodePty();
     return mod !== null;
@@ -133,7 +133,7 @@ export class DaemonTerminalManager {
   /** Spawn a new PTY shell session. */
   spawn(terminalId: string, options?: SpawnOptions): string {
     if (!nodePty) {
-      throw new Error('node-pty is not available — terminal relay disabled');
+      throw new Error('PTY module is not available — terminal relay disabled');
     }
 
     if (this.sessions.has(terminalId)) {

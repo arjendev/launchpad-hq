@@ -1,0 +1,17 @@
+src/
+tests/
+test-results/
+coverage/
+.squad/
+.github/
+.devcontainer/
+*.config.ts
+*.config.cjs
+tsconfig*.json
+eslint.config.js
+playwright.config.ts
+vitest.config.ts
+raw-events.txt
+VISION.md
+DevTunnels/
+node_modules/

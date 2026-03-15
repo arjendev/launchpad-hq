@@ -24,7 +24,7 @@ class MockClient extends EventEmitter {
   }
 }
 
-// Mock DaemonTerminalManager that doesn't need node-pty
+// Mock DaemonTerminalManager that doesn't need the pty module
 class MockTerminalManager extends DaemonTerminalManager {
   spawnCalls: Array<{ terminalId: string; options?: { cols?: number; rows?: number; shell?: string } }> = [];
   writeCalls: Array<{ terminalId: string; data: string }> = [];

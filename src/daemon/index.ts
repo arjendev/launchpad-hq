@@ -114,7 +114,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     projectId: config.projectId,
   });
 
-  // Attempt to load node-pty (non-blocking — terminals won't work if unavailable)
+  // Attempt to load pty module (non-blocking — terminals won't work if unavailable)
   terminalManager.init().then((available) => {
     if (available) {
       addCapability(daemonInfo, 'terminal');
