@@ -46,6 +46,7 @@ export class PreviewProxyHandler {
 
   /** Send preview-config message to HQ */
   sendConfig(): void {
+    console.log(`📡 Preview proxy: sending preview-config to HQ (project=${this.projectId}, port=${this.previewPort}, source=${this.detectedFrom ?? 'config'})`);
     this.client.send({
       type: 'preview-config',
       timestamp: Date.now(),
@@ -97,6 +98,7 @@ export class PreviewProxyHandler {
   private handleProxyRequest(msg: PreviewProxyRequestMessage): void {
     const { requestId, method, path, headers, body } = msg.payload;
     const url = `http://127.0.0.1:${this.previewPort}${path}`;
+    console.log(`📡 Preview proxy: ${method} ${path} → ${url} (requestId=${requestId})`);
 
     const parsed = new URL(url);
 
@@ -189,6 +191,7 @@ export class PreviewProxyHandler {
 
   private handleWsOpen(msg: PreviewWsOpenMessage): void {
     const { channelId, path, headers } = msg.payload;
+    console.log(`📡 Preview proxy: WS open channelId=${channelId} path=${path}`);
 
     // Close existing channel if any
     const existing = this.wsChannels.get(channelId);

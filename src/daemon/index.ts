@@ -191,9 +191,11 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
   // On authentication: send config if explicit port, or auto-detect
   client.on('authenticated', () => {
     if (config.previewPort) {
+      console.log(`🔍 Preview detect: explicit previewPort=${config.previewPort} configured, skipping auto-detection`);
       startPreview(config.previewPort, false, 'config');
       previewHandler!.sendConfig();
     } else {
+      console.log(`🔍 Preview detect: no explicit previewPort, attempting auto-detection for projectPath=${config.projectPath}`);
       // Auto-detect on first auth, then periodically (dev server may start later)
       void detectAndStartPreview();
       previewDetectTimer = setInterval(() => {
@@ -205,6 +207,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
   async function detectAndStartPreview(): Promise<void> {
     try {
       const detected = await detectPreviewPort(config.projectPath);
+      console.log(`🔍 Preview detect: detection result = ${detected ? `port ${detected.port} from ${detected.source}` : 'null'}`);
       if (detected && !previewHandler) {
         startPreview(detected.port, true, detected.source);
         if (client.isAuthenticated) {
