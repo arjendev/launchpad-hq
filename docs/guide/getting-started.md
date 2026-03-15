@@ -46,6 +46,21 @@ Once onboarding completes, your browser opens to the three-pane dashboard.
 3. Select the runtime target: **WSL + Devcontainer**, **WSL only**, or **Local folder**
 4. The project appears in the list with a health badge
 
+## Build Scripts
+
+The project uses two lifecycle scripts in `package.json`:
+
+- **`postinstall`** — Runs `node scripts/patch-sdk.js` after every `npm install`. This patches an ESM import in `@github/copilot-sdk` that doesn't resolve correctly in Node.js. This is a temporary workaround until the upstream package is fixed.
+- **`prepare`** — Runs `npm run build` when you install the package from GitHub source (e.g. `npx github:arjendev/launchpad-hq`). In CI environments (where `$CI` is set), the build step is skipped to avoid redundant builds.
+
+If you're developing locally, the build runs automatically after install. You can also run it manually:
+
+```bash
+npm run build          # Build both server and client
+npm run build:server   # Build server only (TypeScript → dist/)
+npm run build:client   # Build client only (Vite)
+```
+
 ## Next Steps
 
 - [Onboarding Wizard](./onboarding) — Detailed walkthrough of each setup step

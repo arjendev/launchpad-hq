@@ -9,6 +9,7 @@
 // ────────────────────────────────────────────────────────
 
 import { randomUUID } from "node:crypto";
+import { posix } from "node:path";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import fp from "fastify-plugin";
 import QRCode from "qrcode";
@@ -284,10 +285,19 @@ async function previewPlugin(fastify: FastifyInstance) {
       }
 
       const requestId = randomUUID();
-      const proxyPath = "/" + (request.params["*"] || "");
+      const rawPath = "/" + (request.params["*"] || "");
       const queryString = request.url.includes("?")
         ? request.url.substring(request.url.indexOf("?"))
         : "";
+
+      // Defense-in-depth path sanitization: reject traversal and null bytes
+      const proxyPath = posix.normalize(rawPath);
+      if (proxyPath.includes('\0') || proxyPath.startsWith('..')) {
+        return reply.status(400).send({
+          error: "bad_request",
+          message: "Invalid path",
+        });
+      }
 
       // Encode body as base64 for binary safety
       let bodyBase64: string | undefined;

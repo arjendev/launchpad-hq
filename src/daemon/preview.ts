@@ -6,6 +6,7 @@
  */
 
 import * as http from 'node:http';
+import { posix } from 'node:path';
 import WebSocket from 'ws';
 import type { DaemonWebSocketClient } from './client.js';
 import type {
@@ -97,6 +98,14 @@ export class PreviewProxyHandler {
 
   private handleProxyRequest(msg: PreviewProxyRequestMessage): void {
     const { requestId, method, path, headers, body } = msg.payload;
+
+    // Path sanitization: reject directory traversal and null bytes
+    if (path.includes('\0') || posix.normalize(path).startsWith('..')) {
+      console.log(`📡 Preview proxy: rejected malicious path: ${path}`);
+      this.sendErrorResponse(requestId, 400, 'Bad request: invalid path');
+      return;
+    }
+
     const url = `http://127.0.0.1:${this.previewPort}${path}`;
     console.log(`📡 Preview proxy: ${method} ${path} → ${url} (requestId=${requestId})`);
 

@@ -14,8 +14,10 @@
     "node": ">=18"
   },
   "scripts": {
+    "//postinstall": "Patches an ESM import in @github/copilot-sdk (temporary fix until upstream resolves it)",
     "postinstall": "node scripts/patch-sdk.js",
-    "prepare": "npm run build",
+    "//prepare": "Runs build when installing from GitHub source; skipped in CI via $CI check",
+    "prepare": "test -z \"$CI\" && npm run build || true",
     "dev": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"vite\"",
     "dev:server": "tsx watch --ignore 'node_modules' --ignore 'dist' --ignore '.squad' --ignore 'src/client' src/server/index.ts",
     "dev:daemon": "tsx watch --ignore 'node_modules' --ignore 'dist' --ignore '.squad' --ignore 'src/client' --ignore 'src/server' src/daemon/index.ts",
