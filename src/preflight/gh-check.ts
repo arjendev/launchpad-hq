@@ -43,8 +43,7 @@ export async function ensureGhAuthenticated(): Promise<void> {
   }
 
   // Capture the token so the server can consume it from the environment
-  // instead of shelling out to `gh auth token` again (which can fail
-  // when CWD is inside an npx temp directory).
+  // instead of shelling out again later (which can fail in npx contexts).
   if (!process.env.GH_TOKEN && !process.env.GITHUB_TOKEN) {
     try {
       const token = (await run("gh", ["auth", "token"])).trim();
@@ -55,10 +54,17 @@ export async function ensureGhAuthenticated(): Promise<void> {
         process.exit(1);
       }
       process.env.GH_TOKEN = token;
-    } catch {
-      console.error(
-        "❌ Failed to retrieve GitHub token.\n   Run: gh auth login",
-      );
+    } catch (err) {
+      const msg = String((err as Error).message ?? err);
+      if (msg.includes("unknown command")) {
+        console.error(
+          '❌ Your GitHub CLI is too old (missing "gh auth token").\n   Please upgrade: https://github.com/cli/cli#installation',
+        );
+      } else {
+        console.error(
+          "❌ Failed to retrieve GitHub token.\n   Run: gh auth login",
+        );
+      }
       process.exit(1);
     }
   }
