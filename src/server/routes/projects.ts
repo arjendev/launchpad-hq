@@ -8,7 +8,7 @@ import { generateDaemonToken } from "../../shared/auth.js";
 interface AddProjectBody {
   owner: string;
   repo: string;
-  runtimeTarget: RuntimeTarget;
+  runtimeTarget?: RuntimeTarget;
   daemonToken?: string;
 }
 
@@ -50,6 +50,12 @@ interface ListProjectsResponse {
 interface DiscoverReposQuery {
   page?: number;
   per_page?: number;
+  owner?: string;
+  q?: string;
+}
+
+interface DiscoverUsersQuery {
+  q?: string;
 }
 
 interface GitHubRepoApiItem {
@@ -61,6 +67,23 @@ interface GitHubRepoApiItem {
   private: boolean;
   language: string | null;
   updated_at: string;
+}
+
+interface GitHubSearchRepoItem {
+  full_name: string;
+  owner: { login: string };
+  name: string;
+  description: string | null;
+  html_url: string;
+  private: boolean;
+  language: string | null;
+  updated_at: string;
+}
+
+interface GitHubUserSearchItem {
+  login: string;
+  type: "User" | "Organization";
+  avatar_url: string;
 }
 
 // ---- Validation helpers -----------------------------------------------------
@@ -163,10 +186,16 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
       return validationError(reply, "Request body must include 'owner' and 'repo' as strings.");
     }
 
-    if (!isValidRuntimeTarget(body.runtimeTarget)) {
+    // runtimeTarget is optional; default to "local" if not provided
+    const runtimeTarget: RuntimeTarget =
+      body.runtimeTarget && isValidRuntimeTarget(body.runtimeTarget)
+        ? body.runtimeTarget
+        : "local";
+
+    if (body.runtimeTarget !== undefined && !isValidRuntimeTarget(body.runtimeTarget)) {
       return validationError(
         reply,
-        "Request body must include 'runtimeTarget' as one of: 'wsl-devcontainer', 'wsl', 'local'.",
+        "If provided, 'runtimeTarget' must be one of: 'wsl-devcontainer', 'wsl', 'local'.",
       );
     }
 
@@ -209,7 +238,7 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
       owner,
       repo,
       addedAt: new Date().toISOString(),
-      runtimeTarget: body.runtimeTarget,
+      runtimeTarget,
       initialized: false,
       daemonToken,
       workState: "stopped",
@@ -345,40 +374,67 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
-  // GET /api/discover/repos — list authenticated user's repos
+  // GET /api/discover/repos — list/search repos (optionally filtered by owner and search term)
   fastify.get("/api/discover/repos", async (request: FastifyRequest, reply: FastifyReply) => {
     const query = request.query as DiscoverReposQuery;
     const page = Math.max(1, Number(query.page) || 1);
     const perPage = Math.min(100, Math.max(1, Number(query.per_page) || 30));
+    const owner = typeof query.owner === "string" ? query.owner.trim() : "";
+    const searchTerm = typeof query.q === "string" ? query.q.trim() : "";
 
-    let response: Response;
+    const headers = {
+      Authorization: `Bearer ${fastify.githubToken}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": "launchpad-hq",
+      "X-GitHub-Api-Version": "2022-11-28",
+    };
+
+    let repos: GitHubRepoApiItem[];
+
     try {
-      response = await fetch(
-        `https://api.github.com/user/repos?sort=updated&direction=desc&per_page=${perPage}&page=${page}&type=owner`,
-        {
-          headers: {
-            Authorization: `Bearer ${fastify.githubToken}`,
-            Accept: "application/vnd.github+json",
-            "User-Agent": "launchpad-hq",
-            "X-GitHub-Api-Version": "2022-11-28",
-          },
-        },
-      );
+      if (owner || searchTerm) {
+        // Use GitHub search API for filtered queries
+        const qualifiers: string[] = [];
+        if (searchTerm) qualifiers.push(`${searchTerm} in:name`);
+        if (owner) qualifiers.push(`user:${owner}`);
+        const q = encodeURIComponent(qualifiers.join(" "));
+
+        const response = await fetch(
+          `https://api.github.com/search/repositories?q=${q}&sort=updated&order=desc&per_page=${perPage}&page=${page}`,
+          { headers },
+        );
+
+        if (!response.ok) {
+          return reply.status(502).send({
+            error: "github_api_error",
+            message: `GitHub API returned ${response.status}.`,
+          });
+        }
+
+        const data = (await response.json()) as { items: GitHubSearchRepoItem[] };
+        repos = data.items;
+      } else {
+        // Default: list authenticated user's own repos
+        const response = await fetch(
+          `https://api.github.com/user/repos?sort=updated&direction=desc&per_page=${perPage}&page=${page}&type=owner`,
+          { headers },
+        );
+
+        if (!response.ok) {
+          return reply.status(502).send({
+            error: "github_api_error",
+            message: `GitHub API returned ${response.status}.`,
+          });
+        }
+
+        repos = (await response.json()) as GitHubRepoApiItem[];
+      }
     } catch {
       return reply.status(502).send({
         error: "github_api_error",
         message: "Failed to reach GitHub API. Check your network connection.",
       });
     }
-
-    if (!response.ok) {
-      return reply.status(502).send({
-        error: "github_api_error",
-        message: `GitHub API returned ${response.status}.`,
-      });
-    }
-
-    const repos = (await response.json()) as GitHubRepoApiItem[];
 
     // Mark which repos are already tracked
     const config = await fastify.stateService.getConfig();
@@ -403,6 +459,54 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
       page,
       perPage,
     };
+  });
+
+  // GET /api/discover/users — search GitHub users and organizations
+  fastify.get("/api/discover/users", async (request: FastifyRequest, reply: FastifyReply) => {
+    const query = request.query as DiscoverUsersQuery;
+    const searchTerm = typeof query.q === "string" ? query.q.trim() : "";
+
+    if (!searchTerm) {
+      return { users: [] };
+    }
+
+    let response: Response;
+    try {
+      const q = encodeURIComponent(searchTerm);
+      response = await fetch(
+        `https://api.github.com/search/users?q=${q}&per_page=20`,
+        {
+          headers: {
+            Authorization: `Bearer ${fastify.githubToken}`,
+            Accept: "application/vnd.github+json",
+            "User-Agent": "launchpad-hq",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        },
+      );
+    } catch {
+      return reply.status(502).send({
+        error: "github_api_error",
+        message: "Failed to reach GitHub API. Check your network connection.",
+      });
+    }
+
+    if (!response.ok) {
+      return reply.status(502).send({
+        error: "github_api_error",
+        message: `GitHub API returned ${response.status}.`,
+      });
+    }
+
+    const data = (await response.json()) as { items: GitHubUserSearchItem[] };
+
+    const users = data.items.map((u) => ({
+      login: u.login,
+      type: u.type,
+      avatarUrl: u.avatar_url,
+    }));
+
+    return { users };
   });
 };
 

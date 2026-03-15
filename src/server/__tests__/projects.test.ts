@@ -167,9 +167,9 @@ describe("Project routes", () => {
       expect(stateService.saveConfig).toHaveBeenCalledOnce();
     });
 
-    it("rejects missing runtimeTarget", async () => {
+    it("defaults runtimeTarget to 'local' when omitted", async () => {
       stubFetch();
-      const { server } = await buildServer();
+      const { server, stateService } = await buildServer();
 
       const res = await server.inject({
         method: "POST",
@@ -177,8 +177,10 @@ describe("Project routes", () => {
         payload: { owner: "acme", repo: "widget" },
       });
 
-      expect(res.statusCode).toBe(400);
-      expect(res.json().message).toContain("runtimeTarget");
+      expect(res.statusCode).toBe(201);
+      const body = res.json();
+      expect(body.runtimeTarget).toBe("local");
+      expect(stateService.saveConfig).toHaveBeenCalledOnce();
     });
 
     it("rejects invalid runtimeTarget value", async () => {

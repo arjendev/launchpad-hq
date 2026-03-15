@@ -1,7 +1,7 @@
 /**
  * Daemon configuration loading.
  *
- * Priority: environment variables → config file → defaults.
+ * Priority: CLI args (overrides) → environment variables → config file → defaults.
  */
 
 import { readFileSync, existsSync } from 'node:fs';

@@ -8,6 +8,7 @@
  *   launchpad-hq --hq          — start HQ server (explicit)
  *   launchpad-hq --daemon      — start daemon mode
  *   launchpad-hq --daemon --watch — start daemon with auto-restart on file changes
+ *   launchpad-hq --daemon --hq-url ws://localhost:3000 --token <TOKEN> --project-id owner/repo
  */
 
 // Global error handlers — installed early so any crash during startup is logged
@@ -46,9 +47,29 @@ if (isDaemon && isWatch) {
   process.on('SIGTERM', () => child.kill('SIGTERM'));
 } else if (isDaemon) {
   try {
+    // Parse daemon-specific CLI flags
+    const configOverrides: Record<string, string> = {};
+
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (arg === '--hq-url' && args[i + 1]) {
+        configOverrides.hqUrl = args[++i];
+      } else if (arg.startsWith('--hq-url=')) {
+        configOverrides.hqUrl = arg.slice('--hq-url='.length);
+      } else if (arg === '--token' && args[i + 1]) {
+        configOverrides.token = args[++i];
+      } else if (arg.startsWith('--token=')) {
+        configOverrides.token = arg.slice('--token='.length);
+      } else if (arg === '--project-id' && args[i + 1]) {
+        configOverrides.projectId = args[++i];
+      } else if (arg.startsWith('--project-id=')) {
+        configOverrides.projectId = arg.slice('--project-id='.length);
+      }
+    }
+
     // Dynamic import keeps HQ-only dependencies out of daemon memory
     const { startDaemon } = await import('./daemon/index.js');
-    const daemon = startDaemon();
+    const daemon = startDaemon(Object.keys(configOverrides).length > 0 ? configOverrides : undefined);
 
     process.on('SIGINT', () => {
       daemon.shutdown();
