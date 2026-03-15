@@ -1,10 +1,12 @@
 # 🚀 Launchpad HQ
 
-> **HQ for your AI-powered dev fleet.**
+> **Your AI-powered dev fleet Head Quarters.**
 
 Track all your projects, every Copilot session, every tool call — from one dashboard.
 
-Today it's visibility and productivity. Soon, it's your Context Hub — where tools, skills, and context follow every agent, everywhere.
+Track all your projects, every Copilot session, every tool call — from one dashboard.
+
+Today it's about visibility, productivity and peace of mind. Tomorrow, we'll add Context Hub — where your context, skills and tools follow every agent safely, everywhere.
 
 ![Launchpad HQ Overview](overview.png)
 
