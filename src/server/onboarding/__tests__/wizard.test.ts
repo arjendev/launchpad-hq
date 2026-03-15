@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { LaunchpadConfig, WizardStep } from "../types.js";
+import { defaultLaunchpadConfig } from "../types.js";
 import { runWizard } from "../wizard.js";
 
 // Mock @clack/prompts
@@ -19,7 +20,10 @@ vi.mock("@clack/prompts", () => ({
 // Mock config persistence
 vi.mock("../config.js", () => ({
   saveLaunchpadConfig: vi.fn(),
+  loadLaunchpadConfig: vi.fn(),
 }));
+
+const defaultLoad = async () => defaultLaunchpadConfig();
 
 function makeStep(overrides: Partial<WizardStep> & { id: string; title: string }): WizardStep {
   return {
@@ -45,6 +49,7 @@ describe("runWizard", () => {
       steps: [makeStep({ id: "test", title: "Test Step" })],
       interactive: false,
       onSave: (c) => { saved.push(c); },
+      onLoad: defaultLoad,
     });
 
     expect(result.skipped).toBe(true);
@@ -74,6 +79,7 @@ describe("runWizard", () => {
       steps: [step],
       interactive: true,
       onSave: (c) => { saved.push(c); },
+      onLoad: defaultLoad,
     });
 
     expect(result.skipped).toBe(false);
@@ -95,6 +101,7 @@ describe("runWizard", () => {
       steps: [step],
       interactive: true,
       onSave: (c) => { saved.push(c); },
+      onLoad: defaultLoad,
     });
 
     expect(step.prompt).not.toHaveBeenCalled();
@@ -115,6 +122,7 @@ describe("runWizard", () => {
       steps: [step],
       interactive: true,
       onSave: (c) => { saved.push(c); },
+      onLoad: defaultLoad,
     });
 
     expect(result.skipped).toBe(true);
@@ -137,6 +145,7 @@ describe("runWizard", () => {
       steps: [step],
       interactive: true,
       onSave: (c) => { saved.push(c); },
+      onLoad: defaultLoad,
     });
 
     expect(clack.log.warning).toHaveBeenCalledWith("Invalid value");
@@ -164,8 +173,47 @@ describe("runWizard", () => {
       steps: [step1, step2],
       interactive: true,
       onSave: () => {},
+      onLoad: defaultLoad,
     });
 
     expect(order).toEqual(["1", "2"]);
+  });
+
+  it("preserves existing config values when re-running wizard", async () => {
+    const clack = await import("@clack/prompts");
+    vi.mocked(clack.confirm).mockResolvedValue(true);
+
+    const existingConfig: LaunchpadConfig = {
+      version: 1,
+      stateMode: "git",
+      stateRepo: "user/launchpad-state",
+      copilot: { defaultSessionType: "cli", defaultModel: "gpt-5.2" },
+      tunnel: { mode: "always", configured: true },
+      onboardingComplete: false,
+    };
+
+    const applyFn = vi.fn((config: LaunchpadConfig) => config);
+    const step = makeStep({
+      id: "no-change",
+      title: "No Change",
+      apply: applyFn,
+    });
+
+    const saved: LaunchpadConfig[] = [];
+    const result = await runWizard({
+      steps: [step],
+      interactive: true,
+      onSave: (c) => { saved.push(c); },
+      onLoad: async () => existingConfig,
+    });
+
+    expect(result.config.stateMode).toBe("git");
+    expect(result.config.stateRepo).toBe("user/launchpad-state");
+    expect(result.config.copilot.defaultSessionType).toBe("cli");
+    expect(result.config.copilot.defaultModel).toBe("gpt-5.2");
+    expect(result.config.tunnel.mode).toBe("always");
+    expect(result.config.onboardingComplete).toBe(true);
+    // Step's prompt receives the existing config
+    expect(step.prompt).toHaveBeenCalledWith(existingConfig);
   });
 });

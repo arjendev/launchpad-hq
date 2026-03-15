@@ -60,7 +60,7 @@ describe("onboarding steps", () => {
       vi.mocked(clack.select).mockResolvedValueOnce("git");
       vi.mocked(clack.text).mockResolvedValueOnce("me/launchpad-state");
 
-      const result = await stateModeStep.prompt();
+      const result = await stateModeStep.prompt(defaultLaunchpadConfig());
       expect(result).toEqual({ mode: "git", stateRepo: "me/launchpad-state" });
       expect(clack.note).toHaveBeenCalled();
       expect(clack.select).toHaveBeenCalled();
@@ -110,7 +110,7 @@ describe("onboarding steps", () => {
       const clack = await import("@clack/prompts");
       vi.mocked(clack.select).mockResolvedValueOnce("cli");
 
-      const result = await copilotPrefStep.prompt();
+      const result = await copilotPrefStep.prompt(defaultLaunchpadConfig());
       expect(result).toEqual({ sessionType: "cli" });
       expect(clack.note).toHaveBeenCalled();
     });
@@ -153,7 +153,7 @@ describe("onboarding steps", () => {
       const clack = await import("@clack/prompts");
       vi.mocked(clack.select).mockResolvedValueOnce("gpt-5.2");
 
-      const result = await modelStep.prompt();
+      const result = await modelStep.prompt(defaultLaunchpadConfig());
       expect(result).toEqual({ model: "gpt-5.2" });
       expect(clack.note).toHaveBeenCalled();
     });

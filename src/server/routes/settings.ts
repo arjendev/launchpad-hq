@@ -104,7 +104,11 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       const updated: LaunchpadConfig = {
         ...current,
         ...body,
-        // Deep-merge tunnel sub-object so partial updates don't lose fields
+        // Deep-merge nested objects so partial updates don't lose fields
+        copilot: {
+          ...current.copilot,
+          ...(body.copilot ?? {}),
+        },
         tunnel: {
           ...current.tunnel,
           ...(body.tunnel ?? {}),

@@ -20,9 +20,19 @@ export async function loadLaunchpadConfig(
   try {
     const raw = await readFile(path, "utf-8");
     const parsed = JSON.parse(raw) as Partial<LaunchpadConfig>;
+    const defaults = defaultLaunchpadConfig();
     return {
-      ...defaultLaunchpadConfig(),
+      ...defaults,
       ...parsed,
+      // Deep-merge nested objects so partial configs retain defaults
+      copilot: {
+        ...defaults.copilot,
+        ...(parsed.copilot ?? {}),
+      },
+      tunnel: {
+        ...defaults.tunnel,
+        ...(parsed.tunnel ?? {}),
+      },
     };
   } catch {
     return defaultLaunchpadConfig();

@@ -45,7 +45,7 @@ describe("devtunnelStep (behavioral)", () => {
       vi.mocked(p.select).mockResolvedValueOnce("on-demand");
       const step = createDevtunnelStep(mockOps());
 
-      const result = await step.prompt();
+      const result = await step.prompt(defaultLaunchpadConfig());
 
       expect(result).toEqual({ mode: "on-demand", configured: false });
       expect(p.note).toHaveBeenCalled(); // explanation shown
@@ -57,7 +57,7 @@ describe("devtunnelStep (behavioral)", () => {
       vi.mocked(p.select).mockResolvedValueOnce("on-demand");
       const step = createDevtunnelStep(ops);
 
-      await step.prompt();
+      await step.prompt(defaultLaunchpadConfig());
 
       expect(ops.isCliInstalled).not.toHaveBeenCalled();
       expect(ops.isAuthenticated).not.toHaveBeenCalled();
@@ -73,7 +73,7 @@ describe("devtunnelStep (behavioral)", () => {
       vi.mocked(p.isCancel).mockImplementation((val) => val === cancelSymbol);
       const step = createDevtunnelStep(mockOps());
 
-      const result = await step.prompt();
+      const result = await step.prompt(defaultLaunchpadConfig());
 
       expect(result).toEqual({ mode: "on-demand", configured: false });
     });
@@ -86,7 +86,7 @@ describe("devtunnelStep (behavioral)", () => {
       vi.mocked(p.isCancel).mockImplementation((val) => val === cancelSymbol);
       const step = createDevtunnelStep(ops);
 
-      const result = await step.prompt();
+      const result = await step.prompt(defaultLaunchpadConfig());
 
       expect(result).toEqual({ mode: "on-demand", configured: false });
     });
@@ -100,7 +100,7 @@ describe("devtunnelStep (behavioral)", () => {
       vi.mocked(p.select).mockResolvedValueOnce("always");
       const step = createDevtunnelStep(ops);
 
-      const result = await step.prompt();
+      const result = await step.prompt(defaultLaunchpadConfig());
 
       expect(result).toEqual({ mode: "on-demand", configured: false });
       expect(mockSpinner.start).toHaveBeenCalledWith(expect.stringContaining("CLI"));
@@ -114,7 +114,7 @@ describe("devtunnelStep (behavioral)", () => {
       vi.mocked(p.select).mockResolvedValueOnce("always");
       const step = createDevtunnelStep(ops);
 
-      await step.prompt();
+      await step.prompt(defaultLaunchpadConfig());
 
       expect(ops.isAuthenticated).not.toHaveBeenCalled();
       expect(ops.waitForAuth).not.toHaveBeenCalled();
@@ -132,7 +132,7 @@ describe("devtunnelStep (behavioral)", () => {
       vi.mocked(p.select).mockResolvedValueOnce("always");
       const step = createDevtunnelStep(ops);
 
-      const result = await step.prompt();
+      const result = await step.prompt(defaultLaunchpadConfig());
 
       expect(result).toEqual({ mode: "always", configured: true });
       expect(p.confirm).not.toHaveBeenCalled();
@@ -153,7 +153,7 @@ describe("devtunnelStep (behavioral)", () => {
       vi.mocked(p.confirm).mockResolvedValueOnce(true);
       const step = createDevtunnelStep(ops);
 
-      const result = await step.prompt();
+      const result = await step.prompt(defaultLaunchpadConfig());
 
       expect(result).toEqual({ mode: "always", configured: true });
       expect(ops.waitForAuth).toHaveBeenCalled();
@@ -171,7 +171,7 @@ describe("devtunnelStep (behavioral)", () => {
       vi.mocked(p.confirm).mockResolvedValueOnce(true);
       const step = createDevtunnelStep(ops);
 
-      const result = await step.prompt();
+      const result = await step.prompt(defaultLaunchpadConfig());
 
       expect(result).toEqual({ mode: "on-demand", configured: false });
       expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining("on-demand"));
@@ -187,7 +187,7 @@ describe("devtunnelStep (behavioral)", () => {
       vi.mocked(p.confirm).mockResolvedValueOnce(false);
       const step = createDevtunnelStep(ops);
 
-      const result = await step.prompt();
+      const result = await step.prompt(defaultLaunchpadConfig());
 
       expect(result).toEqual({ mode: "on-demand", configured: false });
       expect(ops.waitForAuth).not.toHaveBeenCalled();
@@ -205,7 +205,7 @@ describe("devtunnelStep (behavioral)", () => {
       vi.mocked(p.select).mockResolvedValueOnce("always");
       const step = createDevtunnelStep(ops);
 
-      const result = await step.prompt();
+      const result = await step.prompt(defaultLaunchpadConfig());
 
       expect(result).toEqual({ mode: "on-demand", configured: false });
       expect(p.log.warning).toHaveBeenCalledWith(expect.stringContaining("went wrong"));
@@ -219,7 +219,7 @@ describe("devtunnelStep (behavioral)", () => {
       vi.mocked(p.select).mockResolvedValueOnce("always");
       const step = createDevtunnelStep(ops);
 
-      const result = await step.prompt();
+      const result = await step.prompt(defaultLaunchpadConfig());
 
       expect(result).toEqual({ mode: "on-demand", configured: false });
       expect(p.log.warning).toHaveBeenCalled();
@@ -235,7 +235,7 @@ describe("devtunnelStep (behavioral)", () => {
       vi.mocked(p.confirm).mockResolvedValueOnce(true);
       const step = createDevtunnelStep(ops);
 
-      const result = await step.prompt();
+      const result = await step.prompt(defaultLaunchpadConfig());
 
       expect(result).toEqual({ mode: "on-demand", configured: false });
       expect(p.log.warning).toHaveBeenCalled();

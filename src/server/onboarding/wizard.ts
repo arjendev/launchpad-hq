@@ -5,8 +5,7 @@
 
 import * as p from "@clack/prompts";
 import type { LaunchpadConfig, WizardStep, WizardResult } from "./types.js";
-import { defaultLaunchpadConfig } from "./types.js";
-import { saveLaunchpadConfig } from "./config.js";
+import { loadLaunchpadConfig, saveLaunchpadConfig } from "./config.js";
 
 export interface WizardOptions {
   /** Steps to run in order */
@@ -15,13 +14,17 @@ export interface WizardOptions {
   interactive?: boolean;
   /** Override config persistence (for testing) */
   onSave?: (config: LaunchpadConfig) => void | Promise<void>;
+  /** Override config loading (for testing) */
+  onLoad?: () => Promise<LaunchpadConfig>;
 }
 
 export async function runWizard(options: WizardOptions): Promise<WizardResult> {
   const { steps, interactive = process.stdout.isTTY ?? false } = options;
   const save = options.onSave ?? ((c: LaunchpadConfig) => saveLaunchpadConfig(c));
+  const load = options.onLoad ?? (() => loadLaunchpadConfig());
 
-  let config: LaunchpadConfig = defaultLaunchpadConfig();
+  // Load existing config so re-runs preserve previous choices
+  let config = await load();
 
   // Non-interactive: apply defaults and save
   if (!interactive) {
@@ -57,7 +60,7 @@ export async function runWizard(options: WizardOptions): Promise<WizardResult> {
     }
 
     if (shouldConfigure) {
-      const values = await step.prompt();
+      const values = await step.prompt(config);
 
       if (p.isCancel(values)) {
         p.cancel("Setup cancelled. Using defaults — you can re-run later.");

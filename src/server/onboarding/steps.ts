@@ -25,7 +25,7 @@ export const stateModeStep: WizardStep = {
   id: "state-mode",
   title: "State Storage Mode",
 
-  async prompt() {
+  async prompt(currentConfig: LaunchpadConfig) {
     p.note(
       [
         "Launchpad stores your project configuration, preferences, and enrichment data.",
@@ -48,7 +48,7 @@ export const stateModeStep: WizardStep = {
         { value: "local", label: "Local", hint: "this machine only — fast & private" },
         { value: "git", label: "Git", hint: "private GitHub repo — synced everywhere" },
       ],
-      initialValue: "local",
+      initialValue: currentConfig.stateMode,
     });
 
     if (p.isCancel(mode)) {
@@ -59,6 +59,7 @@ export const stateModeStep: WizardStep = {
       const stateRepo = await p.text({
         message: "Which GitHub repo should store your state? (owner/repo)",
         placeholder: "your-username/launchpad-state",
+        defaultValue: currentConfig.stateRepo,
         validate: (val) => {
           if (!val || !val.includes("/")) {
             return "Please enter a valid owner/repo (e.g. your-username/launchpad-state)";
@@ -106,7 +107,7 @@ export const copilotPrefStep: WizardStep = {
   id: "copilot-pref",
   title: "Copilot Session Preference",
 
-  async prompt() {
+  async prompt(currentConfig: LaunchpadConfig) {
     p.note(
       [
         "When you create a new Copilot session from the dashboard,",
@@ -131,7 +132,7 @@ export const copilotPrefStep: WizardStep = {
         { value: "sdk", label: "SDK Mode", hint: "structured conversations, tool use, plan mode, session introspection" },
         { value: "cli", label: "CLI Mode", hint: "standalone terminal, classic copilot experience" },
       ],
-      initialValue: "sdk",
+      initialValue: currentConfig.copilot.defaultSessionType,
     });
 
     return { sessionType };
@@ -162,7 +163,7 @@ export const modelStep: WizardStep = {
   id: "model",
   title: "Default AI Model",
 
-  async prompt() {
+  async prompt(currentConfig: LaunchpadConfig) {
     p.note(
       [
         "Which AI model should SDK sessions use by default?",
@@ -179,7 +180,7 @@ export const modelStep: WizardStep = {
         label: m.label,
         hint: m.hint,
       })),
-      initialValue: "claude-opus-4.6",
+      initialValue: currentConfig.copilot.defaultModel as typeof AVAILABLE_MODELS[number]["value"],
     });
 
     return { model };
@@ -286,7 +287,7 @@ export function createDevtunnelStep(ops?: DevtunnelOps): WizardStep {
     id: "devtunnel",
     title: "Dev Tunnel Configuration",
 
-    async prompt() {
+    async prompt(currentConfig: LaunchpadConfig) {
       p.note(
         [
           "DevTunnels let you access your HQ dashboard from your phone or any",
@@ -304,7 +305,7 @@ export function createDevtunnelStep(ops?: DevtunnelOps): WizardStep {
           { value: "on-demand", label: "On-demand", hint: "start tunnels manually when you need them" },
           { value: "always", label: "Always", hint: "auto-start a tunnel every time HQ launches" },
         ],
-        initialValue: "on-demand",
+        initialValue: currentConfig.tunnel.mode,
       });
 
       if (p.isCancel(mode)) {

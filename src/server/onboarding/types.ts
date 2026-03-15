@@ -17,8 +17,8 @@ export interface WizardStep {
   id: string;
   /** Human-readable title shown in the wizard */
   title: string;
-  /** Run the interactive prompt and return the collected value */
-  prompt(): Promise<Record<string, unknown>>;
+  /** Run the interactive prompt and return the collected value. Receives current config for pre-filling. */
+  prompt(currentConfig: LaunchpadConfig): Promise<Record<string, unknown>>;
   /** Validate collected values. Return null if valid, or an error message. */
   validate(values: Record<string, unknown>): string | null;
   /** Apply collected values to the config object */
