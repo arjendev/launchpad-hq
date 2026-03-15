@@ -1,6 +1,15 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Preview proxy", () => {
+  test("renders the app instead of TanStack Router's Not Found page", async ({
+    page,
+  }) => {
+    await page.goto("/preview/arjendev%2Flaunchpad-hq/");
+
+    await expect(page.getByText("🚀 launchpad-hq")).toBeVisible();
+    await expect(page.getByText("Not Found")).toHaveCount(0);
+  });
+
   test("proxies to Fastify instead of serving SPA index.html", async ({
     request,
   }) => {

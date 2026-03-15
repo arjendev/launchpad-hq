@@ -8,6 +8,13 @@ import { DashboardLayout } from "./layouts/DashboardLayout";
 import { SettingsPage } from "./pages/SettingsPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 
+export function detectRouterBasepath(pathname: string): string | undefined {
+  const match = pathname.match(/^\/preview\/([^/]+)(?:\/|$)/);
+  if (!match) return undefined;
+
+  return `/preview/${match[1]}`;
+}
+
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
 });
@@ -32,7 +39,15 @@ const onboardingRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([indexRoute, settingsRoute, onboardingRoute]);
 
-export const router = createRouter({ routeTree });
+const basepath =
+  typeof window === "undefined"
+    ? undefined
+    : detectRouterBasepath(window.location.pathname);
+
+export const router = createRouter({
+  routeTree,
+  ...(basepath ? { basepath } : {}),
+});
 
 declare module "@tanstack/react-router" {
   interface Register {
