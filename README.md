@@ -4,7 +4,7 @@
 
 Track all your projects, every Copilot session, every tool call — from one dashboard.
 
-Today it's about productivity and visibility. Tomorrow, every agent gets your context, your tools, your MCP servers — automatically, but you are in control.
+Today it's visibility and productivity. Soon, it's your Context Hub — where tools, skills, and context follow every agent, everywhere.
 
 <!-- TODO: add screenshot -->
 
@@ -50,10 +50,10 @@ Browser ←ws→ HQ Server ←ws→ Daemon(s)
 
 ## Roadmap / Vision
 
-We're building toward a future where HQ doesn't just observe your AI fleet — it orchestrates it.
+We're building toward a future where HQ doesn't just observe your AI fleet — it becomes your **Context Hub**.
 
-- 🔌 **MCP server injection** — Configure tools in HQ, every agent gets them automatically ([#59](https://github.com/arjendev/launchpad-hq/issues/59))
-- 📊 **Token usage & observability** — Know where your AI spend goes ([#60](https://github.com/arjendev/launchpad-hq/issues/60))
+- 🧠 **Context Hub** — MCP servers, custom instructions, shared skills — configured once in HQ, deployed to every agent automatically ([#59](https://github.com/arjendev/launchpad-hq/issues/59))
+- 📊 **Token usage & observability** — Know where your AI spend goes across all projects ([#60](https://github.com/arjendev/launchpad-hq/issues/60))
 
 For the full vision, see [VISION.md](./VISION.md).
 

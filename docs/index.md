@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Launchpad HQ
   text: HQ for your AI-powered dev fleet.
-  tagline: "Track all your projects, every Copilot session, every tool call — from one dashboard.\n\nToday it's about productivity and visibility. Tomorrow, every agent gets your context, your tools, your MCP servers — automatically, but you are in control."
+  tagline: "Track all your projects, every Copilot session, every tool call — from one dashboard.\n\nToday it's visibility and productivity. Soon, it's your Context Hub — where tools, skills, and context follow every agent, everywhere."
   actions:
     - theme: brand
       text: Get Started
@@ -42,9 +42,11 @@ features:
 
 <div class="vp-doc" style="padding: 0 24px;">
 
-🔌 **MCP Server Injection** — Configure tools in HQ, every agent across every project gets them automatically. One config, fleet-wide tooling.
+Soon, Launchpad becomes your **Context Hub** — define skills, connect MCP servers, share context across projects. Every Copilot session starts smarter because your tools and knowledge follow you everywhere.
 
-📊 **Token Usage & Observability** — Know where your AI spend goes. Track token usage per session, per project, per model.
+🧠 **Context Hub** — MCP servers, custom instructions, shared skills — configured once in HQ, deployed to every agent automatically.
+
+📊 **Token Usage & Observability** — Know where your AI spend goes across all projects.
 
 </div>
 
