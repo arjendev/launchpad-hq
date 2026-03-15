@@ -102,7 +102,9 @@ async function selfDaemonPlugin(
   }
 
   // ── Lifecycle ────────────────────────────────────────
-  fastify.addHook("onReady", async () => {
+  // Use the 'onListen' hook (not 'onReady') so the socket is already
+  // bound and fastify.server.address() returns the actual port.
+  fastify.addHook("onListen", async () => {
     if (!enabled) return;
 
     const address = fastify.server.address();
