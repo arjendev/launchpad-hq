@@ -9,9 +9,12 @@ const TIMEOUT_MS = 5_000;
 
 function run(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: TIMEOUT_MS }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout);
+    execFile(cmd, args, { timeout: TIMEOUT_MS }, (err, stdout, stderr) => {
+      if (err) {
+        // Attach stderr to the error so callers can inspect it
+        (err as NodeJS.ErrnoException & { stderr?: string }).stderr = stderr;
+        reject(err);
+      } else resolve(stdout);
     });
   });
 }
@@ -55,8 +58,9 @@ export async function ensureGhAuthenticated(): Promise<void> {
       }
       process.env.GH_TOKEN = token;
     } catch (err) {
-      const msg = String((err as Error).message ?? err);
-      if (msg.includes("unknown command")) {
+      const e = err as NodeJS.ErrnoException & { stderr?: string };
+      const output = `${e.message ?? ""} ${e.stderr ?? ""}`;
+      if (output.includes("unknown command")) {
         console.error(
           '❌ Your GitHub CLI is too old (missing "gh auth token").\n   Please upgrade: https://github.com/cli/cli#installation',
         );
