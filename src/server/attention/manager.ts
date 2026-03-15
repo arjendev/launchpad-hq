@@ -31,7 +31,7 @@ export class AttentionManager {
 
   /** Wire up dependencies after construction (avoids circular plugin deps). */
   init(deps: {
-    graphql: GitHubGraphQL;
+    graphql: GitHubGraphQL | null;
     stateService: StateService;
     broadcast: (items: AttentionItem[]) => void;
   }): void {

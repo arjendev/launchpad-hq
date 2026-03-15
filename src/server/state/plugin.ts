@@ -36,6 +36,12 @@ async function buildStateService(
 ): Promise<StateService> {
   if (lpConfig.stateMode === "git") {
     const { githubToken, githubUser } = fastify;
+
+    if (!githubToken || !githubUser) {
+      fastify.log.warn("Git state mode requested but GitHub auth unavailable — falling back to local mode");
+      return buildLocalStateService(fastify);
+    }
+
     const { owner, repo } = resolveStateRepoTarget(
       githubUser.login,
       lpConfig.stateRepo,
@@ -60,7 +66,12 @@ async function buildStateService(
     return gitManager;
   }
 
-  // Local mode — filesystem only, no GitHub dependency for state
+  return buildLocalStateService(fastify);
+}
+
+async function buildLocalStateService(
+  fastify: FastifyInstance,
+): Promise<StateService> {
   const localManager = new LocalStateManager();
 
   try {

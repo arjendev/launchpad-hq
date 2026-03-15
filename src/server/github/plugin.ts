@@ -9,38 +9,39 @@ import type { AuthStatus, GitHubUser } from "./types.js";
 
 declare module "fastify" {
   interface FastifyInstance {
-    githubToken: string;
-    githubUser: GitHubUser;
+    githubToken: string | null;
+    githubUser: GitHubUser | null;
   }
 }
 
 async function githubAuthPlugin(fastify: FastifyInstance) {
-  // Run auth check at startup
-  let token: string;
+  // Run auth check at startup — non-fatal so the server can start without GitHub
+  let token: string | null = null;
+  let user: GitHubUser | null = null;
+
   try {
     token = await getGitHubToken();
+    user = getCachedUser();
   } catch (err) {
     if (err instanceof GitHubAuthError) {
-      fastify.log.error(`GitHub Auth: ${err.message}`);
+      fastify.log.warn(`GitHub Auth: ${err.message} — GitHub features will be disabled`);
+    } else {
+      fastify.log.warn({ err }, "Unexpected error during GitHub auth — GitHub features will be disabled");
     }
-    throw err;
-  }
-
-  const user = getCachedUser();
-  if (!user) {
-    throw new Error("GitHub auth succeeded but user info is missing");
   }
 
   // Decorate the server instance so other plugins can access these
   fastify.decorate("githubToken", token);
   fastify.decorate("githubUser", user);
 
-  fastify.log.info(`Authenticated as GitHub user: ${user.login}`);
+  if (user) {
+    fastify.log.info(`Authenticated as GitHub user: ${user.login}`);
+  }
 
   // Auth status endpoint
   fastify.get("/api/auth/status", async (): Promise<AuthStatus> => {
     return {
-      authenticated: true,
+      authenticated: token !== null && user !== null,
       user: getCachedUser(),
     };
   });

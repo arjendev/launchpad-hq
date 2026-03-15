@@ -11,7 +11,6 @@ import projectRoutes from "./routes/projects.js";
 import githubDataRoutes from "./routes/github-data.js";
 import githubAuth from "./github/plugin.js";
 import githubGraphQLPlugin from "./github/graphql-plugin.js";
-import { GitHubAuthError } from "./github/auth.js";
 import { TunnelError, tunnelErrorGuidance } from "./tunnel.js";
 import statePlugin from "./state/plugin.js";
 import cachePlugin from "./cache/plugin.js";
@@ -147,10 +146,6 @@ async function start() {
       );
     }
   } catch (err) {
-    if (err instanceof GitHubAuthError) {
-      console.error(`\n❌ ${err.message}\n`);
-      process.exit(1);
-    }
     server.log.error(err);
     process.exit(1);
   }

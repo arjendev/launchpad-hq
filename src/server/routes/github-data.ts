@@ -170,10 +170,23 @@ function deriveDaemonStatus(
 // ── Route plugin ────────────────────────────────────────
 
 const githubDataRoutes: FastifyPluginAsync = async (fastify) => {
+  // Guard: return 503 for all GitHub data routes when auth is unavailable
+  function requireGraphQL(reply: FastifyReply): boolean {
+    if (!fastify.githubGraphQL) {
+      reply.status(503).send({
+        error: "github_unavailable",
+        message: "GitHub authentication is not available. Run: gh auth login",
+      });
+      return false;
+    }
+    return true;
+  }
+
   // GET /api/projects/:owner/:repo/issues
   fastify.get<{ Params: ProjectParams; Querystring: IssuesQuery }>(
     "/api/projects/:owner/:repo/issues",
     async (request, reply) => {
+      if (!requireGraphQL(reply)) return;
       const { owner, repo } = request.params;
 
       if (!isValidOwnerRepo(owner) || !isValidOwnerRepo(repo)) {
@@ -198,7 +211,7 @@ const githubDataRoutes: FastifyPluginAsync = async (fastify) => {
 
       try {
         const result: PaginatedResult<GitHubIssue> =
-          await fastify.githubGraphQL.listIssues(owner, repo, {
+          await fastify.githubGraphQL!.listIssues(owner, repo, {
             first,
             after,
             states,
@@ -238,6 +251,7 @@ const githubDataRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: ProjectParams; Querystring: PullsQuery }>(
     "/api/projects/:owner/:repo/pulls",
     async (request, reply) => {
+      if (!requireGraphQL(reply)) return;
       const { owner, repo } = request.params;
 
       if (!isValidOwnerRepo(owner) || !isValidOwnerRepo(repo)) {
@@ -262,7 +276,7 @@ const githubDataRoutes: FastifyPluginAsync = async (fastify) => {
 
       try {
         const result: PaginatedResult<GitHubPullRequest> =
-          await fastify.githubGraphQL.listPullRequests(owner, repo, {
+          await fastify.githubGraphQL!.listPullRequests(owner, repo, {
             first,
             after,
             states,
@@ -284,6 +298,7 @@ const githubDataRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: ProjectParams }>(
     "/api/projects/:owner/:repo/overview",
     async (request, reply) => {
+      if (!requireGraphQL(reply)) return;
       const { owner, repo } = request.params;
 
       if (!isValidOwnerRepo(owner) || !isValidOwnerRepo(repo)) {
@@ -305,12 +320,12 @@ const githubDataRoutes: FastifyPluginAsync = async (fastify) => {
         // Fetch metadata, open issues, closed issues, and PRs in parallel
         const [metadata, openIssues, closedIssues, openPrs, closedPrs, mergedPrs] =
           await Promise.all([
-            fastify.githubGraphQL.fetchRepoMetadata(owner, repo),
-            fastify.githubGraphQL.listIssues(owner, repo, { first: 5, states: ["OPEN"] }),
-            fastify.githubGraphQL.listIssues(owner, repo, { first: 1, states: ["CLOSED"] }),
-            fastify.githubGraphQL.listPullRequests(owner, repo, { first: 5, states: ["OPEN"] }),
-            fastify.githubGraphQL.listPullRequests(owner, repo, { first: 1, states: ["CLOSED"] }),
-            fastify.githubGraphQL.listPullRequests(owner, repo, { first: 1, states: ["MERGED"] }),
+            fastify.githubGraphQL!.fetchRepoMetadata(owner, repo),
+            fastify.githubGraphQL!.listIssues(owner, repo, { first: 5, states: ["OPEN"] }),
+            fastify.githubGraphQL!.listIssues(owner, repo, { first: 1, states: ["CLOSED"] }),
+            fastify.githubGraphQL!.listPullRequests(owner, repo, { first: 5, states: ["OPEN"] }),
+            fastify.githubGraphQL!.listPullRequests(owner, repo, { first: 1, states: ["CLOSED"] }),
+            fastify.githubGraphQL!.listPullRequests(owner, repo, { first: 1, states: ["MERGED"] }),
           ]);
 
         const response: ProjectOverview = {
@@ -338,6 +353,7 @@ const githubDataRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /api/dashboard
   fastify.get("/api/dashboard", async (_request, reply) => {
+    if (!requireGraphQL(reply)) return;
     const config = await fastify.stateService.getConfig();
     const projects = config.projects;
 
@@ -355,7 +371,7 @@ const githubDataRoutes: FastifyPluginAsync = async (fastify) => {
       // Fetch metadata for all tracked projects in parallel
       const metadataResults = await Promise.allSettled(
         projects.map((p) =>
-          fastify.githubGraphQL.fetchRepoMetadata(p.owner, p.repo),
+          fastify.githubGraphQL!.fetchRepoMetadata(p.owner, p.repo),
         ),
       );
 

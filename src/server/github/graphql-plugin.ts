@@ -8,7 +8,7 @@ import { GitHubGraphQL } from "./graphql.js";
 
 declare module "fastify" {
   interface FastifyInstance {
-    githubGraphQL: GitHubGraphQL;
+    githubGraphQL: GitHubGraphQL | null;
   }
 }
 
@@ -18,6 +18,12 @@ async function githubGraphQLPlugin(fastify: FastifyInstance) {
     throw new Error(
       "github-graphql plugin requires github-auth to be registered first",
     );
+  }
+
+  if (!fastify.githubToken) {
+    fastify.decorate("githubGraphQL", null);
+    fastify.log.warn("GitHub GraphQL client not initialised — no GitHub token available");
+    return;
   }
 
   const client = new GitHubGraphQL(fastify.githubToken);

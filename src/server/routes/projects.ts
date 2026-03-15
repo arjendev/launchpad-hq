@@ -222,6 +222,12 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     // Validate repo exists on GitHub
+    if (!fastify.githubToken) {
+      return reply.status(503).send({
+        error: "github_unavailable",
+        message: "GitHub authentication is not available. Run: gh auth login",
+      });
+    }
     const repoExists = await repoExistsOnGitHub(fastify.githubToken, owner, repo);
     if (!repoExists) {
       return reply.status(404).send({
@@ -406,6 +412,13 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /api/discover/repos — list/search repos (optionally filtered by owner and search term)
   fastify.get("/api/discover/repos", async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!fastify.githubToken) {
+      return reply.status(503).send({
+        error: "github_unavailable",
+        message: "GitHub authentication is not available. Run: gh auth login",
+      });
+    }
+
     const query = request.query as DiscoverReposQuery;
     const page = Math.max(1, Number(query.page) || 1);
     const perPage = Math.min(10, Math.max(1, Number(query.per_page) || 10));
@@ -493,6 +506,13 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /api/discover/users — search GitHub users and organizations
   fastify.get("/api/discover/users", async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!fastify.githubToken) {
+      return reply.status(503).send({
+        error: "github_unavailable",
+        message: "GitHub authentication is not available. Run: gh auth login",
+      });
+    }
+
     const query = request.query as DiscoverUsersQuery;
     const searchTerm = typeof query.q === "string" ? query.q.trim() : "";
 
