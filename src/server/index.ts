@@ -121,7 +121,7 @@ async function start() {
 
     // Auto-start tunnel if --tunnel flag was passed (non-blocking)
     if (config.tunnel) {
-      server.tunnelManager.start(config.port).then(
+      server.tunnelManager.start(config.tunnelPort).then(
         (info) => {
           console.log(`🔗 Dev tunnel active: ${info.url}`);
           const shareUrl = server.tunnelManager.getShareUrl();

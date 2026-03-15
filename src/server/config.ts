@@ -10,14 +10,17 @@ export interface ServerConfig {
   clientDistPath: string;
   corsOrigin: string;
   tunnel: boolean;
+  /** Port the tunnel should expose — Vite (5173) in dev, Fastify in prod. */
+  tunnelPort: number;
 }
 
 export function loadConfig(): ServerConfig {
   const isDev = process.env.NODE_ENV !== "production";
   const args = process.argv.slice(2);
+  const port = Number(process.env.PORT) || 3000;
 
   return {
-    port: Number(process.env.PORT) || 3000,
+    port,
     host: process.env.HOST || "0.0.0.0",
     isDev,
     // In dev: dist/client relative to repo root; in prod: relative to compiled server location
@@ -26,5 +29,9 @@ export function loadConfig(): ServerConfig {
       : resolve(__dirname, "..", "client"),
     corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",
     tunnel: args.includes("--tunnel"),
+    // In dev Vite serves the full app on 5173; in prod Fastify serves everything.
+    tunnelPort: isDev
+      ? Number(process.env.VITE_PORT) || 5173
+      : port,
   };
 }

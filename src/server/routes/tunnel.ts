@@ -7,6 +7,7 @@ import fp from "fastify-plugin";
 import QRCode from "qrcode";
 import { getTunnelManager, TunnelManager, tunnelErrorGuidance } from "../tunnel.js";
 import type { TunnelState, TunnelError } from "../tunnel.js";
+import { loadConfig } from "../config.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -78,7 +79,7 @@ async function tunnelPlugin(fastify: FastifyInstance) {
     }
 
     const body = request.body as { port?: number } | undefined;
-    const resolvedPort = body?.port ?? 5173;
+    const resolvedPort = body?.port ?? loadConfig().tunnelPort;
 
     try {
       await manager.start(resolvedPort);

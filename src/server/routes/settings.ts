@@ -5,6 +5,7 @@ import {
   saveLaunchpadConfig,
 } from "../state/launchpad-config.js";
 import { getGitHubToken } from "../github/auth.js";
+import { loadConfig } from "../config.js";
 
 const settingsRoutes: FastifyPluginAsync = async (fastify) => {
   /** Return the current launchpad settings. */
@@ -123,8 +124,8 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       if (tunnelModeChanged && fastify.tunnelManager) {
         if (updated.tunnel.mode === "always") {
           try {
-            const port = Number(process.env.PORT) || 3000;
-            await fastify.tunnelManager.start(port);
+            const { tunnelPort } = loadConfig();
+            await fastify.tunnelManager.start(tunnelPort);
             updated.tunnel.configured = true;
             await saveLaunchpadConfig(updated);
           } catch (err) {
