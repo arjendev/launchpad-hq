@@ -294,3 +294,170 @@ All SDK session events should be rendered in the conversation view. Streaming as
 - Resume session: new UI flow with modal showing existing sessions (startedAt, updatedAt, status, summary)
 - Full SDK control panel in UI: send, abort, end, setModel, mode get/set, plan read/update/delete, disconnect
 - Log all events received by UI for debugging
+
+## Issue #54 Decisions — Preview Feature
+
+### 2026-03-15: Preview UI architecture — hooks + modular components
+**Author:** Brand  
+**Date:** 2026-03-15  
+**Issue:** #54  
+**Status:** Implemented
+
+Separated preview hooks into a dedicated `src/client/services/preview-hooks.ts` file rather than adding to the already-large `hooks.ts` (1490 lines). This improves discoverability and keeps the preview feature cohesive.
+
+**Architecture choices:**
+1. **Dedicated hooks file** — `preview-hooks.ts` contains all preview-related hooks, mutations, and helpers
+2. **WebSocket invalidation pattern** — Invalidate TanStack Query caches on `preview:config` events; server as source of truth
+3. **PreviewButton as wrapper** — Button component owns modal lifecycle, keeping ProjectItem clean
+4. **PreviewPanel as standalone** — Can be placed anywhere in layout without coupling to ProjectList
+5. **URL helpers as pure functions** — `buildPreviewUrl()` and `formatDetectionSource()` are testable utilities
+
+**Consequences:** Preview feature is self-contained (one hooks file, three components, one test file). Adding new preview features only touches these files.
+
+### 2026-03-15: Preview Proxy — Server-Side Architecture (Option A)
+**Author:** Romilly  
+**Date:** 2026-03-15  
+**Issue:** #54  
+**Status:** Implemented
+
+Implemented single-tunnel path-based routing for preview. All preview traffic flows through HQ Fastify without per-project tunnels.
+
+**Key design choices:**
+1. **Request/response matching via Map + Promise** — Each proxy request gets a `randomUUID()` requestId with pending Map tracking. 30s timeout produces 504.
+2. **Base64 body encoding** — Request/response bodies base64-encoded for binary safety over WebSocket
+3. **Registry as source of truth** — `previewPort`, `previewAutoDetected`, `previewDetectedFrom` stored on `TrackedDaemon`
+4. **"preview" WS channel** — New browser WS channel for real-time preview config updates
+5. **Plugin dependency chain** — Preview plugin depends on `["websocket", "daemon-registry", "tunnel"]`
+
+**Consequences:** Preview URLs deterministic; all HTTP methods supported; no per-project tunnels; acceptable latency for dev preview.
+
+### 2026-03-15: Preview Proxy — Daemon Side (Option A)
+**Author:** TARS  
+**Date:** 2026-03-15  
+**Issue:** #54  
+**Status:** Implemented
+
+Daemon proxies HTTP requests and WebSocket frames over the existing daemon↔HQ WebSocket connection instead of spinning up per-project DevTunnels.
+
+**Key Design Choices:**
+1. **Base64 body encoding** — All HTTP bodies and WebSocket frames base64-encoded for binary safety
+2. **Error mapping** — ECONNREFUSED → 404, proxy errors → 502, timeouts → 504
+3. **3-tier port detection** — devcontainer.json → package.json heuristics → port scan; falls back gracefully
+4. **WS relay by channelId** — Each browser WebSocket gets unique channelId; daemon opens matching local WebSocket and bridges data. Enables HMR/live-reload through tunnel.
+5. **No new dependencies** — Uses Node.js built-in `http` and `net` modules only
+
+**Risks:** Base64 adds ~33% overhead (acceptable for dev previews); port scan may have false positives (explicit config preferred).
+
+## Issue #46 Decisions — Settings
+
+### 2026-03-15: Settings page architecture — separate full-page route
+**Author:** Brand  
+**Date:** 2026-03-15  
+**Issue:** #46  
+**Status:** Implemented
+
+The Settings page is a **standalone route** (`/settings`) with its own `AppShell` layout, not a modal or sidebar. Navigation via gear icon in header + back arrow on settings page.
+
+**Rationale:**
+- Settings needs scroll space for 4+ sections — modal would be cramped
+- Separate route makes it linkable/bookmarkable
+- Keeps DashboardLayout clean
+- Introduced `src/client/pages/` directory for full-page views
+
+**Impact:** New directory: `src/client/pages/` for future pages. `LaunchpadConfig` duplicated in client types (consider shared types package if drift occurs).
+
+## Onboarding & Configuration Decisions
+
+### 2026-03-14: Wizard step UI pattern and config defaults
+**Author:** Brand  
+**Date:** 2026-03-14  
+**Issue:** #41–#43  
+**Status:** Implemented
+
+Implementing onboarding wizard steps required decisions about prompt style and default values.
+
+**Decisions:**
+1. **Step prompt pattern: note() + select()** — Each step uses `p.note()` for context, then `p.select()` for action
+2. **Default config values updated:**
+   - `copilot.defaultSessionType`: `"cli"` → `"sdk"`
+   - `copilot.defaultModel`: `"claude-sonnet-4"` → `"claude-opus-4.6"`
+3. **AVAILABLE_MODELS as curated const array** — Hardcoded currently (6 models); can be replaced with SDK runtime discovery
+
+**Impact:** Config shape unchanged. Default values changed (may affect tests). DevTunnel step (#44) remains placeholder.
+
+### 2026-03-15: DevTunnel Wizard Step — Polling Auth Instead of Spawning Login
+**Author:** TARS  
+**Date:** 2026-03-15  
+**Issue:** #44  
+**Status:** Implemented
+
+DevTunnel wizard step does NOT spawn `devtunnel user login`. Instead, instructs user to run in another terminal and polls `devtunnel user show` every 3s for up to 2 minutes.
+
+**Why:**
+1. **@clack/prompts conflict** — Wizard UI controls stdin/stdout; spawning interactive child would conflict
+2. **Devcontainer compatibility** — `devtunnel user login` may try to launch browser; user's terminal gives full control
+3. **Simplicity** — Polling is straightforward, testable, no child process lifecycle management
+
+**Trade-offs:** User must open second terminal (friction); 2-minute timeout may not cover slow auth (falls back gracefully).
+
+### 2026-03-15: LaunchpadConfig routed through state repo in git mode
+**Author:** Romilly  
+**Date:** 2026-03-15  
+**Issue:** #51  
+**Status:** Implemented
+
+When `stateMode === "git"`, ALL configuration (including LaunchpadConfig) goes to state repo as `launchpad-config.json`. Only bootstrap config (`~/.launchpad/config.json`) stays local, containing just `{ version, stateMode, stateRepo }`.
+
+**Key Design Choices:**
+1. **Bootstrap fields from local only** — Can't bootstrap from git without knowing where git is
+2. **StateService interface extended** — `getLaunchpadConfig()` / `saveLaunchpadConfig()` added
+3. **Plugin resolves full config at boot** — `fastify.launchpadConfig` is authoritative at runtime
+4. **Dual-write on PUT in git mode** — Full config → state repo, bootstrap-only → local file
+5. **Migration includes LaunchpadConfig** — Switching local→git captures and migrates alongside other configs
+
+**Impact:** State repo in git mode will contain `launchpad-config.json` alongside `config.json`, `preferences.json`, `enrichment.json`.
+
+## Issue #51 Decisions — Project Onboarding
+
+### 2026-03-15: Project Onboarding Backend API Surface (#51)
+**Author:** Cooper  
+**Date:** 2026-03-15  
+**Issue:** #51  
+**Status:** Implemented
+
+Issue #51 redesigns Add Project flow into multi-step wizard with new backend search endpoints.
+
+**Decisions:**
+1. **GitHub Search API for discovery:**
+   - `GET /api/discover/users?q=` uses `GET /search/users`
+   - `GET /api/discover/repos?owner=&q=` uses `GET /search/repositories` (filtered) or `GET /user/repos` (unfiltered)
+   - Both use `fastify.githubToken`
+   - Rate limit: 30 req/min; UI should debounce
+2. **runtimeTarget made optional** — `POST /api/projects` no longer requires it; defaults to `"local"` if omitted
+3. **Daemon CLI args as highest-priority config** — `--hq-url`, `--token`, `--project-id` parsed before startup
+   - Supports `--flag value` and `--flag=value` syntax
+   - Priority: CLI args → env vars → `.launchpad/daemon.json` → defaults
+   - Enables: `npx launchpad-hq --daemon --hq-url ws://... --token <TOKEN> --project-id owner/repo`
+
+## Infrastructure & Monitoring
+
+### 2026-03-15: Notification Architecture Brainstorm (Design Phase)
+**Author:** Cooper  
+**Date:** 2026-03-15  
+**Status:** Design brainstorm — not yet approved
+
+**Problem:** When a Copilot agent completes work, hits a blocker, or needs human judgment, the user needs to know — wherever they are.
+
+**What's Already Built:**
+- Agent-side: Three HQ tools in `src/daemon/copilot/hq-tools.ts` (`report_progress`, `request_human_review`, `report_blocker`)
+- Server-side: Inbox system (messages + REST API) + Attention system (rule engine)
+- Client-side: InboxPanel, unread badge on project list
+
+**Five Approaches Identified:**
+1. **Agent-Tool Driven (Explicit)** — Agents call `request_human_review` or `report_blocker` (already implemented)
+2. **Session-State Driven (Implicit)** — Detect idle sessions with `evaluateSessionIdle()` stub
+3. **Hybrid Approach (Recommended Foundation)** — Layer: explicit tools + SDK waiting state + idle detection + escalation
+4. **Push Notifications (Browser)** — Notification API + optional service worker
+5. **External Notification Webhook** — POST to ntfy.sh, Pushover, Slack, etc.
+
+**Recommendation:** Start with hybrid approach (layer 3). For push, use browser Notifications API (4a) + optional webhook (5c). Skip service worker (4b) — mobile browsers kill background connections.

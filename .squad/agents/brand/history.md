@@ -411,3 +411,11 @@ Replaced the three placeholder wizard steps with real @clack/prompts implementat
 - **Supporting changes:** Added `PreviewEntry`, `PreviewState`, `PreviewQrResponse` types to `types.ts`; added "preview" to Channel union in `ws-types.ts`.
 - **Tests:** 20 new tests (Preview.test.tsx) covering PreviewButton states, PreviewModal rendering, PreviewPanel display, and helper functions. All 969 tests passing.
 - **Pattern:** Followed existing REST + WebSocket merge pattern from Phase 2 (fetch initial data via TanStack Query, invalidate on WebSocket updates). Used selective git add for parallel agent session.
+
+### 2026-03-15: Wave 1 — Issue #54 (Preview Feature) Complete
+- **Agent-37 (TARS)**: Protocol types, PreviewProxyHandler, port detection (22 tests) ✅ Merged to main
+- **Agent-38 (Romilly)**: HQ preview routes, QR generation, tunnel info (15 tests) ✅ Merged to main
+- **Agent-39 (Brand)**: Preview UI hooks, PreviewButton/Modal/Panel components (20 tests) ✅ Merged to main
+- **Total tests**: 908 baseline → 969 final (+61: 22 + 15 + 20 + 4 coordination tests)
+- **Build & typecheck**: Clean, no regressions
+- **Decision**: Dedicated hooks file keeps preview feature self-contained; WebSocket invalidation reuses server as source of truth; modular component design enables easy future expansion

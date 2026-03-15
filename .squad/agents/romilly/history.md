@@ -330,3 +330,11 @@ Dependencies: #40 is P0 blocker for wizard steps #41–#44 owned by Brand/TARS. 
 
 **Tests:** 969 passing (15 new). Typecheck + build clean.
 **Commit:** 4b5bdd1
+
+### 2026-03-15: Wave 1 — Issue #54 (Preview Feature) Complete
+- **Agent-37 (TARS)**: Protocol types, PreviewProxyHandler, port detection (22 tests) ✅ Merged to main
+- **Agent-38 (Romilly)**: HQ preview routes, QR generation, tunnel info (15 tests) ✅ Merged to main
+- **Agent-39 (Brand)**: Preview UI hooks, PreviewButton/Modal/Panel components (20 tests) ✅ Merged to main
+- **Total tests**: 908 baseline → 969 final (+61: 22 + 15 + 20 + 4 coordination tests)
+- **Build & typecheck**: Clean, no regressions
+- **Decision**: Single HQ tunnel with path-based routing (Option A); Map-based request matching with 30s timeout; base64 encoding for binary safety over WebSocket

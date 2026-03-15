@@ -289,3 +289,11 @@ Cooper groomed onboarding wizard epic and created 7 GitHub issues assigned acros
 - **Port auto-detection**: 3-tier: devcontainer.json `forwardPorts` → package.json script heuristics (explicit `--port`, framework defaults like vite→5173, next→3000) → port scan on common ports. Periodic re-detection (30s) if dev server not yet running.
 - **Config extension**: `previewPort` added to DaemonConfig, loaded via overrides → `LAUNCHPAD_PREVIEW_PORT` env → config file `preview.port`.
 - **Testing**: 22 new tests (10 proxy handler, 12 port detection). All 969 tests pass.
+
+### 2026-03-15: Wave 1 — Issue #54 (Preview Feature) Complete
+- **Agent-37 (TARS)**: Protocol types, PreviewProxyHandler, port detection (22 tests) ✅ Merged to main
+- **Agent-38 (Romilly)**: HQ preview routes, QR generation, tunnel info (15 tests) ✅ Merged to main
+- **Agent-39 (Brand)**: Preview UI hooks, PreviewButton/Modal/Panel components (20 tests) ✅ Merged to main
+- **Total tests**: 908 baseline → 969 final (+61: 22 + 15 + 20 + 4 coordination tests)
+- **Build & typecheck**: Clean, no regressions
+- **Decisions merged** to `.squad/decisions.md`: Brand UI architecture, Romilly server-side design, TARS daemon-side proxy chain
