@@ -104,6 +104,41 @@ export interface ProjectInbox {
   messages: InboxMessage[];
 }
 
+/**
+ * Top-level launchpad configuration stored in ~/.launchpad/config.json.
+ * Separate from ProjectConfig (which lives in the state repo).
+ */
+export interface LaunchpadConfig {
+  version: 1;
+  /** How launchpad persists state: "local" (filesystem only) or "git" (GitHub repo). */
+  stateMode: "local" | "git";
+  copilot: {
+    defaultSessionType: "sdk" | "cli";
+    defaultModel: string;
+  };
+  tunnel: {
+    mode: "always" | "on-demand";
+    configured: boolean;
+  };
+  onboardingComplete: boolean;
+}
+
+export function defaultLaunchpadConfig(): LaunchpadConfig {
+  return {
+    version: 1,
+    stateMode: "local",
+    copilot: {
+      defaultSessionType: "cli",
+      defaultModel: "claude-sonnet-4",
+    },
+    tunnel: {
+      mode: "on-demand",
+      configured: false,
+    },
+    onboardingComplete: false,
+  };
+}
+
 // ---- defaults ---------------------------------------------------------------
 
 export function defaultProjectConfig(): ProjectConfig {

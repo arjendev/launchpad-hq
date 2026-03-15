@@ -66,7 +66,12 @@ if (isDaemon && isWatch) {
     process.exit(1);
   }
 } else {
-  // HQ mode — import the existing server entry point
+  // HQ mode — check first-launch onboarding before server boot
+  const { configExists, runOnboardingWizard } = await import('./server/onboarding/index.js');
+  if (!configExists()) {
+    await runOnboardingWizard();
+  }
+
   await import('./server/index.js');
 }
 
