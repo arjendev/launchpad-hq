@@ -151,8 +151,23 @@ async function start() {
   }
 }
 
+let shuttingDown = false;
+
 function shutdown(signal: string) {
+  if (shuttingDown) {
+    console.log("\n💀 Force exit.");
+    process.exit(1);
+  }
+  shuttingDown = true;
   console.log(`\n⏏ ${signal} received — shutting down…`);
+
+  // Force exit after 5s if graceful shutdown hangs
+  const forceTimer = setTimeout(() => {
+    console.error("⚠ Shutdown timed out — forcing exit.");
+    process.exit(1);
+  }, 5_000);
+  forceTimer.unref();
+
   server.close().then(
     () => {
       console.log("👋 Server closed cleanly.");
