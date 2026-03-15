@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AppShell,
   Group,
@@ -34,8 +34,9 @@ import {
   useValidateRepo,
   useTunnelStatus,
 } from "../services/hooks.js";
-import type { LaunchpadConfig } from "../services/types.js";
+import type { LaunchpadConfig, TunnelState } from "../services/types.js";
 import { ThemeToggle } from "../components/ThemeToggle.js";
+import { useSubscription } from "../contexts/WebSocketContext.js";
 
 const AVAILABLE_MODELS = [
   { value: "claude-opus-4.6", label: "Claude Opus 4.6 — best for complex tasks" },
@@ -54,6 +55,7 @@ export function OnboardingPage() {
   const { data: modelsData } = useListModels();
   const validateRepo = useValidateRepo();
   const { data: tunnel } = useTunnelStatus();
+  const { data: wsTunnelStatus } = useSubscription<TunnelState>("tunnel");
 
   const [active, setActive] = useState(0);
 
@@ -66,6 +68,12 @@ export function OnboardingPage() {
   const [tunnelMode, setTunnelMode] = useState<string>("on-demand");
   const [tunnelBootstrapping, setTunnelBootstrapping] = useState(false);
   const [tunnelResult, setTunnelResult] = useState<{ url?: string; error?: string } | null>(null);
+
+  const liveTunnel = wsTunnelStatus ?? tunnel ?? null;
+  const sessionTypeValue = useMemo(
+    () => (sessionType === "cli" ? "cli" : "sdk"),
+    [sessionType],
+  );
 
   // Sync from server on load
   useEffect(() => {
@@ -81,6 +89,27 @@ export function OnboardingPage() {
       setTunnelMode(settings.tunnel.mode);
     }
   }, [settings]);
+
+  useEffect(() => {
+    if (tunnelMode !== "always") return;
+
+    if (liveTunnel?.status === "running" && liveTunnel.info?.url) {
+      const runningUrl = liveTunnel.info.url;
+      setTunnelBootstrapping(false);
+      setTunnelResult((current) =>
+        current?.url === runningUrl ? current : { url: runningUrl },
+      );
+      return;
+    }
+
+    if (liveTunnel?.status === "error" && liveTunnel.error) {
+      const tunnelError = liveTunnel.error;
+      setTunnelBootstrapping(false);
+      setTunnelResult((current) =>
+        current?.error === tunnelError ? current : { error: tunnelError },
+      );
+    }
+  }, [liveTunnel, tunnelMode]);
 
   const modelOptions = modelsData?.models?.length
     ? modelsData.models.map((m) => ({ value: m.id, label: m.name || m.id }))
@@ -108,8 +137,8 @@ export function OnboardingPage() {
 
     if (value === "always") {
       // If tunnel is already running, show URL immediately without bootstrapping flash
-      if (tunnel?.status === "running" && tunnel.info?.url) {
-        setTunnelResult({ url: tunnel.info.url });
+      if (liveTunnel?.status === "running" && liveTunnel.info?.url) {
+        setTunnelResult({ url: liveTunnel.info.url });
         const patch: Partial<LaunchpadConfig> = {
           tunnel: {
             mode: "always",
@@ -280,7 +309,8 @@ export function OnboardingPage() {
                       You can always create either type of session later — this just sets the default.
                     </Text>
                     <SegmentedControl
-                      value={sessionType}
+                      key={`copilot-session-${settings?.copilot.defaultSessionType ?? sessionTypeValue}`}
+                      value={sessionTypeValue}
                       onChange={setSessionType}
                       data={[
                         { value: "sdk", label: "🧠 SDK Mode" },
@@ -355,9 +385,9 @@ export function OnboardingPage() {
                         Tunnel running! URL: <strong>{tunnelResult.url}</strong>
                       </Alert>
                     )}
-                    {!tunnelBootstrapping && !tunnelResult && tunnelMode === "always" && tunnel?.status === "running" && tunnel.info?.url && (
+                    {!tunnelBootstrapping && !tunnelResult && tunnelMode === "always" && liveTunnel?.status === "running" && liveTunnel.info?.url && (
                       <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
-                        Tunnel running! URL: <strong>{tunnel.info.url}</strong>
+                        Tunnel running! URL: <strong>{liveTunnel.info.url}</strong>
                       </Alert>
                     )}
                     {tunnelResult?.error && (

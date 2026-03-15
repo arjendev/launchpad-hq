@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   AppShell,
   Group,
@@ -85,7 +85,7 @@ export function SettingsPage() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
-  const { data: tunnel } = useTunnelStatus();
+  const { data: tunnel, isLoading: isTunnelLoading } = useTunnelStatus();
   const { data: modelsData } = useListModels();
   const validateRepo = useValidateRepo();
 
@@ -99,10 +99,34 @@ export function SettingsPage() {
   const [tunnelStopped, setTunnelStopped] = useState(false);
   const [tunnelBootstrapping, setTunnelBootstrapping] = useState(false);
   const [tunnelResult, setTunnelResult] = useState<{ url?: string; error?: string } | null>(null);
+  const lastTunnelResultKeyRef = useRef<string | null>(null);
 
   // Subscribe to real-time tunnel status updates via WebSocket
   const { data: wsTunnelStatus } = useSubscription<TunnelState>("tunnel");
   const liveTunnel = wsTunnelStatus ?? tunnel ?? null;
+  const runningTunnelUrl = liveTunnel?.status === "running" ? liveTunnel.info?.url ?? null : null;
+  const showTransientTunnelUrl =
+    Boolean(tunnelResult?.url) && tunnelResult?.url !== runningTunnelUrl;
+  const showTransientTunnelError =
+    Boolean(tunnelResult?.error) &&
+    !(liveTunnel?.status === "error" && liveTunnel.error === tunnelResult?.error);
+  const isCheckingTunnelStatus =
+    settings?.tunnel.mode === "always" && liveTunnel === null && isTunnelLoading;
+
+  function setTunnelOutcome(next: { url?: string; error?: string } | null) {
+    if (!next) {
+      setTunnelResult(null);
+      return;
+    }
+
+    const nextKey = next.url ? `running:${next.url}` : next.error ? `error:${next.error}` : null;
+    if (nextKey && lastTunnelResultKeyRef.current === nextKey) {
+      return;
+    }
+
+    lastTunnelResultKeyRef.current = nextKey;
+    setTunnelResult(next);
+  }
 
   useEffect(() => {
     if (settings) {
@@ -117,6 +141,23 @@ export function SettingsPage() {
       setTunnelMode(settings.tunnel.mode);
     }
   }, [settings]);
+
+  useEffect(() => {
+    if (liveTunnel?.status === "running" && liveTunnel.info?.url) {
+      setTunnelBootstrapping(false);
+      if (lastTunnelResultKeyRef.current === `running:${liveTunnel.info.url}`) {
+        setTunnelResult(null);
+      }
+      return;
+    }
+
+    if (liveTunnel?.status === "error" && liveTunnel.error) {
+      setTunnelBootstrapping(false);
+      if (lastTunnelResultKeyRef.current === `error:${liveTunnel.error}`) {
+        setTunnelResult(null);
+      }
+    }
+  }, [liveTunnel]);
 
   // Build model options — merge server-provided models with fallback list
   const modelOptions = modelsData?.models?.length
@@ -169,7 +210,7 @@ export function SettingsPage() {
     if (value === "always") {
       // If tunnel is already running, show URL immediately without bootstrapping flash
       if (liveTunnel?.status === "running" && liveTunnel.info?.url) {
-        setTunnelResult({ url: liveTunnel.info.url });
+        setTunnelOutcome({ url: liveTunnel.info.url });
         saveSetting({ tunnel: { mode: "always", configured: settings?.tunnel.configured ?? false } });
         return;
       }
@@ -189,14 +230,14 @@ export function SettingsPage() {
             | { status: string; info?: { url?: string } | null; error?: string | null }
             | undefined;
           if (tunnelStatus?.status === "running" && tunnelStatus.info?.url) {
-            setTunnelResult({ url: tunnelStatus.info.url });
+            setTunnelOutcome({ url: tunnelStatus.info.url });
           } else if (tunnelStatus?.error) {
-            setTunnelResult({ error: tunnelStatus.error });
+            setTunnelOutcome({ error: tunnelStatus.error });
           }
         },
         onError: (err) => {
           setTunnelBootstrapping(false);
-          setTunnelResult({ error: err.message });
+          setTunnelOutcome({ error: err.message });
         },
       });
     } else {
@@ -370,6 +411,8 @@ export function SettingsPage() {
                   <Badge color="yellow" variant="light" leftSection={<Loader size={10} />}>Starting…</Badge>
                 ) : liveTunnel?.status === "stopping" ? (
                   <Badge color="yellow" variant="light" leftSection={<Loader size={10} />}>Stopping…</Badge>
+                ) : isCheckingTunnelStatus ? (
+                  <Badge color="yellow" variant="light" leftSection={<Loader size={10} />}>Checking…</Badge>
                 ) : (
                   <Badge color="gray" variant="light" leftSection="⚪">Not configured</Badge>
                 )}
@@ -409,12 +452,12 @@ export function SettingsPage() {
                   Starting tunnel…
                 </Alert>
               )}
-              {tunnelResult?.url && (
+              {showTransientTunnelUrl && tunnelResult?.url && (
                 <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
                   Tunnel started! URL: <strong>{tunnelResult.url}</strong>
                 </Alert>
               )}
-              {tunnelResult?.error && (
+              {showTransientTunnelError && tunnelResult?.error && (
                 <Alert color="yellow" variant="light" icon={<IconX size={16} />}>
                   {tunnelResult.error.toLowerCase().includes("auth") ||
                    tunnelResult.error.toLowerCase().includes("login") ||

@@ -1,12 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import Fastify, { type FastifyInstance } from "fastify";
 import fp from "fastify-plugin";
-import statePlugin from "../plugin.js";
-import { LocalStateManager } from "../local-state-manager.js";
-import { GitStateManager } from "../state-manager.js";
 import type { LaunchpadConfig } from "../types.js";
 import { defaultLaunchpadConfig } from "../types.js";
 
@@ -15,6 +12,26 @@ let configPath: string;
 
 function writeConfig(config: LaunchpadConfig) {
   writeFileSync(configPath, JSON.stringify(config, null, 2));
+}
+
+async function importStatePlugin() {
+  vi.resetModules();
+  vi.doMock("../launchpad-config.js", () => ({
+    loadLaunchpadConfig: () =>
+      import("node:fs/promises")
+        .then((fs) => fs.readFile(configPath, "utf-8"))
+        .then((raw) => ({
+          ...defaultLaunchpadConfig(),
+          ...JSON.parse(raw),
+        })),
+    saveLaunchpadConfig: (config: LaunchpadConfig) =>
+      import("node:fs/promises").then((fs) =>
+        fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf-8"),
+      ),
+    LAUNCHPAD_CONFIG_PATH: configPath,
+  }));
+
+  return (await import("../plugin.js")).default;
 }
 
 /**
@@ -44,19 +61,7 @@ afterEach(() => {
 describe("statePlugin", () => {
   it("boots with local mode when config says local", async () => {
     writeConfig({ ...defaultLaunchpadConfig(), stateMode: "local" });
-
-    // Mock loadLaunchpadConfig to read from our tmp path
-    vi.doMock("../launchpad-config.js", () => ({
-      loadLaunchpadConfig: () =>
-        import("node:fs/promises").then((fs) =>
-          fs.readFile(configPath, "utf-8").then((raw) => ({
-            ...defaultLaunchpadConfig(),
-            ...JSON.parse(raw),
-          })),
-        ),
-      saveLaunchpadConfig: vi.fn(),
-      LAUNCHPAD_CONFIG_PATH: configPath,
-    }));
+    const statePlugin = await importStatePlugin();
 
     const server = Fastify({ logger: false });
     await server.register(fakeGithubAuth());
@@ -66,13 +71,14 @@ describe("statePlugin", () => {
     expect(server.stateService).toBeDefined();
     expect(server.launchpadConfig.stateMode).toBe("local");
     // The stateService should be a LocalStateManager
-    expect(server.stateService).toBeInstanceOf(LocalStateManager);
+    expect(server.stateService.constructor.name).toBe("LocalStateManager");
 
     await server.close();
   });
 
   it("exposes reinitializeStateService on the server", async () => {
     writeConfig(defaultLaunchpadConfig());
+    const statePlugin = await importStatePlugin();
 
     const server = Fastify({ logger: false });
     await server.register(fakeGithubAuth());
@@ -87,6 +93,7 @@ describe("statePlugin", () => {
 
   it("reinitializeStateService swaps local → local with new config", async () => {
     writeConfig(defaultLaunchpadConfig());
+    const statePlugin = await importStatePlugin();
 
     const server = Fastify({ logger: false });
     await server.register(fakeGithubAuth());
@@ -94,7 +101,7 @@ describe("statePlugin", () => {
     await server.ready();
 
     const originalService = server.stateService;
-    expect(originalService).toBeInstanceOf(LocalStateManager);
+    expect(originalService.constructor.name).toBe("LocalStateManager");
 
     // Reinitialize with a fresh local config
     const newConfig: LaunchpadConfig = {
@@ -104,7 +111,7 @@ describe("statePlugin", () => {
     await server.reinitializeStateService(newConfig);
 
     // Service should be a new instance
-    expect(server.stateService).toBeInstanceOf(LocalStateManager);
+    expect(server.stateService.constructor.name).toBe("LocalStateManager");
     expect(server.stateService).not.toBe(originalService);
     expect(server.launchpadConfig.stateMode).toBe("local");
 
@@ -113,13 +120,14 @@ describe("statePlugin", () => {
 
   it("reinitializeStateService swaps local → git (gracefully handles sync failure)", async () => {
     writeConfig(defaultLaunchpadConfig());
+    const statePlugin = await importStatePlugin();
 
     const server = Fastify({ logger: false });
     await server.register(fakeGithubAuth());
     await server.register(statePlugin);
     await server.ready();
 
-    expect(server.stateService).toBeInstanceOf(LocalStateManager);
+    expect(server.stateService.constructor.name).toBe("LocalStateManager");
 
     // Switch to git mode — sync will fail since there's no real GitHub repo,
     // but it should NOT crash; it should fall back to defaults.
@@ -132,7 +140,7 @@ describe("statePlugin", () => {
     await server.reinitializeStateService(gitConfig);
 
     // The service should now be a GitStateManager (even if sync failed)
-    expect(server.stateService).toBeInstanceOf(GitStateManager);
+    expect(server.stateService.constructor.name).toBe("GitStateManager");
     expect(server.launchpadConfig.stateMode).toBe("git");
 
     // And it should still work — getConfig returns defaults
@@ -145,6 +153,7 @@ describe("statePlugin", () => {
 
   it("launchpadConfig is updated after reinitialize", async () => {
     writeConfig(defaultLaunchpadConfig());
+    const statePlugin = await importStatePlugin();
 
     const server = Fastify({ logger: false });
     await server.register(fakeGithubAuth());
