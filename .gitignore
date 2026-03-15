@@ -30,3 +30,7 @@ Thumbs.db
 # Squad: SubSquad activation file (local to this machine)
 .squad-workstream
 DevTunnels/devtunnels-tokens-microsoft
+
+# VitePress
+docs/.vitepress/cache
+docs/.vitepress/dist
