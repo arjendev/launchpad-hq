@@ -15,28 +15,31 @@ declare module "fastify" {
 }
 
 async function githubAuthPlugin(fastify: FastifyInstance) {
-  // Run auth check at startup — non-fatal so the server can start without GitHub
-  let token: string | null = null;
-  let user: GitHubUser | null = null;
+  // Auth is mandatory — the preflight already validated `gh` and captured
+  // the token into process.env.GH_TOKEN. If getGitHubToken() still fails
+  // here (e.g. invalid/expired token), we crash instead of silently
+  // degrading to local mode.
+  let token: string;
+  let user: GitHubUser | null;
 
   try {
     token = await getGitHubToken();
     user = getCachedUser();
   } catch (err) {
-    if (err instanceof GitHubAuthError) {
-      fastify.log.warn(`GitHub Auth: ${err.message} — GitHub features will be disabled`);
-    } else {
-      fastify.log.warn({ err }, "Unexpected error during GitHub auth — GitHub features will be disabled");
-    }
+    const msg =
+      err instanceof GitHubAuthError
+        ? err.message
+        : "Unexpected error during GitHub authentication";
+    console.error(`❌ ${msg}`);
+    console.error("   GitHub authentication is required. Run: gh auth login");
+    process.exit(1);
   }
 
   // Decorate the server instance so other plugins can access these
   fastify.decorate("githubToken", token);
   fastify.decorate("githubUser", user);
 
-  if (user) {
-    fastify.log.info(`Authenticated as GitHub user: ${user.login}`);
-  }
+  fastify.log.info(`Authenticated as GitHub user: ${user?.login ?? "unknown"}`);
 
   // Auth status endpoint
   fastify.get("/api/auth/status", async (): Promise<AuthStatus> => {

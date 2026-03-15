@@ -25,6 +25,34 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const args = process.argv.slice(2);
+
+// --help: print usage and exit immediately (before preflight or server boot)
+if (args.includes('--help') || args.includes('-h')) {
+  console.log(`launchpad-hq — personal mission control for GitHub projects
+
+Usage:
+  npx github:arjendev/launchpad-hq               Start HQ server (default port 3000)
+  npx github:arjendev/launchpad-hq --port 8080    Start on a custom port (1024-65535)
+  npx github:arjendev/launchpad-hq --daemon        Start daemon mode
+  npx github:arjendev/launchpad-hq --daemon --watch Daemon with auto-restart on changes
+  npx github:arjendev/launchpad-hq --help          Show this help
+
+Options:
+  --port <port>           HQ server port (1024-65535, default: 3000)
+  --daemon                Start in daemon mode instead of HQ mode
+  --watch                 Auto-restart daemon on file changes (with --daemon)
+  --hq-url <url>          Daemon: HQ WebSocket URL
+  --token <token>         Daemon: authentication token
+  --project-id <id>       Daemon: project identifier (owner/repo)
+  --preview-port <port>   Daemon: explicit preview port
+  --tunnel                Auto-start Dev Tunnel on boot
+  --help, -h              Show this help message
+
+Prerequisites:
+  GitHub CLI (gh) must be installed and authenticated: gh auth login`);
+  process.exit(0);
+}
+
 const isDaemon = args.includes('--daemon');
 const isWatch = args.includes('--watch');
 

@@ -47,10 +47,19 @@ export async function ensureGhAuthenticated(): Promise<void> {
   // when CWD is inside an npx temp directory).
   if (!process.env.GH_TOKEN && !process.env.GITHUB_TOKEN) {
     try {
-      const token = await run("gh", ["auth", "token"]);
-      process.env.GH_TOKEN = token.trim();
+      const token = (await run("gh", ["auth", "token"])).trim();
+      if (!token) {
+        console.error(
+          "❌ GitHub CLI returned an empty token.\n   Run: gh auth login",
+        );
+        process.exit(1);
+      }
+      process.env.GH_TOKEN = token;
     } catch {
-      // Non-fatal: the server will retry via execFile as a fallback
+      console.error(
+        "❌ Failed to retrieve GitHub token.\n   Run: gh auth login",
+      );
+      process.exit(1);
     }
   }
 
