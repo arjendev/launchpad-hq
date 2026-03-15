@@ -461,3 +461,73 @@ Issue #51 redesigns Add Project flow into multi-step wizard with new backend sea
 5. **External Notification Webhook** — POST to ntfy.sh, Pushover, Slack, etc.
 
 **Recommendation:** Start with hybrid approach (layer 3). For push, use browser Notifications API (4a) + optional webhook (5c). Skip service worker (4b) — mobile browsers kill background connections.
+
+## Security & Compliance
+
+### 2026-03-15: Final Security Review — Dual Perspective
+**Authors:** Cooper (Opus 4.6) + Cooper (GPT-5.4)  
+**Date:** 2026-03-15  
+**Issue:** #61  
+**Status:** Findings merged, consolidated into issue for remediation planning
+
+Comprehensive security audit completed with two independent reviewers to surface control-plane and token-handling risks.
+
+**Consolidated Findings (Deduplicated):**
+
+**CRITICAL — Release Blockers (2):**
+- **C1:** HTTP control plane is unauthenticated — all `/api/*` routes lack session/bearer token gates, CSRF protection
+  - **Impact:** Anyone reaching HQ port can spawn terminals, start/stop daemons, inject Copilot prompts, toggle tunnels
+  - **Priority:** Must fix before public release
+- **C2:** Unauthenticated endpoints leak `sessionToken` (WS auth) and `daemonToken` (daemon bearer)
+  - **Locations:** `GET /api/settings`, `GET /api/projects/:owner/:repo`, `/regenerate-token`
+  - **Impact:** Remote party can immediately impersonate browser/daemon for full control-plane compromise
+
+**HIGH — Should Fix Soon (4):**
+- **H1:** Session Token Exposed via REST API — `/api/settings` returns WS auth token in response body
+- **H2:** No Auth on REST API Routes — applies to all endpoints when tunnel is active
+- **H3:** Copilot Tool Permissions Auto-Approved — `approveAll` bypasses human review loop
+  - **Risk:** If HQ compromised or prompt injection occurs, attacker can execute arbitrary Copilot tools
+- **H4:** Preview Proxy — turns tunnel URL into unauthenticated localhost access
+  - **Risk:** Reaches private dev servers, hot-reload channels, localhost-only admin routes
+
+**MEDIUM — Defense-in-Depth (8):**
+- **M1:** Preview Port Validation — daemon can set previewPort to well-known services (SSRF)
+- **M2:** No Rate Limiting on API Routes — discover endpoints proxy GitHub API directly
+- **M3:** CORS Configuration only in dev mode — no explicit restrictions in production
+- **M4:** WebSocket Origin Validation — browser client not validated, query-string tokens leak to logs
+- **M5:** `execSync` Git Remote Parsing — crafted remote URLs could inject characters
+- **M6:** Daemon Token in State Repo — leaked if state repo compromised or public
+- **M7:** Daemon tokens are long-lived without expiry policy — no rotation mechanism
+- **M8:** Terminal startup trusts ambient SHELL/PATH — can be poisoned on shared hosts
+
+**LOW — Best Practices (8):**
+- **L1:** No Content Security Policy headers
+- **L2:** Session token not rotated during server lifetime
+- **L3:** Postinstall script patches node_modules (invasive but deterministic)
+- **L4:** `node-pty` spawn uses user's $SHELL (standard Unix model)
+- **L5:** Preview proxy body size unlimited
+- **L6:** Verbose preview detection logging (info leakage)
+- **L7:** Client debug logger in browser path
+- **L8:** Daemon token visible in CLI args (process list leakage)
+
+**Priority Fix Order:**
+1. **C1/C2** — Add HTTP auth gate on all `/api/*` routes; stop returning secrets from endpoints
+2. **H1/H3** — Remove secrets from response bodies; disable `approveAll` for production
+3. **H2/H4** — Require auth before tunnel/preview exposure; validate origins
+4. **M7/M1** — Add token expiry/rotation policy; validate preview ports
+5. **L1** — Add security headers (@fastify/helmet)
+
+**Key Strengths Noted:**
+- Crypto primitives solid (randomBytes, timingSafeEqual, protocol design)
+- Input validation consistent (OWNER_REPO_REGEX, path traversal guards)
+- Zero npm audit vulnerabilities (production dependencies clean)
+- Challenge-nonce daemon auth is well-designed
+- WebSocket protocol is type-safe (discriminated unions)
+
+**Notes:**
+Architecture is fundamentally sound for single-user local tool but requires hardening before multi-user or remote access. Control-plane unauthentication is the biggest gap; it becomes critical as soon as Dev Tunnels expose the API.
+
+**Reports:**
+- Opus 4.6 (agent-89): `/workspaces/launchpad/.squad/decisions/inbox/cooper-security-review-opus.md`
+- GPT-5.4 (agent-90): `/workspaces/launchpad/.squad/decisions/inbox/cooper-security-review-gpt.md`
+- **Issue:** github.com/arjendev/launchpad-hq/issues/61
