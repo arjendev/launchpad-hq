@@ -24,6 +24,17 @@
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+### 2026-03-15: Settings page — centralized configuration UI (#46)
+- Created `src/client/pages/SettingsPage.tsx` — first page outside the DashboardLayout, uses its own AppShell with back navigation
+- Added `useSettings()` / `useUpdateSettings()` hooks in hooks.ts (GET/PUT /api/settings)
+- Router: Added `/settings` route in router.tsx using TanStack Router's `createRoute`
+- Navigation: Gear icon (IconSettings2) added to both desktop and mobile headers in DashboardLayout
+- Settings sections mirror onboarding wizard: State Mode, Copilot Preference, Default Model, DevTunnel
+- Changes save immediately on interaction (optimistic, no explicit save button) — each SegmentedControl/Select fires PUT
+- DevTunnel section shows live status badge from `useTunnelStatus()` hook
+- Settings requiring restart (state mode, tunnel mode) show "restart required" badge
+- Pattern: `src/client/pages/` directory introduced for full-page views vs modal/panel components
+
 ### 2026-03-15: Onboarding wizard framework — @clack/prompts + shared LaunchpadConfig type
 - Framework: WizardStep interface with `prompt()`, `validate()`, `apply()` hooks
 - Terminal UI: @clack/prompts (cleaner than inquirer, built-in isCancel() for Ctrl+C detection)
