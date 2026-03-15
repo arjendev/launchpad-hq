@@ -4,7 +4,7 @@
 
 > Established 2026-03-13 by Arjen. These define what launchpad IS.
 
-- **Package:** `launchpad-hq` on npm. Command: `npx launchpad-hq`
+- **Package:** `launchpad-hq` on npm. Command: `npx github:arjendev/launchpad-hq`
 - **Architecture:** React web app served by local Fastify server. Phone access via Microsoft Dev Tunnels. No hosted services.
 - **State:** Every user creates their own `launchpad-state` repo. GitHub is the persistence layer. Local cache for speed.
 - **Data:** GitHub Issues are the source of truth for tasks. Launchpad caches and enriches them locally with devcontainer status, session links, and custom metadata. GraphQL API for fast multi-repo fetching (~500ms).

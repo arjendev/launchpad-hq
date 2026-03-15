@@ -74,7 +74,7 @@ Romilly's work is the bridge between TARS' data access layer and Brand's fronten
 - **CORS:** `@fastify/cors` enabled in dev mode only, origin defaults to `http://localhost:5173` (Vite dev server).
 - **Shutdown:** SIGINT + SIGTERM handlers call `server.close()` for clean exit.
 - **Build:** `tsconfig.server.json` excludes `__tests__/` and `*.test.ts` from production build. Tests run via vitest separately.
-- **Shebang:** `#!/usr/bin/env node` in index.ts survives tsc compilation → enables `npx launchpad-hq` via bin entry.
+- **Shebang:** `#!/usr/bin/env node` in index.ts survives tsc compilation → enables `npx github:arjendev/launchpad-hq` via bin entry.
 
 ### 2026-03-13: REST API for projects and issues (#7)
 - **Routes file:** `src/server/routes/github-data.ts` — 4 REST endpoints for GitHub data consumption.

@@ -23,7 +23,7 @@ This clones the repo, builds it, and runs the CLI. First run takes a minute; sub
 ### Install from npm <Badge type="tip" text="coming soon" />
 
 ```bash
-npx launchpad-hq
+npx github:arjendev/launchpad-hq
 ```
 
 ::: info

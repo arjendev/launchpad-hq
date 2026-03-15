@@ -23,11 +23,11 @@ export function DaemonSetupInstructions({
   token,
   warning,
 }: DaemonSetupInstructionsProps) {
-  const cliCommand = `npx launchpad-hq --daemon --hq-url ws://localhost:3000 --token ${token} --project-id ${owner}/${repo}`;
+  const cliCommand = `npx github:arjendev/launchpad-hq --daemon --hq-url ws://localhost:3000 --token ${token} --project-id ${owner}/${repo}`;
 
   const devcontainerSnippet = JSON.stringify(
     {
-      postStartCommand: `npx launchpad-hq --daemon --hq-url ws://localhost:3000 --token ${token} --project-id ${owner}/${repo}`,
+      postStartCommand: `npx github:arjendev/launchpad-hq --daemon --hq-url ws://localhost:3000 --token ${token} --project-id ${owner}/${repo}`,
     },
     null,
     2,

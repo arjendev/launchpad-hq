@@ -437,7 +437,7 @@ Issue #51 redesigns Add Project flow into multi-step wizard with new backend sea
 3. **Daemon CLI args as highest-priority config** — `--hq-url`, `--token`, `--project-id` parsed before startup
    - Supports `--flag value` and `--flag=value` syntax
    - Priority: CLI args → env vars → `.launchpad/daemon.json` → defaults
-   - Enables: `npx launchpad-hq --daemon --hq-url ws://... --token <TOKEN> --project-id owner/repo`
+   - Enables: `npx github:arjendev/launchpad-hq --daemon --hq-url ws://... --token <TOKEN> --project-id owner/repo`
 
 ## Infrastructure & Monitoring
 

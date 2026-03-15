@@ -11,7 +11,7 @@
 ### 2026-03-13: Technical — Scaffolding Config (TypeScript, ESLint, Vite, Build)
 **By:** Cooper (Lead)
 **What:** ESM-only (`"type": "module"`), TypeScript bundler moduleResolution, flat ESLint config (v9), Vite root at `src/client/`, proxy config for `/api` and `/ws` to localhost:3000, server on port 3000, bin entry `dist/server/index.js`. Server runs via `tsx` in dev, compiles to ESM for production.
-**Why:** Modern Node.js + Vite alignment. Clean src/client/src/server separation. Single-package distribution via `npx launchpad-hq`.
+**Why:** Modern Node.js + Vite alignment. Clean src/client/src/server separation. Single-package distribution via `npx github:arjendev/launchpad-hq`.
 
 ### 2026-03-13: Technical — Fastify Server Architecture
 **By:** Romilly (Backend Dev)
