@@ -5,7 +5,7 @@
  * process. Users interact via the HQ UI (xterm.js). Sessions can be detached
  * (UI closed, process keeps running) and reattached (buffered output replayed).
  */
-import * as pty from '@homebridge/node-pty-prebuilt-multiarch';
+import * as pty from 'node-pty';
 import { randomUUID } from 'node:crypto';
 import type {
   DaemonToHqMessage,

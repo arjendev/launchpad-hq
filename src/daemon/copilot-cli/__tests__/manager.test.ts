@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DaemonToHqMessage, HqToDaemonMessage } from '../../../shared/protocol.js';
 
 // ---------------------------------------------------------------------------
-// Mock @homebridge/node-pty-prebuilt-multiarch before importing the module under test
+// Mock node-pty before importing the module under test
 // ---------------------------------------------------------------------------
 
 function createMockPty() {
@@ -26,13 +26,13 @@ function createMockPty() {
 
 let mockPty = createMockPty();
 
-vi.mock('@homebridge/node-pty-prebuilt-multiarch', () => ({
+vi.mock('node-pty', () => ({
   spawn: vi.fn(() => mockPty),
 }));
 
 // Import after mock is set up
 import { CliSessionManager } from '../manager.js';
-import * as pty from '@homebridge/node-pty-prebuilt-multiarch';
+import * as pty from 'node-pty';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -88,7 +88,7 @@ describe('CliSessionManager', () => {
     });
 
     it('spawns a PTY with the configured path and cwd', async () => {
-      const ptyMod = vi.mocked(await import('@homebridge/node-pty-prebuilt-multiarch'));
+      const ptyMod = vi.mocked(await import('node-pty'));
       const { manager } = setup();
       manager.createSession('req-2');
 

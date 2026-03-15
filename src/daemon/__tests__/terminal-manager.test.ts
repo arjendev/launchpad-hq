@@ -3,6 +3,7 @@ import { DaemonTerminalManager } from '../terminal/manager.js';
 
 // ---------------------------------------------------------------------------
 // Mock @homebridge/node-pty-prebuilt-multiarch — the manager uses dynamic import, so we mock at module level
+// (Note: the actual dependency was migrated to node-pty but the mock pattern remains the same)
 // ---------------------------------------------------------------------------
 
 function createMockPty() {
@@ -32,7 +33,7 @@ function createMockPty() {
   };
 }
 
-// We cannot actually import @homebridge/node-pty-prebuilt-multiarch in tests,
+// We cannot actually import node-pty in tests,
 // so we test the manager by directly manipulating its internal state via spawn
 // with a mock. The manager uses a dynamic import pattern; for unit tests we
 // verify the "no pty" path and the public API contracts.

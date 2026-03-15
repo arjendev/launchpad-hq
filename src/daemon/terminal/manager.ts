@@ -1,7 +1,7 @@
 /**
  * Daemon-side PTY session manager.
  *
- * Uses a dynamic import for @homebridge/node-pty-prebuilt-multiarch so the
+ * Uses a dynamic import for node-pty so the
  * module is optional — if it isn't installed the manager can still be constructed
  * but spawn() will throw.
  */
@@ -9,7 +9,7 @@
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
-// PTY types (subset we use from @homebridge/node-pty-prebuilt-multiarch)
+// PTY types (subset we use from node-pty)
 interface IPty {
   onData: (handler: (data: string) => void) => { dispose: () => void };
   onExit: (handler: (e: { exitCode: number; signal?: number }) => void) => { dispose: () => void };
@@ -33,7 +33,7 @@ let nodePtyLoaded = false;
 async function loadNodePty(): Promise<NodePtyModule | null> {
   if (nodePtyLoaded) return nodePty;
   try {
-    nodePty = (await import('@homebridge/node-pty-prebuilt-multiarch')) as unknown as NodePtyModule;
+    nodePty = (await import('node-pty')) as unknown as NodePtyModule;
   } catch {
     nodePty = null;
   }
