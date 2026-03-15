@@ -10,11 +10,25 @@ Launchpad HQ is a local command and control center for managing multiple project
 
 ## Quick Start
 
-Run Launchpad HQ directly with npx:
+### Install from GitHub (current)
+
+Run Launchpad HQ directly from the GitHub repo:
+
+```bash
+npx github:arjendev/launchpad-hq
+```
+
+This clones the repo, builds it, and runs the CLI. First run takes a minute; subsequent runs are cached.
+
+### Install from npm <Badge type="tip" text="coming soon" />
 
 ```bash
 npx launchpad-hq
 ```
+
+::: info
+npm publishing is being set up. For now, use the GitHub-hosted command above.
+:::
 
 On first run, the **onboarding wizard** will walk you through initial setup:
 
