@@ -13,16 +13,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useSubscription } from "../contexts/WebSocketContext.js";
+import { authFetchJson as fetchJson } from "./authFetch.js";
 import type { PreviewEntry, PreviewState, PreviewQrResponse, TunnelState } from "./types.js";
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    throw new Error((body as { message?: string })?.message ?? `Request failed (${res.status})`);
-  }
-  return res.json() as Promise<T>;
-}
 
 function encodeProjectId(projectId: string): string {
   return encodeURIComponent(projectId);

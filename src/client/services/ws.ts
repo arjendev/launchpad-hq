@@ -16,6 +16,7 @@ import type {
   ServerMessage,
   UpdateMessage,
 } from "./ws-types.js";
+import { getHqToken } from "./auth.js";
 
 export type MessageHandler = (message: UpdateMessage) => void;
 export type StatusChangeHandler = (status: ConnectionStatus) => void;
@@ -187,35 +188,14 @@ export class WebSocketManager {
 
   // --- Internal ---
 
-  /** Fetch the session token from the API and then create the socket. */
+  /** Build the WS URL with the HQ token and create the socket. */
   private fetchTokenAndConnect(): void {
-    const apiBase = typeof window !== "undefined"
-      ? `${window.location.protocol}//${window.location.host}`
-      : "http://localhost:3000";
-
-    let result: Promise<Response>;
-    try {
-      result = fetch(`${apiBase}/api/settings`);
-    } catch {
-      // fetch unavailable (e.g. test environment) — connect without token
-      this.createSocket();
-      return;
+    const token = getHqToken();
+    if (token) {
+      const sep = this.baseUrl.includes("?") ? "&" : "?";
+      this.url = `${this.baseUrl}${sep}token=${encodeURIComponent(token)}`;
     }
-
-    result
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
-      .then((data: { sessionToken?: string }) => {
-        if (this.disposed) return;
-        if (data.sessionToken) {
-          const sep = this.baseUrl.includes("?") ? "&" : "?";
-          this.url = `${this.baseUrl}${sep}token=${encodeURIComponent(data.sessionToken)}`;
-        }
-        this.createSocket();
-      })
-      .catch(() => {
-        // If token fetch fails, try connecting without it (will be rejected by server)
-        if (!this.disposed) this.scheduleReconnect();
-      });
+    this.createSocket();
   }
 
   private createSocket(): void {

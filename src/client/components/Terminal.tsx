@@ -14,6 +14,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { useTerminal as useTerminalWs } from "../hooks/useTerminal.js";
 import { useTheme } from "../contexts/ThemeContext.js";
+import { authFetch } from "../services/authFetch.js";
 
 // ── Theme maps ──────────────────────────────────────────
 
@@ -103,7 +104,7 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
 
     async function spawn() {
       try {
-        const res = await fetch(`/api/daemons/${daemonId}/terminal`, {
+        const res = await authFetch(`/api/daemons/${daemonId}/terminal`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -133,7 +134,7 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
   useEffect(() => {
     return () => {
       if (spawnedByUsRef.current && activeTerminalId) {
-        fetch(`/api/daemons/${daemonId}/terminal/${activeTerminalId}`, {
+        authFetch(`/api/daemons/${daemonId}/terminal/${activeTerminalId}`, {
           method: "DELETE",
         }).catch(() => {});
       }
@@ -188,7 +189,7 @@ export function Terminal({ daemonId, terminalId: externalTerminalId, onClose }: 
         sendResizeRef.current(term.cols, term.rows);
       }
 
-      fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(activeTerminalId)}/resume`, {
+      authFetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(activeTerminalId)}/resume`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),

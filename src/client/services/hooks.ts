@@ -1,13 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useSubscription, useWebSocket } from "../contexts/WebSocketContext.js";
+import { authFetchJson as fetchJson } from "./authFetch.js";
 import type {
   DashboardResponse,
   AddProjectRequest,
   ProjectEntry,
   IssuesResponse,
   GitHubIssue,
-  ApiError,
   DiscoverUsersResponse,
   DiscoverReposResponse,
   DaemonSummary,
@@ -35,15 +35,6 @@ import type {
   TunnelQrResponse,
   LaunchpadConfig,
 } from "./types.js";
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as ApiError | null;
-    throw new Error(body?.message ?? `Request failed (${res.status})`);
-  }
-  return res.json() as Promise<T>;
-}
 
 /** Fetch cross-project dashboard (includes issue/PR counts per project). */
 export function useDashboard() {

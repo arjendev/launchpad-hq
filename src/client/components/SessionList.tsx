@@ -23,6 +23,7 @@ import {
 import type { AggregatedSession, AggregatedSessionStatus } from "../services/types.js";
 import { DEFAULT_SESSION_ACTIVITY } from "../services/types.js";
 import type { SessionActivity } from "../services/types.js";
+import { authFetch } from "../services/authFetch.js";
 import { DaemonInfoBar } from "./DaemonInfoBar.js";
 
 // ── Helpers ────────────────────────────────────────────
@@ -264,7 +265,7 @@ export function SessionList() {
     // For now, trigger the modal — the "Resume Last" button will use the available sessions query
     if (!owner || !repo) return;
     // Fetch and resume the most recent one
-    fetch(`/api/daemons/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/copilot/sessions`)
+    authFetch(`/api/daemons/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/copilot/sessions`)
       .then((r) => r.json())
       .then((data: { sessions?: Array<{ sessionId: string; modifiedTime: string }> }) => {
         const available = (data.sessions ?? [])

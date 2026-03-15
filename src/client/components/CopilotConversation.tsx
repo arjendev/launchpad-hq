@@ -40,6 +40,7 @@ import type {
   AggregatedSession,
 } from "../services/types.js";
 import { DEFAULT_SESSION_ACTIVITY } from "../services/types.js";
+import { authFetch } from "../services/authFetch.js";
 
 // ── Props ──────────────────────────────────────────────
 
@@ -263,7 +264,7 @@ const PermissionRequestCard = memo(function PermissionRequestCard({
   const [decided, setDecided] = useState(false);
 
   const handleDecision = async (decision: "allow" | "deny") => {
-    await fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/permission-response`, {
+    await authFetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/permission-response`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requestId, decision }),
@@ -316,7 +317,7 @@ const UserInputRequestCard = memo(function UserInputRequestCard({
   const [answer, setAnswer] = useState("");
 
   const handleSubmit = async (selectedAnswer: string, wasFreeform: boolean) => {
-    await fetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/user-input-response`, {
+    await authFetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/user-input-response`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requestId, answer: selectedAnswer, wasFreeform }),
