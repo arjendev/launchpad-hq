@@ -14,7 +14,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "//postinstall": "Patches an ESM import in @github/copilot-sdk (temporary fix until upstream resolves it)",
+    "//postinstall": "Patches vscode-jsonrpc exports map and copilot-sdk bare imports for ESM compat",
     "postinstall": "node scripts/patch-sdk.js",
     "//prepare": "Runs build when installing from GitHub source; skipped in CI via $CI check",
     "prepare": "test -z \"$CI\" && npm run build || true",
@@ -69,6 +69,7 @@
     "qrcode": "^1.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "vscode-jsonrpc": "^8.2.1",
     "ws": "^8.18.2"
   },
   "overrides": {
