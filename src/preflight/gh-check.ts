@@ -6,36 +6,64 @@
 import { execFile } from "node:child_process";
 
 const TIMEOUT_MS = 5_000;
+const MIN_GH_VERSION = "2.17.0";
 
 function run(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: TIMEOUT_MS }, (err, stdout, stderr) => {
-      if (err) {
-        // Attach stderr to the error so callers can inspect it
-        (err as NodeJS.ErrnoException & { stderr?: string }).stderr = stderr;
-        reject(err);
-      } else resolve(stdout);
+    execFile(cmd, args, { timeout: TIMEOUT_MS }, (err, stdout) => {
+      if (err) reject(err);
+      else resolve(stdout);
     });
   });
 }
 
+/** Parse semver from `gh version 2.x.y (...)` output */
+function parseGhVersion(output: string): string | null {
+  const match = output.match(/(\d+\.\d+\.\d+)/);
+  return match ? match[1] : null;
+}
+
+/** Returns true if a >= b (semver) */
+function semverGte(a: string, b: string): boolean {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) > (pb[i] ?? 0)) return true;
+    if ((pa[i] ?? 0) < (pb[i] ?? 0)) return false;
+  }
+  return true;
+}
+
 /**
- * Ensures `gh` is on PATH and the user has a valid auth session.
+ * Ensures `gh` is on PATH, is a supported version, and has a valid auth session.
  * Captures the auth token and sets it as `GH_TOKEN` so downstream
  * code (e.g. the Fastify server) can read it from the environment
  * without shelling out again — which can fail under npx contexts.
  * Exits the process with code 1 and a human-readable message on failure.
  */
 export async function ensureGhAuthenticated(): Promise<void> {
+  // 1. Check gh is installed
+  let versionOutput: string;
   try {
-    await run("gh", ["--version"]);
+    versionOutput = await run("gh", ["--version"]);
   } catch {
     console.error(
       "❌ GitHub CLI (gh) is required but not found.\n   Install it from: https://cli.github.com/",
     );
     process.exit(1);
+    return; // unreachable, helps TS
   }
 
+  // 2. Check minimum version (need `gh auth token` from ≥2.17.0)
+  const version = parseGhVersion(versionOutput);
+  if (!version || !semverGte(version, MIN_GH_VERSION)) {
+    console.error(
+      `❌ GitHub CLI version ${version ?? "unknown"} is too old (need ≥${MIN_GH_VERSION}).\n   Please upgrade: https://github.com/cli/cli#installation`,
+    );
+    process.exit(1);
+  }
+
+  // 3. Check auth
   try {
     await run("gh", ["auth", "status"]);
   } catch {
@@ -45,8 +73,7 @@ export async function ensureGhAuthenticated(): Promise<void> {
     process.exit(1);
   }
 
-  // Capture the token so the server can consume it from the environment
-  // instead of shelling out again later (which can fail in npx contexts).
+  // 4. Capture token
   if (!process.env.GH_TOKEN && !process.env.GITHUB_TOKEN) {
     try {
       const token = (await run("gh", ["auth", "token"])).trim();
@@ -57,18 +84,10 @@ export async function ensureGhAuthenticated(): Promise<void> {
         process.exit(1);
       }
       process.env.GH_TOKEN = token;
-    } catch (err) {
-      const e = err as NodeJS.ErrnoException & { stderr?: string };
-      const output = `${e.message ?? ""} ${e.stderr ?? ""}`;
-      if (output.includes("unknown command")) {
-        console.error(
-          '❌ Your GitHub CLI is too old (missing "gh auth token").\n   Please upgrade: https://github.com/cli/cli#installation',
-        );
-      } else {
-        console.error(
-          "❌ Failed to retrieve GitHub token.\n   Run: gh auth login",
-        );
-      }
+    } catch {
+      console.error(
+        "❌ Failed to retrieve GitHub token.\n   Run: gh auth login",
+      );
       process.exit(1);
     }
   }
