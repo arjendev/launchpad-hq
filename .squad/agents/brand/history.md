@@ -369,3 +369,19 @@ Cooper groomed onboarding wizard epic and created 7 GitHub issues assigned acros
 - **#44 (shared with TARS)**: Onboarding step UI — DevTunnel configuration
 
 Dependencies: #41–#44 all block on #40. Architecture summary: New `LaunchpadConfig` persisted at `~/.launchpad/config.json` (distinct from ServerConfig/ProjectConfig). Wizard runs in terminal before server boot, collects choices, writes config. See `.squad/decisions.md` for full decision doc.
+
+### 2026-03-14: Onboarding wizard steps #41, #42, #43 (PR #49)
+
+Replaced the three placeholder wizard steps with real @clack/prompts implementations:
+
+1. **State storage mode (#41)** — `p.select()` with local/git options, informational `p.note()` explaining tradeoffs. Validates mode is one of the two options. Applies to `config.stateMode`.
+
+2. **Copilot session preference (#42)** — SDK vs CLI selection with feature descriptions. Emphasizes "this is just the default." Applies to `config.copilot.defaultSessionType`.
+
+3. **Default model (#43)** — Curated `AVAILABLE_MODELS` const array (6 models) shown via `p.select()`. Claude Opus 4.6 is the default. Easy to update — single array, not scattered. Applies to `config.copilot.defaultModel`.
+
+**Config defaults updated:** `defaultSessionType` changed from `"cli"` to `"sdk"`, `defaultModel` from `"claude-sonnet-4"` to `"claude-opus-4.6"` per issue specs.
+
+**Pattern:** Each step uses `p.note()` for context/explanation followed by `p.select()` for the actual choice. This gives users enough info to make an informed decision without overwhelming them.
+
+**Testing:** 29 new unit tests (prompt mocks, validate edge cases, apply immutability). All 814 tests pass.
