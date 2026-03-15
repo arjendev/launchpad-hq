@@ -59,8 +59,11 @@ if (!config.isDev && existsSync(config.clientDistPath)) {
     wildcard: false,
   });
 
-  // SPA fallback: serve index.html for non-API routes
-  server.setNotFoundHandler((_request, reply) => {
+  // SPA fallback: serve index.html for non-API, non-preview routes
+  server.setNotFoundHandler((request, reply) => {
+    if (request.url.startsWith("/preview/") || request.url.startsWith("/api/")) {
+      return reply.status(404).send({ error: "not_found" });
+    }
     return reply.sendFile("index.html");
   });
 }
