@@ -419,3 +419,13 @@ Replaced the three placeholder wizard steps with real @clack/prompts implementat
 - **Total tests**: 908 baseline → 969 final (+61: 22 + 15 + 20 + 4 coordination tests)
 - **Build & typecheck**: Clean, no regressions
 - **Decision**: Dedicated hooks file keeps preview feature self-contained; WebSocket invalidation reuses server as source of truth; modular component design enables easy future expansion
+
+### 2026-03-16: Phase 1 client-side auth (Issue #61)
+- **auth.ts** (`src/client/services/auth.ts`) — in-memory token store. `getHqToken()`, `setHqToken()`, `initAuthFromUrl()`. Token extracted from `?token=` URL param at boot, then cleaned from URL bar via `replaceState()`.
+- **authFetch.ts** (`src/client/services/authFetch.ts`) — centralized authenticated fetch wrapper. `authFetch()` adds `Authorization: Bearer <token>` to all requests. `authFetchJson<T>()` is the typed JSON variant. 401 responses trigger a persistent overlay telling the user to reconnect.
+- **main.tsx** updated to call `initAuthFromUrl()` before React mounts.
+- **hooks.ts** and **preview-hooks.ts** — replaced local `fetchJson` with imported `authFetchJson`. Eliminated duplicate fetch wrapper code.
+- **CopilotConversation.tsx**, **Terminal.tsx**, **SessionList.tsx** — replaced raw `fetch()` calls with `authFetch()`.
+- **ws.ts** — `fetchTokenAndConnect()` no longer fetches from `/api/settings`. Uses `getHqToken()` directly to build the WS URL with `?token=<hqToken>`. Simpler, synchronous, no extra API call.
+- **Security model**: Token in memory only (not localStorage), URL cleaned immediately, 401 handled gracefully with reconnect prompt.
+- **Coordination**: Romilly implements server-side preHandler simultaneously. No server files modified.
