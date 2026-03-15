@@ -188,22 +188,53 @@ describe("onboarding steps", () => {
     });
   });
 
-  // ── Step 4: Devtunnel (placeholder) ──────────────────────────────────────
+  // ── Step 4: Devtunnel (structural) ────────────────────────────────────────
+  // Full behavioral tests are in devtunnel-step.test.ts
 
-  describe("devtunnelStep (placeholder)", () => {
-    it("prompt returns empty object", async () => {
-      const result = await devtunnelStep.prompt();
-      expect(result).toEqual({});
+  describe("devtunnelStep", () => {
+    it("has id 'devtunnel'", () => {
+      expect(devtunnelStep.id).toBe("devtunnel");
     });
 
-    it("validate returns null", () => {
-      expect(devtunnelStep.validate({})).toBeNull();
+    it("has correct title", () => {
+      expect(devtunnelStep.title).toBe("Dev Tunnel Configuration");
     });
 
-    it("apply returns config unchanged", () => {
+    it("validates 'on-demand' mode with configured=false", () => {
+      expect(devtunnelStep.validate({ mode: "on-demand", configured: false })).toBeNull();
+    });
+
+    it("validates 'always' mode with configured=true", () => {
+      expect(devtunnelStep.validate({ mode: "always", configured: true })).toBeNull();
+    });
+
+    it("rejects invalid mode", () => {
+      expect(devtunnelStep.validate({ mode: "never", configured: false })).toBeTruthy();
+    });
+
+    it("rejects missing configured field", () => {
+      expect(devtunnelStep.validate({ mode: "on-demand" })).toBeTruthy();
+    });
+
+    it("applies on-demand mode to config", () => {
       const config = defaultLaunchpadConfig();
-      const result = devtunnelStep.apply(config, {});
-      expect(result).toEqual(config);
+      const result = devtunnelStep.apply(config, { mode: "on-demand", configured: false });
+      expect(result.tunnel.mode).toBe("on-demand");
+      expect(result.tunnel.configured).toBe(false);
+    });
+
+    it("applies always mode to config", () => {
+      const config = defaultLaunchpadConfig();
+      const result = devtunnelStep.apply(config, { mode: "always", configured: true });
+      expect(result.tunnel.mode).toBe("always");
+      expect(result.tunnel.configured).toBe(true);
+    });
+
+    it("does not mutate the original config", () => {
+      const config = defaultLaunchpadConfig();
+      const result = devtunnelStep.apply(config, { mode: "always", configured: true });
+      expect(result).not.toBe(config);
+      expect(config.tunnel.mode).toBe("on-demand");
     });
   });
 });
