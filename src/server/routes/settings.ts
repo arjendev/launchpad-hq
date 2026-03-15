@@ -73,7 +73,7 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
           };
         }
 
-        return { valid: true };
+        return { valid: true, message: `Repository ${owner}/${repo} validated — you have write access.` };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return reply.status(500).send({

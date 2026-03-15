@@ -91,11 +91,14 @@ export function SettingsPage() {
 
   // Local form state — synced from server on load
   const [stateMode, setStateMode] = useState<string>("local");
-  const [stateRepo, setStateRepo] = useState<string>("");
+  const [stateRepoOwner, setStateRepoOwner] = useState<string>("");
+  const [stateRepoName, setStateRepoName] = useState<string>("");
   const [sessionType, setSessionType] = useState<string>("sdk");
   const [defaultModel, setDefaultModel] = useState<string>("claude-opus-4.6");
   const [tunnelMode, setTunnelMode] = useState<string>("on-demand");
   const [tunnelStopped, setTunnelStopped] = useState(false);
+  const [tunnelBootstrapping, setTunnelBootstrapping] = useState(false);
+  const [tunnelResult, setTunnelResult] = useState<{ url?: string; error?: string } | null>(null);
 
   // Subscribe to real-time tunnel status updates via WebSocket
   const { data: wsTunnelStatus } = useSubscription<TunnelState>("tunnel");
@@ -104,7 +107,11 @@ export function SettingsPage() {
   useEffect(() => {
     if (settings) {
       setStateMode(settings.stateMode);
-      setStateRepo(settings.stateRepo ?? "");
+      if (settings.stateRepo) {
+        const [owner, repo] = settings.stateRepo.split("/", 2);
+        setStateRepoOwner(owner ?? "");
+        setStateRepoName(repo ?? "");
+      }
       setSessionType(settings.copilot.defaultSessionType);
       setDefaultModel(settings.copilot.defaultModel);
       setTunnelMode(settings.tunnel.mode);
@@ -116,26 +123,31 @@ export function SettingsPage() {
     ? modelsData.models.map((m) => ({ value: m.id, label: m.name || m.id }))
     : AVAILABLE_MODELS;
 
+  const fullRepo = stateRepoOwner && stateRepoName
+    ? `${stateRepoOwner.trim()}/${stateRepoName.trim()}`
+    : "";
+
   function saveSetting(patch: Partial<LaunchpadConfig>) {
     updateSettings.mutate(patch);
   }
 
   function handleStateModeChange(value: string) {
     setStateMode(value);
+    validateRepo.reset();
     saveSetting({ stateMode: value as "local" | "git" });
   }
 
   const handleValidateRepo = useCallback(() => {
-    if (!stateRepo.trim()) return;
-    validateRepo.mutate(stateRepo.trim(), {
+    if (!fullRepo || !fullRepo.includes("/")) return;
+    validateRepo.mutate(fullRepo, {
       onSuccess: (result) => {
         if (result.valid) {
-          saveSetting({ stateRepo: stateRepo.trim() });
+          saveSetting({ stateRepo: fullRepo });
         }
       },
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateRepo]);
+  }, [fullRepo]);
 
   function handleSessionTypeChange(value: string) {
     setSessionType(value);
@@ -152,9 +164,39 @@ export function SettingsPage() {
     const prev = tunnelMode;
     setTunnelMode(value);
     setTunnelStopped(false);
-    saveSetting({ tunnel: { mode: value as "always" | "on-demand", configured: settings?.tunnel.configured ?? false } });
-    if (prev === "always" && value === "on-demand") {
-      setTunnelStopped(true);
+    setTunnelResult(null);
+
+    if (value === "always") {
+      // Immediately attempt to bootstrap the tunnel
+      setTunnelBootstrapping(true);
+      const patch: Partial<LaunchpadConfig> = {
+        tunnel: {
+          mode: "always",
+          configured: settings?.tunnel.configured ?? false,
+        },
+      };
+      updateSettings.mutate(patch, {
+        onSuccess: (data) => {
+          setTunnelBootstrapping(false);
+          const tunnelStatus = (data as unknown as Record<string, unknown>).tunnelStatus as
+            | { status: string; info?: { url?: string } | null; error?: string | null }
+            | undefined;
+          if (tunnelStatus?.status === "running" && tunnelStatus.info?.url) {
+            setTunnelResult({ url: tunnelStatus.info.url });
+          } else if (tunnelStatus?.error) {
+            setTunnelResult({ error: tunnelStatus.error });
+          }
+        },
+        onError: (err) => {
+          setTunnelBootstrapping(false);
+          setTunnelResult({ error: err.message });
+        },
+      });
+    } else {
+      saveSetting({ tunnel: { mode: value as "always" | "on-demand", configured: settings?.tunnel.configured ?? false } });
+      if (prev === "always" && value === "on-demand") {
+        setTunnelStopped(true);
+      }
     }
   }
 
@@ -217,26 +259,30 @@ export function SettingsPage() {
               </Text>
               {stateMode === "git" && (
                 <>
-                  <Group gap="xs" align="flex-end">
+                  <Group gap="xs" grow>
                     <TextInput
-                      label="GitHub Repository"
-                      placeholder="owner/repo"
-                      description="The private repo to store launchpad state"
-                      value={stateRepo}
-                      onChange={(e) => { setStateRepo(e.currentTarget.value); validateRepo.reset(); }}
-                      style={{ flex: 1 }}
+                      label="GitHub Owner / Org"
+                      placeholder="your-username"
+                      value={stateRepoOwner}
+                      onChange={(e) => { setStateRepoOwner(e.currentTarget.value); validateRepo.reset(); }}
                       disabled={isLoading}
                     />
-                    <Button
-                      variant="light"
-                      onClick={handleValidateRepo}
-                      loading={validateRepo.isPending}
-                      disabled={!stateRepo.trim() || isLoading}
-                      mb={1}
-                    >
-                      Validate
-                    </Button>
+                    <TextInput
+                      label="Repository Name"
+                      placeholder="launchpad-state"
+                      value={stateRepoName}
+                      onChange={(e) => { setStateRepoName(e.currentTarget.value); validateRepo.reset(); }}
+                      disabled={isLoading}
+                    />
                   </Group>
+                  <Button
+                    variant="light"
+                    onClick={handleValidateRepo}
+                    loading={validateRepo.isPending}
+                    disabled={!stateRepoOwner.trim() || !stateRepoName.trim() || isLoading}
+                  >
+                    Validate
+                  </Button>
                   {validateRepo.isSuccess && validateRepo.data.valid && (
                     <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
                       {validateRepo.data.message || "Repository validated — you have write access."}
@@ -244,7 +290,7 @@ export function SettingsPage() {
                   )}
                   {validateRepo.isSuccess && !validateRepo.data.valid && (
                     <Alert color="red" variant="light" icon={<IconX size={16} />}>
-                      {validateRepo.data.message || "Validation failed."}
+                      {validateRepo.data.error || "Validation failed."}
                     </Alert>
                   )}
                   {validateRepo.isError && (
@@ -260,7 +306,7 @@ export function SettingsPage() {
             <SettingSection
               icon={<IconRobot size={20} />}
               title="Copilot Session Preference"
-              description="When creating a new Copilot session from the dashboard, which mode should be the default? You can always create either type — this just sets the default."
+              description="When creating a new Copilot session from the dashboard, which mode should be the default? You can always create either type of session later — this just sets the default."
             >
               <SegmentedControl
                 value={sessionType}
@@ -274,8 +320,8 @@ export function SettingsPage() {
               />
               <Text size="xs" c="dimmed">
                 {sessionType === "sdk"
-                  ? "Rich agent experience — structured conversations, tool use, plan mode, full introspection"
-                  : "Classic terminal — lightweight, familiar, great for quick questions and edits"}
+                  ? "Better integration with HQ — structured conversations, tool use, plan mode, session introspection, and real-time activity streaming in the dashboard"
+                  : "Standalone terminal experience — classic copilot-in-the-terminal, familiar for devs who prefer raw CLI interaction"}
               </Text>
             </SettingSection>
 
@@ -338,7 +384,7 @@ export function SettingsPage() {
                   { value: "on-demand", label: "On-demand" },
                   { value: "always", label: "Always" },
                 ]}
-                disabled={isLoading}
+                disabled={isLoading || tunnelBootstrapping}
                 fullWidth
               />
               <Text size="xs" c="dimmed">
@@ -346,12 +392,31 @@ export function SettingsPage() {
                   ? "Start tunnels manually when you need them"
                   : "Auto-start a tunnel every time HQ launches"}
               </Text>
+              {tunnelBootstrapping && (
+                <Alert color="blue" variant="light" icon={<Loader size={16} />}>
+                  Starting tunnel…
+                </Alert>
+              )}
+              {tunnelResult?.url && (
+                <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
+                  Tunnel started! URL: <strong>{tunnelResult.url}</strong>
+                </Alert>
+              )}
+              {tunnelResult?.error && (
+                <Alert color="yellow" variant="light" icon={<IconX size={16} />}>
+                  {tunnelResult.error.toLowerCase().includes("auth") ||
+                   tunnelResult.error.toLowerCase().includes("login") ||
+                   tunnelResult.error.toLowerCase().includes("credentials")
+                    ? "DevTunnel requires authentication. Run `devtunnel user login` in your terminal, then try again."
+                    : tunnelResult.error}
+                </Alert>
+              )}
               {tunnelStopped && tunnelMode === "on-demand" && (
                 <Alert color="blue" variant="light" withCloseButton onClose={() => setTunnelStopped(false)}>
                   Tunnel stopped.
                 </Alert>
               )}
-              {tunnelMode === "always" && !settings?.tunnel.configured && (
+              {tunnelMode === "always" && !settings?.tunnel.configured && !tunnelBootstrapping && !tunnelResult && (
                 <Alert color="yellow" variant="light">
                   Run <strong>devtunnel user login</strong> in your terminal to authenticate, then restart launchpad-hq.
                 </Alert>

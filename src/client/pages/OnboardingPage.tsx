@@ -12,6 +12,8 @@ import {
   Button,
   Stepper,
   ScrollArea,
+  TextInput,
+  Loader,
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import {
@@ -21,12 +23,14 @@ import {
   IconWorldShare,
   IconCheck,
   IconRocket,
+  IconX,
 } from "@tabler/icons-react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   useSettings,
   useUpdateSettings,
   useListModels,
+  useValidateRepo,
 } from "../services/hooks.js";
 import type { LaunchpadConfig } from "../services/types.js";
 import { ThemeToggle } from "../components/ThemeToggle.js";
@@ -46,19 +50,29 @@ export function OnboardingPage() {
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const { data: modelsData } = useListModels();
+  const validateRepo = useValidateRepo();
 
   const [active, setActive] = useState(0);
 
   // Local form state
   const [stateMode, setStateMode] = useState<string>("local");
+  const [stateRepoOwner, setStateRepoOwner] = useState<string>("");
+  const [stateRepoName, setStateRepoName] = useState<string>("");
   const [sessionType, setSessionType] = useState<string>("sdk");
   const [defaultModel, setDefaultModel] = useState<string>("claude-opus-4.6");
   const [tunnelMode, setTunnelMode] = useState<string>("on-demand");
+  const [tunnelBootstrapping, setTunnelBootstrapping] = useState(false);
+  const [tunnelResult, setTunnelResult] = useState<{ url?: string; error?: string } | null>(null);
 
   // Sync from server on load
   useEffect(() => {
     if (settings) {
       setStateMode(settings.stateMode);
+      if (settings.stateRepo) {
+        const [owner, repo] = settings.stateRepo.split("/", 2);
+        setStateRepoOwner(owner ?? "");
+        setStateRepoName(repo ?? "");
+      }
       setSessionType(settings.copilot.defaultSessionType);
       setDefaultModel(settings.copilot.defaultModel);
       setTunnelMode(settings.tunnel.mode);
@@ -71,9 +85,57 @@ export function OnboardingPage() {
 
   const maxWidth = isMobile ? "100%" : 640;
 
+  const fullRepo = stateRepoOwner && stateRepoName
+    ? `${stateRepoOwner.trim()}/${stateRepoName.trim()}`
+    : "";
+
+  function handleValidateRepo() {
+    if (!fullRepo || !fullRepo.includes("/")) return;
+    validateRepo.mutate(fullRepo);
+  }
+
+  // Can proceed from step 0 only if local, or git with validated repo
+  const canProceedFromStorage =
+    stateMode === "local" ||
+    (stateMode === "git" && validateRepo.isSuccess && validateRepo.data?.valid === true);
+
+  function handleTunnelModeChange(value: string) {
+    setTunnelMode(value);
+    setTunnelResult(null);
+
+    if (value === "always") {
+      // Immediately attempt to bootstrap the tunnel
+      setTunnelBootstrapping(true);
+      const patch: Partial<LaunchpadConfig> = {
+        tunnel: {
+          mode: "always",
+          configured: settings?.tunnel.configured ?? false,
+        },
+      };
+      updateSettings.mutate(patch, {
+        onSuccess: (data) => {
+          setTunnelBootstrapping(false);
+          const tunnelStatus = (data as unknown as Record<string, unknown>).tunnelStatus as
+            | { status: string; info?: { url?: string } | null; error?: string | null }
+            | undefined;
+          if (tunnelStatus?.status === "running" && tunnelStatus.info?.url) {
+            setTunnelResult({ url: tunnelStatus.info.url });
+          } else if (tunnelStatus?.error) {
+            setTunnelResult({ error: tunnelStatus.error });
+          }
+        },
+        onError: (err) => {
+          setTunnelBootstrapping(false);
+          setTunnelResult({ error: err.message });
+        },
+      });
+    }
+  }
+
   function saveAndFinish() {
     const patch: Partial<LaunchpadConfig> = {
       stateMode: stateMode as "local" | "git",
+      ...(stateMode === "git" && fullRepo ? { stateRepo: fullRepo } : {}),
       copilot: {
         defaultSessionType: sessionType as "sdk" | "cli",
         defaultModel,
@@ -126,7 +188,7 @@ export function OnboardingPage() {
                     </Text>
                     <SegmentedControl
                       value={stateMode}
-                      onChange={setStateMode}
+                      onChange={(v) => { setStateMode(v); validateRepo.reset(); setTunnelResult(null); }}
                       data={[
                         { value: "local", label: "🖥️ Local" },
                         { value: "git", label: "☁️ Git" },
@@ -139,6 +201,50 @@ export function OnboardingPage() {
                         ? "Fast & private — stored on this machine only"
                         : "Synced everywhere — requires GitHub token with repo scope"}
                     </Text>
+                    {stateMode === "git" && (
+                      <>
+                        <Group gap="xs" grow>
+                          <TextInput
+                            label="GitHub Owner / Org"
+                            placeholder="your-username"
+                            value={stateRepoOwner}
+                            onChange={(e) => { setStateRepoOwner(e.currentTarget.value); validateRepo.reset(); }}
+                            disabled={isLoading}
+                          />
+                          <TextInput
+                            label="Repository Name"
+                            placeholder="launchpad-state"
+                            value={stateRepoName}
+                            onChange={(e) => { setStateRepoName(e.currentTarget.value); validateRepo.reset(); }}
+                            disabled={isLoading}
+                          />
+                        </Group>
+                        <Button
+                          variant="light"
+                          onClick={handleValidateRepo}
+                          loading={validateRepo.isPending}
+                          disabled={!stateRepoOwner.trim() || !stateRepoName.trim() || isLoading}
+                          fullWidth
+                        >
+                          Validate Repository
+                        </Button>
+                        {validateRepo.isSuccess && validateRepo.data.valid && (
+                          <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
+                            Repository validated — you have write access.
+                          </Alert>
+                        )}
+                        {validateRepo.isSuccess && !validateRepo.data.valid && (
+                          <Alert color="red" variant="light" icon={<IconX size={16} />}>
+                            {validateRepo.data.error || "Validation failed."}
+                          </Alert>
+                        )}
+                        {validateRepo.isError && (
+                          <Alert color="red" variant="light" icon={<IconX size={16} />}>
+                            {validateRepo.error.message}
+                          </Alert>
+                        )}
+                      </>
+                    )}
                   </Stack>
                 </Paper>
               </Stepper.Step>
@@ -150,7 +256,7 @@ export function OnboardingPage() {
                     <Title order={5}>🤖 Copilot Session Preference</Title>
                     <Text size="sm" c="dimmed">
                       Default mode when creating a new Copilot session.
-                      You can always create either type — this just sets the default.
+                      You can always create either type of session later — this just sets the default.
                     </Text>
                     <SegmentedControl
                       value={sessionType}
@@ -164,8 +270,8 @@ export function OnboardingPage() {
                     />
                     <Text size="xs" c="dimmed">
                       {sessionType === "sdk"
-                        ? "Rich agent experience — structured conversations, tool use, plan mode"
-                        : "Classic terminal — lightweight, familiar, great for quick questions"}
+                        ? "Better integration with HQ — structured conversations, tool use, plan mode, session introspection, and real-time activity streaming in the dashboard"
+                        : "Standalone terminal experience — classic copilot-in-the-terminal, familiar for devs who prefer raw CLI interaction"}
                     </Text>
                   </Stack>
                 </Paper>
@@ -203,12 +309,12 @@ export function OnboardingPage() {
                     </Text>
                     <SegmentedControl
                       value={tunnelMode}
-                      onChange={setTunnelMode}
+                      onChange={handleTunnelModeChange}
                       data={[
                         { value: "on-demand", label: "On-demand" },
                         { value: "always", label: "Always" },
                       ]}
-                      disabled={isLoading}
+                      disabled={isLoading || tunnelBootstrapping}
                       fullWidth
                     />
                     <Text size="xs" c="dimmed">
@@ -216,10 +322,23 @@ export function OnboardingPage() {
                         ? "Start tunnels manually when you need them"
                         : "Auto-start a tunnel every time HQ launches"}
                     </Text>
-                    {tunnelMode === "always" && !settings?.tunnel.configured && (
-                      <Alert color="yellow" variant="light">
-                        Run <strong>devtunnel user login</strong> in your terminal to authenticate,
-                        then restart launchpad-hq.
+                    {tunnelBootstrapping && (
+                      <Alert color="blue" variant="light" icon={<Loader size={16} />}>
+                        Starting tunnel…
+                      </Alert>
+                    )}
+                    {tunnelResult?.url && (
+                      <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
+                        Tunnel running! URL: <strong>{tunnelResult.url}</strong>
+                      </Alert>
+                    )}
+                    {tunnelResult?.error && (
+                      <Alert color="yellow" variant="light" icon={<IconX size={16} />}>
+                        {tunnelResult.error.toLowerCase().includes("auth") ||
+                         tunnelResult.error.toLowerCase().includes("login") ||
+                         tunnelResult.error.toLowerCase().includes("credentials")
+                          ? "DevTunnel requires authentication. Run `devtunnel user login` in your terminal, then try again."
+                          : tunnelResult.error}
                       </Alert>
                     )}
                   </Stack>
@@ -248,7 +367,10 @@ export function OnboardingPage() {
                 </Button>
               )}
               {active < 4 && (
-                <Button onClick={nextStep}>
+                <Button
+                  onClick={nextStep}
+                  disabled={active === 0 && !canProceedFromStorage}
+                >
                   Next →
                 </Button>
               )}

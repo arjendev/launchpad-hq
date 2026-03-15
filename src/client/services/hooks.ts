@@ -1412,15 +1412,17 @@ export function useUpdateSettings() {
   });
 }
 
-/** Validate a GitHub repo for git state storage. */
+/** Validate a GitHub repo for git state storage. Accepts "owner/repo" string. */
 export function useValidateRepo() {
-  return useMutation<{ valid: boolean; message: string }, Error, string>({
-    mutationFn: (repo) =>
-      fetchJson<{ valid: boolean; message: string }>("/api/settings/validate-repo", {
+  return useMutation<{ valid: boolean; error?: string; message?: string }, Error, string>({
+    mutationFn: (ownerRepo) => {
+      const [owner, repo] = ownerRepo.split("/", 2);
+      return fetchJson<{ valid: boolean; error?: string; message?: string }>("/api/settings/validate-repo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo }),
-      }),
+        body: JSON.stringify({ owner, repo }),
+      });
+    },
   });
 }
 
