@@ -5,6 +5,7 @@ import { defaultLaunchpadConfig } from "../types.js";
 vi.mock("@clack/prompts", () => ({
   note: vi.fn(),
   select: vi.fn(),
+  text: vi.fn(),
   isCancel: vi.fn(() => false),
   log: {
     info: vi.fn(),
@@ -57,9 +58,10 @@ describe("onboarding steps", () => {
     it("prompts and returns selected mode", async () => {
       const clack = await import("@clack/prompts");
       vi.mocked(clack.select).mockResolvedValueOnce("git");
+      vi.mocked(clack.text).mockResolvedValueOnce("me/launchpad-state");
 
       const result = await stateModeStep.prompt();
-      expect(result).toEqual({ mode: "git" });
+      expect(result).toEqual({ mode: "git", stateRepo: "me/launchpad-state" });
       expect(clack.note).toHaveBeenCalled();
       expect(clack.select).toHaveBeenCalled();
     });
@@ -69,7 +71,7 @@ describe("onboarding steps", () => {
     });
 
     it("validates 'git' as valid", () => {
-      expect(stateModeStep.validate({ mode: "git" })).toBeNull();
+      expect(stateModeStep.validate({ mode: "git", stateRepo: "owner/repo" })).toBeNull();
     });
 
     it("rejects invalid mode", () => {
@@ -88,13 +90,14 @@ describe("onboarding steps", () => {
 
     it("applies git mode to config", () => {
       const config = defaultLaunchpadConfig();
-      const result = stateModeStep.apply(config, { mode: "git" });
+      const result = stateModeStep.apply(config, { mode: "git", stateRepo: "me/launchpad-state" });
       expect(result.stateMode).toBe("git");
+      expect(result.stateRepo).toBe("me/launchpad-state");
     });
 
     it("does not mutate the original config", () => {
       const config = defaultLaunchpadConfig();
-      const result = stateModeStep.apply(config, { mode: "git" });
+      const result = stateModeStep.apply(config, { mode: "git", stateRepo: "me/launchpad-state" });
       expect(result).not.toBe(config);
       expect(config.stateMode).toBe("local");
     });

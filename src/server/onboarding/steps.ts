@@ -51,6 +51,29 @@ export const stateModeStep: WizardStep = {
       initialValue: "local",
     });
 
+    if (p.isCancel(mode)) {
+      return { mode: "local" };
+    }
+
+    if (mode === "git") {
+      const stateRepo = await p.text({
+        message: "Which GitHub repo should store your state? (owner/repo)",
+        placeholder: "your-username/launchpad-state",
+        validate: (val) => {
+          if (!val || !val.includes("/")) {
+            return "Please enter a valid owner/repo (e.g. your-username/launchpad-state)";
+          }
+          return undefined;
+        },
+      });
+
+      if (p.isCancel(stateRepo)) {
+        return { mode: "local" };
+      }
+
+      return { mode, stateRepo };
+    }
+
     return { mode };
   },
 
@@ -59,6 +82,12 @@ export const stateModeStep: WizardStep = {
     if (mode !== "local" && mode !== "git") {
       return "Please select either local or git mode.";
     }
+    if (mode === "git") {
+      const repo = values.stateRepo as string | undefined;
+      if (!repo || !repo.includes("/")) {
+        return "Please provide a valid GitHub repo (owner/repo) for git state storage.";
+      }
+    }
     return null;
   },
 
@@ -66,6 +95,7 @@ export const stateModeStep: WizardStep = {
     return {
       ...config,
       stateMode: values.mode as "local" | "git",
+      ...(values.stateRepo ? { stateRepo: values.stateRepo as string } : {}),
     };
   },
 };

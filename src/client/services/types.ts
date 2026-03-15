@@ -424,6 +424,8 @@ export interface TunnelState {
   info: TunnelInfo | null;
   shareUrl: string | null;
   error: string | null;
+  /** True when the tunnel is actually running. */
+  configured: boolean;
 }
 
 export interface TunnelQrResponse {
@@ -436,6 +438,8 @@ export interface TunnelQrResponse {
 export interface LaunchpadConfig {
   version: 1;
   stateMode: "local" | "git";
+  /** GitHub repo for git state storage, e.g. "owner/repo". Only used when stateMode is "git". */
+  stateRepo?: string;
   copilot: {
     defaultSessionType: "sdk" | "cli";
     defaultModel: string;
