@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
@@ -93,8 +93,8 @@ export class LocalStateManager implements StateService {
 
   /** No-op for local mode — everything is already on disk. */
   async sync(): Promise<void> {
-    // Ensure the state directory exists.
-    await mkdir(this.root, { recursive: true });
+    // Ensure the state directory exists with restrictive permissions.
+    await mkdir(this.root, { recursive: true, mode: 0o700 });
   }
 
   /** No-op — local writes are immediate, no debouncing needed. */
@@ -176,7 +176,11 @@ export class LocalStateManager implements StateService {
 
   private async writeJson(path: string, data: unknown): Promise<void> {
     const filePath = this.resolve(path);
-    await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(filePath, JSON.stringify(data, null, 2) + "\n", "utf-8");
+    const dir = dirname(filePath);
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    await writeFile(filePath, JSON.stringify(data, null, 2) + "\n", {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
   }
 }

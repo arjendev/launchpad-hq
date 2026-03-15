@@ -34,8 +34,13 @@ export function loadConfig(): ServerConfig {
 
   return {
     port,
-    // In devcontainers, bind 0.0.0.0 so sibling containers can reach HQ
-    // over the Docker bridge network (which is already isolated from the host).
+    // H6 — 0.0.0.0 in devcontainers is safe:
+    // 1. The Docker bridge network is already isolated from the host.
+    // 2. All /api/* and /preview/* routes are protected by the hqToken auth
+    //    middleware (src/server/auth/plugin.ts). Only callers with the
+    //    boot-time token can access the server.
+    // 3. WS /ws has its own token auth; /ws/daemon uses challenge-response.
+    // 4. CORS restricts browser-initiated requests to known origins.
     host: process.env.HOST || (isDevContainer() ? "0.0.0.0" : "127.0.0.1"),
     isDev,
     // In dev: dist/client relative to repo root; in prod: relative to compiled server location

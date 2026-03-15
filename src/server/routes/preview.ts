@@ -87,6 +87,33 @@ export function closePreviewWsChannel(channelId: string, code?: number, reason?:
   }
 }
 
+// ── Security: port validation (M1) ───────────────────────
+
+/** Ports that must never be proxied — infrastructure services only. */
+const BLOCKED_PREVIEW_PORTS = new Set([
+  22,    // SSH
+  25,    // SMTP
+  53,    // DNS
+  111,   // rpcbind
+  135,   // MSRPC
+  139,   // NetBIOS
+  445,   // SMB
+  1433,  // MSSQL
+  1521,  // Oracle DB
+  3306,  // MySQL
+  5432,  // PostgreSQL
+  6379,  // Redis
+  9200,  // Elasticsearch
+  27017, // MongoDB
+]);
+
+/** Returns true if the port is valid for preview proxying. */
+function isValidPreviewPort(port: number): boolean {
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) return false;
+  if (BLOCKED_PREVIEW_PORTS.has(port)) return false;
+  return true;
+}
+
 // ── Plugin ───────────────────────────────────────────────
 
 async function previewPlugin(fastify: FastifyInstance) {
@@ -206,10 +233,10 @@ async function previewPlugin(fastify: FastifyInstance) {
         });
       }
       const body = request.body as { port?: number } | undefined;
-      if (body?.port !== undefined && (!Number.isInteger(body.port) || body.port < 1024 || body.port > 65535)) {
+      if (body?.port !== undefined && !isValidPreviewPort(body.port)) {
         return reply.status(400).send({
           error: "bad_request",
-          message: "port must be an integer between 1024 and 65535",
+          message: "port must be an integer between 1024 and 65535, and not a well-known infrastructure port",
         });
       }
       const sent = registry.sendToDaemon(daemon.daemonId, {
@@ -287,6 +314,14 @@ async function previewPlugin(fastify: FastifyInstance) {
         return reply.status(503).send({
           error: "no_preview",
           message: "No preview configured for this project",
+        });
+      }
+
+      // M1 — Validate the preview port is in a safe range
+      if (!isValidPreviewPort(daemon.previewPort)) {
+        return reply.status(403).send({
+          error: "forbidden_port",
+          message: `Preview port ${daemon.previewPort} is blocked for security reasons`,
         });
       }
 
@@ -390,7 +425,7 @@ function waitForResponse(requestId: string): Promise<PreviewProxyResponseMessage
 }
 
 // Exported for testing
-export { pendingRequests, wsChannels, PROXY_TIMEOUT_MS };
+export { pendingRequests, wsChannels, PROXY_TIMEOUT_MS, isValidPreviewPort, BLOCKED_PREVIEW_PORTS };
 
 export default fp(previewPlugin, {
   name: "preview",

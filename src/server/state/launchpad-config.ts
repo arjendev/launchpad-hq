@@ -51,8 +51,11 @@ export async function saveLaunchpadConfig(
   configPath?: string,
 ): Promise<void> {
   const path = configPath ?? CONFIG_PATH;
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFile(path, JSON.stringify(config, null, 2) + "\n", {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
 }
 
 /**
@@ -86,13 +89,16 @@ export async function saveBootstrapConfig(
   configPath?: string,
 ): Promise<void> {
   const path = configPath ?? CONFIG_PATH;
-  await mkdir(dirname(path), { recursive: true });
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const data: BootstrapConfig = {
     version: 1,
     stateMode: bootstrap.stateMode,
     ...(bootstrap.stateRepo ? { stateRepo: bootstrap.stateRepo } : {}),
   };
-  await writeFile(path, JSON.stringify(data, null, 2) + "\n", "utf-8");
+  await writeFile(path, JSON.stringify(data, null, 2) + "\n", {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
 }
 
 export { CONFIG_PATH as LAUNCHPAD_CONFIG_PATH };

@@ -42,8 +42,9 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
    */
   fastify.get("/api/settings", async () => {
     // fastify.launchpadConfig is already resolved from the right source at boot
-    // and kept up-to-date by PUT. Return it directly, including session token for WS auth.
-    return { ...fastify.launchpadConfig, sessionToken: fastify.sessionToken };
+    // and kept up-to-date by PUT. Return it directly.
+    // NOTE: sessionToken is NOT included here — the client gets it from the URL query param.
+    return { ...fastify.launchpadConfig };
   });
 
   /** Validate a GitHub repo exists and user has write access. */

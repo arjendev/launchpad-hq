@@ -40,6 +40,17 @@ async function websocketPlugin(fastify: FastifyInstance) {
       return;
     }
 
+    // H3 — Origin validation: only allow known origins for browser WS connections
+    const origin = request.headers.origin;
+    if (origin) {
+      const allowed = isAllowedOrigin(origin, fastify);
+      if (!allowed) {
+        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+    }
+
     // Authenticate: require valid session token via query param or Sec-WebSocket-Protocol header
     const queryToken = url.searchParams.get("token");
     const protocolHeader = request.headers["sec-websocket-protocol"];
@@ -115,6 +126,45 @@ async function websocketPlugin(fastify: FastifyInstance) {
     }
     wss.close();
   });
+}
+
+/**
+ * H3 — Check if a WebSocket Origin header is from a known/allowed host.
+ * Allows localhost (any port), 127.0.0.1 (any port), and the active tunnel URL.
+ */
+function isAllowedOrigin(origin: string, fastify: FastifyInstance): boolean {
+  try {
+    const parsed = new URL(origin);
+    const hostname = parsed.hostname;
+
+    // Allow localhost and loopback on any port
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return true;
+    }
+
+    // Allow the active tunnel URL origin if configured
+    const tunnelManager = (fastify as unknown as Record<string, unknown>).tunnelManager as
+      | { getShareUrl?: () => string | null }
+      | undefined;
+    if (tunnelManager?.getShareUrl) {
+      const shareUrl = tunnelManager.getShareUrl();
+      if (shareUrl) {
+        try {
+          const tunnelParsed = new URL(shareUrl);
+          if (parsed.hostname === tunnelParsed.hostname) {
+            return true;
+          }
+        } catch {
+          // invalid tunnel URL — skip
+        }
+      }
+    }
+
+    return false;
+  } catch {
+    // Malformed origin — reject
+    return false;
+  }
 }
 
 export default fp(websocketPlugin, {

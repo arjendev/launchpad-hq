@@ -3,6 +3,7 @@
 import { existsSync } from "node:fs";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
 import fastifyStatic from "@fastify/static";
 
 import { loadConfig } from "./config.js";
@@ -31,6 +32,7 @@ import selfDaemonPlugin from "./self-daemon/plugin.js";
 import selfDaemonRoutes from "./routes/self-daemon.js";
 import tunnelPlugin from "./routes/tunnel.js";
 import previewRoutes from "./routes/preview.js";
+import authPlugin from "./auth/plugin.js";
 
 const config = loadConfig();
 
@@ -45,13 +47,50 @@ const server = Fastify({
 
 // --- Plugins ---
 
-// CORS: allow Vite dev server origin in development
-if (config.isDev) {
-  await server.register(cors, {
-    origin: config.corsOrigin,
-    credentials: true,
-  });
-}
+// CORS: restrict origins to localhost + active tunnel URL in all modes
+await server.register(cors, {
+  origin: (origin, cb) => {
+    // No origin = non-browser request (curl, server-to-server) — allow
+    if (!origin) return cb(null, true);
+    try {
+      const parsed = new URL(origin);
+      const host = parsed.hostname;
+      // Allow localhost / loopback on any port
+      if (host === "localhost" || host === "127.0.0.1") {
+        return cb(null, true);
+      }
+      // Allow active tunnel URL origin
+      if (server.tunnelManager) {
+        const shareUrl = server.tunnelManager.getShareUrl?.();
+        if (shareUrl) {
+          try {
+            const tunnelHost = new URL(shareUrl).hostname;
+            if (host === tunnelHost) return cb(null, true);
+          } catch { /* bad tunnel URL */ }
+        }
+      }
+    } catch { /* malformed origin */ }
+    cb(new Error("CORS: origin not allowed"), false);
+  },
+  credentials: true,
+});
+
+// L1 — Security headers via @fastify/helmet
+await server.register(helmet, {
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],    // Vite injects inline scripts
+      styleSrc: ["'self'", "'unsafe-inline'"],      // Mantine uses inline styles
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "ws:", "wss:"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],                   // equivalent to X-Frame-Options: DENY
+    },
+  },
+  crossOriginEmbedderPolicy: false,                 // allow loading cross-origin resources
+});
 
 // Static file serving: serve built client assets in production
 if (!config.isDev && existsSync(config.clientDistPath)) {
@@ -73,6 +112,10 @@ if (!config.isDev && existsSync(config.clientDistPath)) {
 // --- WebSocket ---
 
 await server.register(websocket);
+
+// --- Auth (depends on websocket for sessionToken) ---
+
+await server.register(authPlugin);
 
 // --- Terminal relay (depends on websocket) ---
 
@@ -126,7 +169,7 @@ async function start() {
   try {
     await server.listen({ port: config.port, host: config.host });
     console.log(
-      `🚀 launchpad-hq running on http://${config.host}:${config.port} (${config.isDev ? "dev" : "production"})`,
+      `🚀 launchpad-hq running on http://${config.host}:${config.port}?token=${server.sessionToken} (${config.isDev ? "dev" : "production"})`,
     );
 
     // Auto-start tunnel if --tunnel flag was passed (non-blocking)
