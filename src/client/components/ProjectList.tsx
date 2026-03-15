@@ -17,6 +17,8 @@ import { useDashboard, useRemoveProject, useInboxCount, useRegenerateDaemonToken
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { AddProjectWizard } from "./AddProjectWizard.js";
 import { DaemonSetupInstructions } from "./DaemonSetupInstructions.js";
+import { PreviewButton } from "./PreviewButton.js";
+import { usePreviewList, usePreviewWebSocket } from "../services/preview-hooks.js";
 import type { DashboardProject } from "../services/types.js";
 
 function statusColor(project: DashboardProject): string {
@@ -59,16 +61,26 @@ function ProjectItem({
   onSelect,
   onRemove,
   onRegenerate,
+  previewPort,
+  previewDetectedFrom,
 }: {
   project: DashboardProject;
   selected: boolean;
   onSelect: () => void;
   onRemove: () => void;
   onRegenerate: () => void;
+  previewPort?: number;
+  previewDetectedFrom?: string;
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const { data: inboxData } = useInboxCount(project.owner, project.repo);
   const unread = inboxData?.unread ?? 0;
+  const projectId = `${project.owner}/${project.repo}`;
+  const detectionLabel = previewDetectedFrom
+    ? previewDetectedFrom.includes("vite") ? "Vite"
+      : previewDetectedFrom.includes("next") ? "Next.js"
+      : previewDetectedFrom
+    : null;
 
   return (
     <UnstyledButton
@@ -129,10 +141,22 @@ function ProjectItem({
                 {workStateLabel(project.workState)}
               </Badge>
             )}
+            {previewPort && (
+              <Badge
+                size="xs"
+                variant="light"
+                color="teal"
+                title={previewDetectedFrom ? `Detected from ${previewDetectedFrom}` : undefined}
+              >
+                Preview: {previewPort}{detectionLabel ? ` (${detectionLabel})` : ""}
+              </Badge>
+            )}
           </Group>
         </Box>
 
-        <Menu shadow="md" width={220} position="bottom-end">
+        <Group gap={2} wrap="nowrap">
+          <PreviewButton projectId={projectId} projectName={`${project.owner}/${project.repo}`} />
+          <Menu shadow="md" width={220} position="bottom-end">
           <Menu.Target>
             <ActionIcon
               variant="subtle"
@@ -178,6 +202,7 @@ function ProjectItem({
             )}
           </Menu.Dropdown>
         </Menu>
+        </Group>
       </Group>
     </UnstyledButton>
   );
@@ -194,6 +219,13 @@ export function ProjectList() {
     repo: string;
     token: string;
   } | null>(null);
+
+  // Preview data — build a map of projectId → PreviewEntry for badge display
+  usePreviewWebSocket();
+  const { data: previews } = usePreviewList();
+  const previewMap = new Map(
+    (previews ?? []).map((p) => [p.projectId, p]),
+  );
 
   const handleRegenerate = (owner: string, repo: string) => {
     regenerateToken.mutate(
@@ -249,6 +281,7 @@ export function ProjectList() {
         const isSelected =
           selectedProject?.owner === project.owner &&
           selectedProject?.repo === project.repo;
+        const previewEntry = previewMap.get(key);
 
         return (
           <ProjectItem
@@ -263,6 +296,8 @@ export function ProjectList() {
               })
             }
             onRegenerate={() => handleRegenerate(project.owner, project.repo)}
+            previewPort={previewEntry?.port}
+            previewDetectedFrom={previewEntry?.detectedFrom}
           />
         );
       })}

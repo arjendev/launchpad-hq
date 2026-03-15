@@ -463,6 +463,24 @@ export interface TunnelQrResponse {
   qrDataUrl: string;
 }
 
+// ── Preview types (match server /api/preview routes) ────────────────────────
+
+export interface PreviewEntry {
+  projectId: string;
+  port: number;
+  autoDetected: boolean;
+  detectedFrom?: string;
+}
+
+export interface PreviewState extends PreviewEntry {
+  available: boolean;
+}
+
+export interface PreviewQrResponse {
+  previewUrl: string;
+  qrDataUrl: string;
+}
+
 // ── Settings (LaunchpadConfig) ──────────────────────────────────────────────
 
 export interface LaunchpadConfig {
