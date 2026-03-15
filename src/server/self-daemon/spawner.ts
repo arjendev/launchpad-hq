@@ -131,6 +131,7 @@ export class SelfDaemonSpawner {
     const execArgv = this.entryPath.endsWith(".ts")
       ? ["--import", "tsx"]
       : [];
+    execArgv.push("--no-warnings=ExperimentalWarning");
 
     const child = fork(this.entryPath, [], {
       env: {
