@@ -23,6 +23,7 @@ import {
 import type { AggregatedSession, AggregatedSessionStatus } from "../services/types.js";
 import { DEFAULT_SESSION_ACTIVITY } from "../services/types.js";
 import type { SessionActivity } from "../services/types.js";
+import { DaemonInfoBar } from "./DaemonInfoBar.js";
 
 // ── Helpers ────────────────────────────────────────────
 
@@ -290,6 +291,8 @@ export function SessionList() {
   return (
     <Stack gap={0} h="100%">
       <Text size="xs" fw={600} p="xs" pb={4}>Sessions</Text>
+
+      <DaemonInfoBar />
 
       {/* Session type toggle + action buttons */}
       <Stack gap={4} px="xs" pt="xs">

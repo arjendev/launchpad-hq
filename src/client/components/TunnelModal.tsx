@@ -13,7 +13,6 @@ import {
 } from "@mantine/core";
 import { IconCopy, IconCheck, IconPlugConnected, IconPlugConnectedX } from "@tabler/icons-react";
 import { useTunnelStatus, useTunnelQr, useStartTunnel, useStopTunnel } from "../services/hooks.js";
-import { usePreviewList, buildPreviewUrl } from "../services/preview-hooks.js";
 
 interface TunnelModalProps {
   opened: boolean;
@@ -29,8 +28,6 @@ export function TunnelModal({ opened, onClose }: TunnelModalProps) {
   const { data: qr, isLoading: qrLoading } = useTunnelQr(isRunning && opened);
   const startMutation = useStartTunnel();
   const stopMutation = useStopTunnel();
-  const { data: previews } = usePreviewList();
-
   const handleStart = () => startMutation.mutate();
   const handleStop = () => stopMutation.mutate();
 
@@ -135,23 +132,6 @@ export function TunnelModal({ opened, onClose }: TunnelModalProps) {
                   )}
                 </CopyButton>
               </Group>
-            )}
-
-            {/* Active project previews */}
-            {previews && previews.length > 0 && (
-              <Stack gap="xs" mt="xs">
-                <Text size="xs" fw={500} c="dimmed">
-                  Project previews accessible at:
-                </Text>
-                {previews.map((p) => {
-                  const url = buildPreviewUrl(tunnel ?? undefined, p.projectId);
-                  return url ? (
-                    <Text key={p.projectId} size="xs" ff="monospace" c="dimmed" truncate>
-                      {p.projectId} → {url}
-                    </Text>
-                  ) : null;
-                })}
-              </Stack>
             )}
 
             <Button
