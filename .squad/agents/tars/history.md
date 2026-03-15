@@ -253,3 +253,9 @@ Cooper groomed onboarding wizard epic and created 7 GitHub issues assigned acros
 - **#45 (P0, independent)**: Fix — DevTunnel errors should not crash server (default error listener, logger passthrough)
 
 #45 is your top priority — ship it independently first. It's a real bug fix with no dependencies. Then tackle #44 after Brand finishes #40 (wizard framework). Full context in `.squad/decisions.md`. Architecture: new `LaunchpadConfig` layer at `~/.launchpad/config.json`, wizard runs in terminal before server boot.
+
+### 2026-03-14: Issue #45 — DevTunnel Crash Fix (PR #47)
+- **Root cause**: TunnelManager had no default `error` event listener, so Node.js EventEmitter would throw unhandled errors and crash the process. Additionally, `CLI_NOT_FOUND` threw without calling `handleError()`, leaving the API state stale.
+- **Key fixes**: (1) Default `error` listener in TunnelManager constructor logs instead of crashing. (2) `handleError()` called before throw on CLI_NOT_FOUND. (3) New `AUTH_EXPIRED` error code with stderr pattern detection. (4) `tunnelErrorGuidance()` maps error codes to actionable user messages. (5) Plugin uses `getTunnelManager({ logger })` with try/catch. (6) Startup auto-start is non-blocking (`.then()` not `await`).
+- **Testing**: 10 new unit tests in `src/server/__tests__/tunnel.test.ts`; all 774 tests pass.
+- **Pattern**: EventEmitter classes in this project MUST have a default `error` listener to prevent unhandled crashes. This is now the established pattern.
