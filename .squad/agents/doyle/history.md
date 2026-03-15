@@ -61,3 +61,9 @@ The integration phase unlocked Phase 2 work with confidence. All infrastructure 
 - **No fixes needed:** All routes and event handling worked correctly.
 
 
+### 2026-03-15: Onboarding E2E tests
+- **Test count:** 899 total (881 existing + 18 new E2E). All pass.
+- **Test file:** `tests/e2e/onboarding.spec.ts` — Playwright browser tests for the full onboarding system.
+- **Coverage:** 4 test groups: (1) Onboarding wizard — stepper renders 4 steps, local/git mode switching, repo validation (empty fields disabled, valid repo validates), back navigation, copilot SDK/CLI descriptions, model picker with dynamic API options, tunnel on-demand/always options, full wizard completion flow. (2) API config persistence — PUT /api/settings writes correct values to ~/.launchpad/config.json (stateMode, copilot.defaultSessionType, copilot.defaultModel, tunnel.mode, onboardingComplete, stateRepo for git mode), GET reflects updates, invalid stateMode returns 400. (3) Settings page — loads with current config, changing copilot preference persists immediately via API, back-to-dashboard navigation. (4) Re-onboarding — POST /api/onboarding/reset clears onboardingComplete, GET /api/onboarding/status confirms reset, wizard re-accessible.
+- **Key pattern:** `resetToDefaults()` helper PUTs a clean local-mode config before each test to prevent cross-test contamination. Mantine Stepper steps identified via `getByRole("button")` to avoid ambiguous text matches. Model dropdown options queried via `[role="option"]` since Mantine Select uses combobox pattern with server-provided model list.
+- **No bugs found:** All onboarding routes, settings endpoints, wizard UI, and config persistence work correctly.
