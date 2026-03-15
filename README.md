@@ -4,8 +4,6 @@
 
 Track all your projects, every Copilot session, every tool call — from one dashboard.
 
-Track all your projects, every Copilot session, every tool call — from one dashboard.
-
 Today it's about visibility, productivity and peace of mind. Tomorrow, we'll add Context Hub — where your context, skills and tools follow every agent safely, everywhere.
 
 ![Launchpad HQ Overview](overview.png)

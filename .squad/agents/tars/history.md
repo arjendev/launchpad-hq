@@ -303,3 +303,11 @@ Cooper groomed onboarding wizard epic and created 7 GitHub issues assigned acros
 - **Changes**: `preview-detect.ts` — logs project path, each devcontainer.json candidate (found/not found), parsed forwardPorts, package.json scripts examined, port flag/framework matches, port scan results, final outcome. `index.ts` — logs explicit vs auto-detect decision path and detection result. `preview.ts` — logs preview-config sent to HQ and incoming proxy requests.
 - **Style**: `🔍 Preview detect:` for detection, `📡 Preview proxy:` for proxy events.
 - **Verification**: Typecheck clean, build clean, all 969 tests pass.
+
+### 2026-03-16: Daemon Hardening — H4 & H5 (Issue #61, Phase 2)
+- **H4 — Token redaction**: After reading `--token` in `src/cli.ts`, immediately set `process.title = 'launchpad-hq daemon'` to hide the token from `ps aux`. One-line change, zero risk.
+- **H5 — Auth handshake timeout**: Added 15s timeout (`AUTH_HANDSHAKE_TIMEOUT_MS`) in `DaemonWsHandler.handleConnection()`. Pending connections that don't complete challenge-nonce auth are closed with `WS_CLOSE_AUTH_TIMEOUT` (4002). Timer cleared on: successful auth, disconnect, rejection, cleanup.
+- **New constants**: `WS_CLOSE_AUTH_TIMEOUT = 4002`, `AUTH_HANDSHAKE_TIMEOUT_MS = 15_000` in `src/shared/constants.ts`
+- **PendingConnection** interface extended with `authTimer` field to track per-connection timeouts.
+- **Tests**: 4 new tests using `vi.useFakeTimers()` — timeout fires, timeout cancelled on auth success, cleanup clears timers, disconnect clears timers. Plus 1 H4 process.title test.
+- **Verification**: Typecheck clean (pre-existing ws/plugin.ts error not ours), 990/990 tests pass.
