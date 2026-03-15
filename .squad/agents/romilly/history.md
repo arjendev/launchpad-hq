@@ -292,3 +292,15 @@ Cooper groomed onboarding wizard epic and created 7 GitHub issues assigned acros
 - **#40 (P0, shared with Brand)**: First-launch onboarding wizard core framework — Wire wizard into `src/cli.ts` before server import. Create `LaunchpadConfig` schema + parsing. Wizard runs in terminal, collects choices, writes config, server boots normally.
 
 Dependencies: #40 is P0 blocker for wizard steps #41–#44 owned by Brand/TARS. #39 should complete in parallel or before #41. Full context: `.squad/decisions.md`. Architecture: new `LaunchpadConfig` persisted at `~/.launchpad/config.json` (distinct from ServerConfig/ProjectConfig), read at boot before plugins load. Implementation order: #45 (TARS crash fix) → (#39+#40 parallel) → (#41–#44 steps).
+
+### 2026-03-15: LaunchpadConfig routed through state repo in git mode
+- **Directive from Arjen:** "depending on settings everything locally or everything in repo." When stateMode is "git", ALL config including LaunchpadConfig must go to the state repo — not just ProjectConfig/UserPreferences/EnrichmentData.
+- **Architecture:** Introduced `BootstrapConfig` type (version + stateMode + stateRepo) — the only thing that stays in `~/.launchpad/config.json` in git mode. Full `LaunchpadConfig` (copilot prefs, tunnel mode, model, onboarding status) stored as `launchpad-config.json` in the state repo.
+- **StateService interface:** Added `getLaunchpadConfig()` and `saveLaunchpadConfig()` to the interface. Both `GitStateManager` and `LocalStateManager` implement them.
+- **Plugin boot flow:** After syncing the state service, the plugin resolves the full config by merging bootstrap fields (stateMode, stateRepo from local) with the rest from the state repo. `fastify.launchpadConfig` is authoritative at runtime.
+- **Settings routes:** GET reads from `fastify.launchpadConfig` (already resolved at boot). PUT writes to the appropriate backend: state repo + bootstrap locally in git mode, full file locally in local mode. Hot-swap on stateMode change migrates launchpad config too.
+- **Migration:** When switching local→git, the full LaunchpadConfig is now included in the state snapshot that gets migrated to the git backend.
+- **New helpers:** `loadBootstrapConfig()` and `saveBootstrapConfig()` in `launchpad-config.ts` for reading/writing the minimal local file.
+- **Tests:** 908 passing. Added 8 new tests for bootstrap config round-tripping, launchpad-config.json in GitStateManager (read/write/sync), and GET settings endpoint.
+- **Key insight:** Bootstrap fields must ALWAYS come from local — you can't bootstrap from git without knowing where git is. The merge strategy is: defaults ← remote ← bootstrap overrides.
+- **Commit:** 9c1b8f6
