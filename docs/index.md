@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Launchpad HQ
   text: HQ for your AI-powered dev fleet.
-  tagline: "Track all your projects, every Copilot session, every tool call — from one dashboard. Today it's about productivity and visibility. Soon, every agent gets your context, your tools, your MCP servers — automatically."
+  tagline: "Track all your projects, every Copilot session, every tool call — from one dashboard.\n\nToday it's about productivity and visibility. Tomorrow, every agent gets your context, your tools, your MCP servers — automatically, but you are in control."
   actions:
     - theme: brand
       text: Get Started
@@ -26,6 +26,9 @@ features:
   - icon: 📱
     title: Remote Access via Dev Tunnels
     details: Open your dashboard from your phone or tablet. QR code scan, instant access. Check on your fleet from the bus.
+  - icon: 🖼️
+    title: App Preview Proxy
+    details: See your running apps from the dashboard. Live previews of what your agents are building.
 ---
 
 <style>
@@ -42,8 +45,6 @@ features:
 🔌 **MCP Server Injection** — Configure tools in HQ, every agent across every project gets them automatically. One config, fleet-wide tooling.
 
 📊 **Token Usage & Observability** — Know where your AI spend goes. Track token usage per session, per project, per model.
-
-🖼️ **App Preview Proxy** — See your running apps from the dashboard. Live previews of what your agents are building.
 
 </div>
 

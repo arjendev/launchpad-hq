@@ -2,7 +2,9 @@
 
 > **HQ for your AI-powered dev fleet.**
 
-See every Copilot session, every project, every tool call — from one dashboard. Today it's visibility. Soon, every agent gets your context, your tools, your MCP servers — automatically.
+Track all your projects, every Copilot session, every tool call — from one dashboard.
+
+Today it's about productivity and visibility. Tomorrow, every agent gets your context, your tools, your MCP servers — automatically, but you are in control.
 
 <!-- TODO: add screenshot -->
 
@@ -42,6 +44,7 @@ Browser ←ws→ HQ Server ←ws→ Daemon(s)
 - **Terminal relay** — Full xterm.js terminal takeover via the daemon
 - **Settings UI** — Configure state mode, Copilot preferences, models, and tunnels
 - **Onboarding wizard** — Interactive CLI setup on first run
+- **App preview proxy** — See running apps from the dashboard
 
 ---
 
@@ -51,7 +54,6 @@ We're building toward a future where HQ doesn't just observe your AI fleet — i
 
 - 🔌 **MCP server injection** — Configure tools in HQ, every agent gets them automatically ([#59](https://github.com/arjendev/launchpad-hq/issues/59))
 - 📊 **Token usage & observability** — Know where your AI spend goes ([#60](https://github.com/arjendev/launchpad-hq/issues/60))
-- 🖼️ **App preview proxy** — See running apps from the dashboard
 
 For the full vision, see [VISION.md](./VISION.md).
 

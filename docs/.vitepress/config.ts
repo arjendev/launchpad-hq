@@ -4,6 +4,7 @@ export default defineConfig({
   title: 'Launchpad HQ',
   description: 'Command and control center for managing multiple projects',
   base: '/launchpad-hq/',
+  appearance: 'dark',
   vite: {
     server: {
       host: true,
