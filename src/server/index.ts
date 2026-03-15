@@ -12,6 +12,7 @@ import githubDataRoutes from "./routes/github-data.js";
 import githubAuth from "./github/plugin.js";
 import githubGraphQLPlugin from "./github/graphql-plugin.js";
 import { GitHubAuthError } from "./github/auth.js";
+import { TunnelError, tunnelErrorGuidance } from "./tunnel.js";
 import statePlugin from "./state/plugin.js";
 import cachePlugin from "./cache/plugin.js";
 import websocket from "./ws/plugin.js";
@@ -25,6 +26,7 @@ import terminalRelayPlugin from "./terminal-relay/plugin.js";
 import terminalRoutes from "./routes/terminals.js";
 import copilotSessionRoutes from "./routes/copilot-sessions.js";
 import inboxRoutes from "./routes/inbox.js";
+import settingsRoutes from "./routes/settings.js";
 import selfDaemonPlugin from "./self-daemon/plugin.js";
 import selfDaemonRoutes from "./routes/self-daemon.js";
 import tunnelPlugin from "./routes/tunnel.js";
@@ -95,6 +97,7 @@ await server.register(daemonRoutes);
 await server.register(terminalRoutes);
 await server.register(copilotSessionRoutes);
 await server.register(inboxRoutes);
+await server.register(settingsRoutes);
 
 // --- Self-daemon (spawns HQ's own daemon as a child process) ---
 
@@ -114,19 +117,24 @@ async function start() {
       `🚀 launchpad-hq running on http://${config.host}:${config.port} (${config.isDev ? "dev" : "production"})`,
     );
 
-    // Auto-start tunnel if --tunnel flag was passed
+    // Auto-start tunnel if --tunnel flag was passed (non-blocking)
     if (config.tunnel) {
-      try {
-        const info = await server.tunnelManager.start(config.port);
-        console.log(`🔗 Dev tunnel active: ${info.url}`);
-        const shareUrl = server.tunnelManager.getShareUrl();
-        if (shareUrl) {
-          console.log(`📱 Share URL: ${shareUrl}`);
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(`⚠️  Tunnel failed to start: ${message}`);
-      }
+      server.tunnelManager.start(config.port).then(
+        (info) => {
+          console.log(`🔗 Dev tunnel active: ${info.url}`);
+          const shareUrl = server.tunnelManager.getShareUrl();
+          if (shareUrl) {
+            console.log(`📱 Share URL: ${shareUrl}`);
+          }
+        },
+        (err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(`⚠️  Tunnel failed to start: ${message}`);
+          if (err instanceof TunnelError) {
+            console.warn(`💡 ${tunnelErrorGuidance(err)}`);
+          }
+        },
+      );
     }
   } catch (err) {
     if (err instanceof GitHubAuthError) {

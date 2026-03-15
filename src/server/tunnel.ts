@@ -43,17 +43,36 @@ export interface TunnelManagerOptions {
 
 // ── Errors ─────────────────────────────────────────────────
 
+export type TunnelErrorCode =
+  | "CLI_NOT_FOUND"
+  | "AUTH_EXPIRED"
+  | "STARTUP_TIMEOUT"
+  | "PROCESS_ERROR";
+
 export class TunnelError extends Error {
   constructor(
     message: string,
-    public readonly code:
-      | "CLI_NOT_FOUND"
-      | "STARTUP_TIMEOUT"
-      | "PROCESS_ERROR",
+    public readonly code: TunnelErrorCode,
     public readonly cause?: unknown,
   ) {
     super(message);
     this.name = "TunnelError";
+  }
+}
+
+/**
+ * Returns a user-actionable guidance message for a given tunnel error.
+ */
+export function tunnelErrorGuidance(err: TunnelError): string {
+  switch (err.code) {
+    case "CLI_NOT_FOUND":
+      return "Install the devtunnel CLI: https://aka.ms/devtunnels/install";
+    case "AUTH_EXPIRED":
+      return "Run `devtunnel user login` to authenticate";
+    case "STARTUP_TIMEOUT":
+      return "The devtunnel process did not produce a URL in time. Check network connectivity or run `devtunnel user login` to re-authenticate";
+    case "PROCESS_ERROR":
+      return "The devtunnel process crashed. Run `devtunnel user login` to authenticate, or check `devtunnel host -p <port>` manually";
   }
 }
 
@@ -82,6 +101,15 @@ export class TunnelManager extends EventEmitter {
     this.logger = options.logger;
     this.startupTimeoutMs = options.startupTimeoutMs ?? 30_000;
     this.cliBinary = options.cliBinary ?? "devtunnel";
+
+    // Default error listener prevents unhandled 'error' event crashes (Node.js
+    // EventEmitter throws if 'error' is emitted with zero listeners).
+    this.on("error", (err: TunnelError) => {
+      this.logger?.warn(
+        { err: err.message, code: err.code },
+        `Tunnel error: ${err.message}`,
+      );
+    });
   }
 
   // ── Public API ─────────────────────────────────────────
@@ -108,10 +136,12 @@ export class TunnelManager extends EventEmitter {
 
     const cliReady = await this.isCliAvailable();
     if (!cliReady) {
-      throw new TunnelError(
+      const err = new TunnelError(
         "devtunnel CLI not found. Install it via: https://aka.ms/devtunnels/install",
         "CLI_NOT_FOUND",
       );
+      this.handleError(err);
+      throw err;
     }
 
     this.setStatus("starting");
@@ -236,7 +266,8 @@ export class TunnelManager extends EventEmitter {
         if (this.status === "starting") {
           // Never reached "running" — reject the start() promise
           const msg = `devtunnel exited during startup (code=${code}, signal=${signal}). stderr: ${stderrBuf}`;
-          const err = new TunnelError(msg, "PROCESS_ERROR");
+          const errorCode = isAuthError(stderrBuf) ? "AUTH_EXPIRED" : "PROCESS_ERROR";
+          const err = new TunnelError(msg, errorCode);
           this.handleError(err);
           reject(err);
         } else {
@@ -336,6 +367,21 @@ export class TunnelManager extends EventEmitter {
       this.process = null;
     }
   }
+}
+
+// ── Auth error detection ───────────────────────────────────
+
+const AUTH_ERROR_PATTERNS = [
+  /login/i,
+  /auth/i,
+  /unauthorized/i,
+  /token.*expired/i,
+  /not logged in/i,
+  /credentials/i,
+];
+
+function isAuthError(stderr: string): boolean {
+  return AUTH_ERROR_PATTERNS.some((pattern) => pattern.test(stderr));
 }
 
 // ── Singleton factory ──────────────────────────────────────
