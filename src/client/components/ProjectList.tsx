@@ -86,7 +86,7 @@ function ProjectItem({
     >
       <Group justify="space-between" wrap="nowrap" gap={4}>
         <Box style={{ minWidth: 0, flex: 1 }}>
-          <Group gap={6} wrap="nowrap">
+          <Group gap={6} wrap="nowrap" align="flex-start">
             <Box
               style={{
                 width: 8,
@@ -94,24 +94,34 @@ function ProjectItem({
                 borderRadius: "50%",
                 backgroundColor: `var(--mantine-color-${statusColor(project)}-6)`,
                 flexShrink: 0,
+                marginTop: 5,
               }}
               title={statusLabel(project)}
             />
-            <Text size="sm" fw={500} truncate>
-              {project.owner}/{project.repo}
-            </Text>
-            {unread > 0 && (
-              <Badge size="xs" color="red" variant="filled">
-                {unread}
-              </Badge>
-            )}
-            <Text
-              component="span"
-              size="xs"
-              title={project.daemonStatus === "online" ? "Daemon online" : "Daemon offline"}
-            >
-              {project.daemonStatus === "online" ? "🟢" : "⚫"}
-            </Text>
+            <Box style={{ minWidth: 0, flex: 1 }}>
+              <Group gap={6} wrap="wrap">
+                <Text size="sm" fw={500} style={{ wordBreak: "break-word" }}>
+                  {project.owner}/{project.repo}
+                </Text>
+                {unread > 0 && (
+                  <Badge size="xs" color="red" variant="filled">
+                    {unread}
+                  </Badge>
+                )}
+              </Group>
+              <Group gap={4} mt={2}>
+                <Text
+                  component="span"
+                  size="xs"
+                  title={project.daemonStatus === "online" ? "Daemon online" : "Daemon offline"}
+                >
+                  {project.daemonStatus === "online" ? "🟢" : "⚫"}
+                </Text>
+                <Text size="xs" c="dimmed">
+                  {project.daemonStatus === "online" ? "Online" : "Offline"}
+                </Text>
+              </Group>
+            </Box>
           </Group>
 
           <Group gap={4} mt={4}>
