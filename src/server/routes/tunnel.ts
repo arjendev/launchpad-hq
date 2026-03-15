@@ -5,8 +5,8 @@
 import type { FastifyInstance } from "fastify";
 import fp from "fastify-plugin";
 import QRCode from "qrcode";
-import { TunnelManager } from "../tunnel.js";
-import type { TunnelState } from "../tunnel.js";
+import { getTunnelManager, TunnelManager, tunnelErrorGuidance } from "../tunnel.js";
+import type { TunnelState, TunnelError } from "../tunnel.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -15,7 +15,24 @@ declare module "fastify" {
 }
 
 async function tunnelPlugin(fastify: FastifyInstance) {
-  const manager = new TunnelManager();
+  let manager: TunnelManager;
+
+  try {
+    manager = getTunnelManager({ logger: fastify.log });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    fastify.log.warn(`Tunnel plugin: TunnelManager init failed — ${message}. Tunnel features disabled.`);
+
+    // Register a no-op manager so the decorator exists and routes don't crash
+    manager = getTunnelManager();
+  }
+
+  // Log actionable guidance on tunnel errors
+  manager.on("error", (err: TunnelError) => {
+    const guidance = tunnelErrorGuidance(err);
+    fastify.log.warn(`⚠️  Tunnel error: ${err.message}`);
+    fastify.log.warn(`💡 ${guidance}`);
+  });
 
   // Broadcast tunnel state changes to WS clients
   manager.on("status-change", () => {
