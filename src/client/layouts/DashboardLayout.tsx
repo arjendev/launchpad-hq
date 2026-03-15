@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { AppShell, Flex, ScrollArea, Stack, Text, Title, Group } from "@mantine/core";
+import { AppShell, Flex, ScrollArea, Stack, Text, Title, Group, ActionIcon, Tooltip } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
+import { IconSettings2 } from "@tabler/icons-react";
+import { useNavigate } from "@tanstack/react-router";
 import { ProjectList } from "../components/ProjectList.js";
 import { SessionList } from "../components/SessionList.js";
 import { BacklogList } from "../components/BacklogList.js";
@@ -19,6 +21,7 @@ export function DashboardLayout() {
   const [mobileTab, setMobileTab] = useState<MobileTab>("projects");
   const { selectedProject } = useSelectedProject();
   const { selectedSession, selectSession, terminalOpen, closeTerminal } = useSelectedSession();
+  const navigate = useNavigate();
 
   const projectId = selectedProject
     ? `${selectedProject.owner}/${selectedProject.repo}`
@@ -37,6 +40,11 @@ export function DashboardLayout() {
           <Group h="100%" px="md" justify="space-between">
             <Title order={3}>🚀 launchpad-hq</Title>
             <Group gap="xs">
+              <Tooltip label="Settings" position="bottom" withArrow>
+                <ActionIcon variant="subtle" size="md" onClick={() => void navigate({ to: "/settings" })} aria-label="Settings">
+                  <IconSettings2 size={18} />
+                </ActionIcon>
+              </Tooltip>
               <TunnelButton />
               <ThemeToggle />
               <ConnectionStatus />
@@ -147,6 +155,11 @@ export function DashboardLayout() {
         <Group h="100%" px="xs" justify="space-between">
           <Title order={4}>🚀 launchpad</Title>
           <Group gap={4}>
+            <Tooltip label="Settings" position="bottom" withArrow>
+              <ActionIcon variant="subtle" size="md" onClick={() => void navigate({ to: "/settings" })} aria-label="Settings">
+                <IconSettings2 size={18} />
+              </ActionIcon>
+            </Tooltip>
             <TunnelButton />
             <ThemeToggle />
             <ConnectionStatus />

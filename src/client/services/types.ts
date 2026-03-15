@@ -430,3 +430,19 @@ export interface TunnelQrResponse {
   shareUrl: string;
   qrDataUrl: string;
 }
+
+// ── Settings (LaunchpadConfig) ──────────────────────────────────────────────
+
+export interface LaunchpadConfig {
+  version: 1;
+  stateMode: "local" | "git";
+  copilot: {
+    defaultSessionType: "sdk" | "cli";
+    defaultModel: string;
+  };
+  tunnel: {
+    mode: "always" | "on-demand";
+    configured: boolean;
+  };
+  onboardingComplete: boolean;
+}

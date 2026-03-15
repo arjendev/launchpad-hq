@@ -31,6 +31,7 @@ import type {
   CopilotSessionAgentResponse,
   TunnelState,
   TunnelQrResponse,
+  LaunchpadConfig,
 } from "./types.js";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -1380,6 +1381,33 @@ export function useStopTunnel() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["tunnel"] });
       void qc.invalidateQueries({ queryKey: ["tunnel-qr"] });
+    },
+  });
+}
+
+// ── Settings ────────────────────────────────────────────────────────────────
+
+/** Fetch current launchpad settings. */
+export function useSettings() {
+  return useQuery<LaunchpadConfig>({
+    queryKey: ["settings"],
+    queryFn: () => fetchJson<LaunchpadConfig>("/api/settings"),
+    staleTime: 30_000,
+  });
+}
+
+/** Update launchpad settings (partial merge). */
+export function useUpdateSettings() {
+  const qc = useQueryClient();
+  return useMutation<LaunchpadConfig, Error, Partial<LaunchpadConfig>>({
+    mutationFn: (body) =>
+      fetchJson<LaunchpadConfig>("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["settings"] });
     },
   });
 }

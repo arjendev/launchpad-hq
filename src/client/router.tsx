@@ -5,6 +5,7 @@ import {
   Outlet,
 } from "@tanstack/react-router";
 import { DashboardLayout } from "./layouts/DashboardLayout";
+import { SettingsPage } from "./pages/SettingsPage";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -16,7 +17,13 @@ const indexRoute = createRoute({
   component: DashboardLayout,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute]);
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  component: SettingsPage,
+});
+
+const routeTree = rootRoute.addChildren([indexRoute, settingsRoute]);
 
 export const router = createRouter({ routeTree });
 
