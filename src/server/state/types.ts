@@ -128,8 +128,8 @@ export function defaultLaunchpadConfig(): LaunchpadConfig {
     version: 1,
     stateMode: "local",
     copilot: {
-      defaultSessionType: "cli",
-      defaultModel: "claude-sonnet-4",
+      defaultSessionType: "sdk",
+      defaultModel: "claude-opus-4.6",
     },
     tunnel: {
       mode: "on-demand",
