@@ -378,7 +378,7 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/api/discover/repos", async (request: FastifyRequest, reply: FastifyReply) => {
     const query = request.query as DiscoverReposQuery;
     const page = Math.max(1, Number(query.page) || 1);
-    const perPage = Math.min(100, Math.max(1, Number(query.per_page) || 30));
+    const perPage = Math.min(10, Math.max(1, Number(query.per_page) || 10));
     const owner = typeof query.owner === "string" ? query.owner.trim() : "";
     const searchTerm = typeof query.q === "string" ? query.q.trim() : "";
 

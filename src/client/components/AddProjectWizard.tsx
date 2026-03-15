@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   Modal,
-  TextInput,
   Button,
   Group,
   Stack,
@@ -12,206 +11,15 @@ import {
   ActionIcon,
   Box,
   Tabs,
-  Avatar,
-  UnstyledButton,
-  Badge,
   Loader,
-  ScrollArea,
   Stepper,
 } from "@mantine/core";
-import {
-  useAddProject,
-  useDiscoverUsers,
-  useDiscoverRepos,
-} from "../services/hooks.js";
-import type { DiscoverUser, DiscoverRepo } from "../services/types.js";
+import { useAddProject } from "../services/hooks.js";
+import { RepoSearchPicker } from "./RepoSearchPicker.js";
 
 interface AddProjectWizardProps {
   opened: boolean;
   onClose: () => void;
-}
-
-/** Debounce delay for search inputs (ms). */
-const DEBOUNCE_MS = 350;
-
-// ── Step 1: Owner search → Repo selection ──────────────────────────
-
-function OwnerSearch({
-  onSelect,
-}: {
-  onSelect: (user: DiscoverUser) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [debounceTimer, setDebounceTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleChange = (val: string) => {
-    setQuery(val);
-    if (debounceTimer) clearTimeout(debounceTimer);
-    setDebounceTimer(
-      setTimeout(() => setDebouncedQuery(val.trim()), DEBOUNCE_MS),
-    );
-  };
-
-  const { data, isLoading } = useDiscoverUsers(debouncedQuery);
-  const users = data?.users ?? [];
-
-  return (
-    <Stack gap="xs">
-      <TextInput
-        label="Search GitHub users or organizations"
-        placeholder="Type a username or org…"
-        value={query}
-        onChange={(e) => handleChange(e.currentTarget.value)}
-        data-autofocus
-        rightSection={isLoading ? <Loader size="xs" /> : null}
-      />
-      {users.length > 0 && (
-        <ScrollArea.Autosize mah={260}>
-          <Stack gap={4}>
-            {users.map((u) => (
-              <UnstyledButton
-                key={u.login}
-                onClick={() => onSelect(u)}
-                p="xs"
-                style={{
-                  borderRadius: "var(--mantine-radius-sm)",
-                  border: "1px solid var(--lp-border)",
-                }}
-              >
-                <Group gap="sm" wrap="nowrap">
-                  <Avatar src={u.avatarUrl} size="sm" radius="xl" />
-                  <div>
-                    <Text size="sm" fw={500}>
-                      {u.login}
-                    </Text>
-                    <Text size="xs" c="dimmed">
-                      {u.type}
-                    </Text>
-                  </div>
-                </Group>
-              </UnstyledButton>
-            ))}
-          </Stack>
-        </ScrollArea.Autosize>
-      )}
-      {debouncedQuery.length >= 2 && !isLoading && users.length === 0 && (
-        <Text size="sm" c="dimmed" ta="center">
-          No users found
-        </Text>
-      )}
-    </Stack>
-  );
-}
-
-function RepoList({
-  owner,
-  onSelect,
-  onBack,
-}: {
-  owner: DiscoverUser;
-  onSelect: (repo: DiscoverRepo) => void;
-  onBack: () => void;
-}) {
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [debounceTimer, setDebounceTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleChange = (val: string) => {
-    setSearch(val);
-    if (debounceTimer) clearTimeout(debounceTimer);
-    setDebounceTimer(
-      setTimeout(() => setDebouncedSearch(val.trim()), DEBOUNCE_MS),
-    );
-  };
-
-  const { data, isLoading } = useDiscoverRepos(owner.login, debouncedSearch || undefined);
-  const repos = data?.repos ?? [];
-
-  return (
-    <Stack gap="xs">
-      <Group gap="xs">
-        <Button variant="subtle" size="compact-xs" onClick={onBack}>
-          ← Back
-        </Button>
-        <Group gap="xs" wrap="nowrap">
-          <Avatar src={owner.avatarUrl} size="xs" radius="xl" />
-          <Text size="sm" fw={500}>
-            {owner.login}
-          </Text>
-        </Group>
-      </Group>
-
-      <TextInput
-        placeholder="Filter repositories…"
-        value={search}
-        onChange={(e) => handleChange(e.currentTarget.value)}
-        rightSection={isLoading ? <Loader size="xs" /> : null}
-      />
-
-      {isLoading && repos.length === 0 && (
-        <Stack align="center" py="md">
-          <Loader size="sm" />
-        </Stack>
-      )}
-
-      {repos.length > 0 && (
-        <ScrollArea.Autosize mah={300}>
-          <Stack gap={4}>
-            {repos.map((r) => (
-              <UnstyledButton
-                key={r.fullName}
-                onClick={() => !r.tracked && onSelect(r)}
-                p="xs"
-                style={{
-                  borderRadius: "var(--mantine-radius-sm)",
-                  border: "1px solid var(--lp-border)",
-                  opacity: r.tracked ? 0.5 : 1,
-                  cursor: r.tracked ? "not-allowed" : "pointer",
-                }}
-              >
-                <Group justify="space-between" wrap="nowrap">
-                  <Box style={{ minWidth: 0, flex: 1 }}>
-                    <Group gap={6} wrap="nowrap">
-                      <Text size="sm" fw={500} truncate>
-                        {r.repo}
-                      </Text>
-                      {r.private && (
-                        <Badge size="xs" variant="light" color="gray">
-                          private
-                        </Badge>
-                      )}
-                      {r.tracked && (
-                        <Badge size="xs" variant="filled" color="blue">
-                          tracked
-                        </Badge>
-                      )}
-                    </Group>
-                    {r.description && (
-                      <Text size="xs" c="dimmed" lineClamp={1}>
-                        {r.description}
-                      </Text>
-                    )}
-                  </Box>
-                  {r.language && (
-                    <Text size="xs" c="dimmed">
-                      {r.language}
-                    </Text>
-                  )}
-                </Group>
-              </UnstyledButton>
-            ))}
-          </Stack>
-        </ScrollArea.Autosize>
-      )}
-
-      {!isLoading && repos.length === 0 && (
-        <Text size="sm" c="dimmed" ta="center" py="md">
-          No repositories found
-        </Text>
-      )}
-    </Stack>
-  );
 }
 
 // ── Step 2: Daemon setup instructions ──────────────────────────────
@@ -338,7 +146,6 @@ export function AddProjectWizard({
   onClose,
 }: AddProjectWizardProps) {
   const [step, setStep] = useState(0);
-  const [selectedOwner, setSelectedOwner] = useState<DiscoverUser | null>(null);
   const [createdProject, setCreatedProject] = useState<{
     owner: string;
     repo: string;
@@ -349,34 +156,25 @@ export function AddProjectWizard({
 
   const resetAndClose = () => {
     setStep(0);
-    setSelectedOwner(null);
     setCreatedProject(null);
     addProject.reset();
     onClose();
   };
 
-  const handleSelectRepo = (repo: DiscoverRepo) => {
+  const handleSelectRepo = (owner: string, repo: string) => {
     addProject.mutate(
-      { owner: repo.owner, repo: repo.repo },
+      { owner, repo },
       {
         onSuccess: (data) => {
           setCreatedProject({
-            owner: repo.owner,
-            repo: repo.repo,
+            owner,
+            repo,
             token: data.daemonToken ?? "",
           });
           setStep(1);
         },
       },
     );
-  };
-
-  const handleSelectOwner = (user: DiscoverUser) => {
-    setSelectedOwner(user);
-  };
-
-  const handleBackToSearch = () => {
-    setSelectedOwner(null);
   };
 
   return (
@@ -413,15 +211,7 @@ export function AddProjectWizard({
             </Alert>
           )}
 
-          {selectedOwner ? (
-            <RepoList
-              owner={selectedOwner}
-              onSelect={handleSelectRepo}
-              onBack={handleBackToSearch}
-            />
-          ) : (
-            <OwnerSearch onSelect={handleSelectOwner} />
-          )}
+          <RepoSearchPicker onSelect={handleSelectRepo} showTracked />
         </Stack>
       )}
 

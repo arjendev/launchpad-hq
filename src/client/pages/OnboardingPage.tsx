@@ -12,7 +12,6 @@ import {
   Button,
   Stepper,
   ScrollArea,
-  TextInput,
   Loader,
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
@@ -36,6 +35,7 @@ import {
 } from "../services/hooks.js";
 import type { LaunchpadConfig, TunnelState } from "../services/types.js";
 import { ThemeToggle } from "../components/ThemeToggle.js";
+import { RepoSearchPicker } from "../components/RepoSearchPicker.js";
 import { useSubscription } from "../contexts/WebSocketContext.js";
 
 const AVAILABLE_MODELS = [
@@ -252,45 +252,53 @@ export function OnboardingPage() {
                           Launchpad uses your GitHub CLI authentication (<code>gh auth login</code>) to
                           access the state repository. Make sure you&apos;re logged in before selecting this option.
                         </Alert>
-                        <Group gap="xs" grow>
-                          <TextInput
-                            label="GitHub Owner / Org"
-                            placeholder="your-username"
-                            value={stateRepoOwner}
-                            onChange={(e) => { setStateRepoOwner(e.currentTarget.value); validateRepo.reset(); }}
-                            disabled={isLoading}
+                        {fullRepo ? (
+                          <Stack gap="xs">
+                            <Group gap="xs">
+                              <Text size="sm" fw={500}>Selected:</Text>
+                              <Text size="sm">{fullRepo}</Text>
+                              <Button
+                                variant="subtle"
+                                size="compact-xs"
+                                onClick={() => { setStateRepoOwner(""); setStateRepoName(""); validateRepo.reset(); }}
+                              >
+                                Change
+                              </Button>
+                            </Group>
+                            {!validateRepo.isSuccess && (
+                              <Button
+                                variant="light"
+                                onClick={handleValidateRepo}
+                                loading={validateRepo.isPending}
+                                fullWidth
+                              >
+                                Validate Repository
+                              </Button>
+                            )}
+                            {validateRepo.isSuccess && validateRepo.data.valid && (
+                              <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
+                                Repository validated — you have write access.
+                              </Alert>
+                            )}
+                            {validateRepo.isSuccess && !validateRepo.data.valid && (
+                              <Alert color="red" variant="light" icon={<IconX size={16} />}>
+                                {validateRepo.data.error || "Validation failed."}
+                              </Alert>
+                            )}
+                            {validateRepo.isError && (
+                              <Alert color="red" variant="light" icon={<IconX size={16} />}>
+                                {validateRepo.error.message}
+                              </Alert>
+                            )}
+                          </Stack>
+                        ) : (
+                          <RepoSearchPicker
+                            onSelect={(owner, repo) => {
+                              setStateRepoOwner(owner);
+                              setStateRepoName(repo);
+                              validateRepo.reset();
+                            }}
                           />
-                          <TextInput
-                            label="Repository Name"
-                            placeholder="launchpad-state"
-                            value={stateRepoName}
-                            onChange={(e) => { setStateRepoName(e.currentTarget.value); validateRepo.reset(); }}
-                            disabled={isLoading}
-                          />
-                        </Group>
-                        <Button
-                          variant="light"
-                          onClick={handleValidateRepo}
-                          loading={validateRepo.isPending}
-                          disabled={!stateRepoOwner.trim() || !stateRepoName.trim() || isLoading}
-                          fullWidth
-                        >
-                          Validate Repository
-                        </Button>
-                        {validateRepo.isSuccess && validateRepo.data.valid && (
-                          <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
-                            Repository validated — you have write access.
-                          </Alert>
-                        )}
-                        {validateRepo.isSuccess && !validateRepo.data.valid && (
-                          <Alert color="red" variant="light" icon={<IconX size={16} />}>
-                            {validateRepo.data.error || "Validation failed."}
-                          </Alert>
-                        )}
-                        {validateRepo.isError && (
-                          <Alert color="red" variant="light" icon={<IconX size={16} />}>
-                            {validateRepo.error.message}
-                          </Alert>
                         )}
                       </>
                     )}
