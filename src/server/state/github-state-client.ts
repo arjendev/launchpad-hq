@@ -3,17 +3,22 @@ import type { GitHubFileInfo } from "./types.js";
 const API = "https://api.github.com";
 const USER_AGENT = "launchpad-hq";
 const API_VERSION = "2022-11-28";
-const STATE_REPO = "launchpad-state";
+const DEFAULT_STATE_REPO = "launchpad-state";
 
 /** Low-level client for the user's launchpad-state GitHub repo. */
 export class GitHubStateClient {
+  private readonly repoName: string;
+
   constructor(
     private readonly token: string,
     private readonly owner: string,
-  ) {}
+    repo?: string,
+  ) {
+    this.repoName = repo ?? DEFAULT_STATE_REPO;
+  }
 
   get repo(): string {
-    return STATE_REPO;
+    return this.repoName;
   }
 
   // ---- repo lifecycle -------------------------------------------------------
@@ -22,7 +27,7 @@ export class GitHubStateClient {
   async repoExists(): Promise<boolean> {
     const res = await this.request(
       "GET",
-      `/repos/${this.owner}/${STATE_REPO}`,
+      `/repos/${this.owner}/${this.repoName}`,
     );
     if (res.status === 200) return true;
     if (res.status === 404) return false;
@@ -32,7 +37,7 @@ export class GitHubStateClient {
   /** Creates the launchpad-state repo (private). */
   async createRepo(): Promise<void> {
     const res = await this.request("POST", "/user/repos", {
-      name: STATE_REPO,
+      name: this.repoName,
       description: "State store for launchpad-hq",
       private: true,
       auto_init: true, // creates initial commit so we can push files
@@ -58,7 +63,7 @@ export class GitHubStateClient {
   async readFile(path: string): Promise<GitHubFileInfo | null> {
     const res = await this.request(
       "GET",
-      `/repos/${this.owner}/${STATE_REPO}/contents/${path}`,
+      `/repos/${this.owner}/${this.repoName}/contents/${path}`,
     );
     if (res.status === 404) return null;
     if (!res.ok) throw await this.apiError("readFile", res);
@@ -90,7 +95,7 @@ export class GitHubStateClient {
 
     const res = await this.request(
       "PUT",
-      `/repos/${this.owner}/${STATE_REPO}/contents/${path}`,
+      `/repos/${this.owner}/${this.repoName}/contents/${path}`,
       body,
     );
     if (res.status !== 200 && res.status !== 201) {

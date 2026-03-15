@@ -21,9 +21,16 @@ async function statePlugin(fastify: FastifyInstance) {
   if (lpConfig.stateMode === "git") {
     // Git mode requires GitHub auth — plugin dependency guarantees it exists
     const { githubToken, githubUser } = fastify;
+
+    // Derive repo name from stateRepo config (e.g. "owner/repo" → "repo")
+    const repoName = lpConfig.stateRepo
+      ? lpConfig.stateRepo.split("/").pop()
+      : undefined;
+
     const gitManager = new GitStateManager({
       token: githubToken,
       owner: githubUser.login,
+      repo: repoName,
     });
 
     // Warm the local cache from GitHub on startup

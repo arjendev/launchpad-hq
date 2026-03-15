@@ -29,6 +29,8 @@ export interface StateManagerDeps {
 export interface StateManagerOptions {
   token: string;
   owner: string;
+  /** Override the state repo name (default: "launchpad-state"). */
+  repo?: string;
   /** Override the cache root for testing. */
   cacheRoot?: string;
   /** Inject dependencies (for testing). */
@@ -50,7 +52,7 @@ export class GitStateManager implements StateService {
       this.client = opts.deps.client;
       this.cache = opts.deps.cache;
     } else {
-      this.client = new GitHubStateClient(opts.token, opts.owner);
+      this.client = new GitHubStateClient(opts.token, opts.owner, opts.repo);
       this.cache = new LocalCache(opts.cacheRoot);
     }
   }

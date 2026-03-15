@@ -112,6 +112,8 @@ export interface LaunchpadConfig {
   version: 1;
   /** How launchpad persists state: "local" (filesystem only) or "git" (GitHub repo). */
   stateMode: "local" | "git";
+  /** GitHub repo for git-backed state (e.g. "owner/repo"). Defaults to "launchpad-state". */
+  stateRepo?: string;
   copilot: {
     defaultSessionType: "sdk" | "cli";
     defaultModel: string;
