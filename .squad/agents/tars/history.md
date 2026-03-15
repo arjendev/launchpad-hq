@@ -16,6 +16,13 @@
 - Also: `tunnelErrorGuidance()` maps error codes to user-facing messages; reuse for any CLI-wrapping module
 - Tunnel auto-start is fire-and-forget (`.then()`) — never block server boot on optional features
 
+### 2026-03-15: DevTunnel port targeting — dev vs production mode
+- Tunnel must target the frontend, not just the API server
+- Dev mode: Vite (5173) serves HTML+JS+HMR, proxies API to Fastify (3000). Tunnel → 5173
+- Production: Fastify serves both API and static client from dist/client/. Tunnel → Fastify port
+- Added `tunnelPort` to `ServerConfig` for auto-detection; used in index.ts, settings.ts, tunnel.ts routes
+- `VITE_PORT` env var overrides dev port if Vite is on a non-standard port
+
 ### 2026-03-13: GitHub Auth Module Structure
 - Auth module lives in `src/server/github/` with three files: `types.ts`, `auth.ts`, `plugin.ts`
 - `auth.ts` exports `getGitHubToken()`, `getCachedUser()`, `getCachedAuth()`, `clearAuthCache()`, and `GitHubAuthError`
