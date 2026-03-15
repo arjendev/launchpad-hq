@@ -15,6 +15,9 @@ export interface TrackedDaemon {
   connectedAt: number;
   lastHeartbeat: number;
   disconnectedAt?: number;
+  previewPort?: number;
+  previewAutoDetected?: boolean;
+  previewDetectedFrom?: string;
 }
 
 /** Serialisable daemon summary (no WebSocket ref) */
@@ -29,6 +32,9 @@ export interface DaemonSummary {
   disconnectedAt?: number;
   version: string;
   capabilities: string[];
+  previewPort?: number;
+  previewAutoDetected?: boolean;
+  previewDetectedFrom?: string;
 }
 
 export interface DaemonRegistryEvents {
@@ -113,6 +119,28 @@ export class DaemonRegistry extends EventEmitter {
     }
   }
 
+  /** Update preview configuration for a daemon */
+  updatePreviewConfig(
+    daemonId: string,
+    port: number,
+    autoDetected: boolean,
+    detectedFrom?: string,
+  ): void {
+    const daemon = this.daemons.get(daemonId);
+    if (!daemon) return;
+    daemon.previewPort = port;
+    daemon.previewAutoDetected = autoDetected;
+    daemon.previewDetectedFrom = detectedFrom;
+  }
+
+  /** Look up a daemon by its projectId (owner/repo) */
+  findDaemonByProjectId(projectId: string): TrackedDaemon | undefined {
+    for (const daemon of this.daemons.values()) {
+      if (daemon.info.projectId === projectId) return daemon;
+    }
+    return undefined;
+  }
+
   /** Record a heartbeat for a daemon */
   recordHeartbeat(daemonId: string): void {
     const daemon = this.daemons.get(daemonId);
@@ -170,6 +198,9 @@ export class DaemonRegistry extends EventEmitter {
       disconnectedAt: daemon.disconnectedAt,
       version: daemon.info.version,
       capabilities: daemon.info.capabilities,
+      previewPort: daemon.previewPort,
+      previewAutoDetected: daemon.previewAutoDetected,
+      previewDetectedFrom: daemon.previewDetectedFrom,
     };
   }
 }

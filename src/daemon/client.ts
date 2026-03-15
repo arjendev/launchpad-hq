@@ -254,6 +254,13 @@ export class DaemonWebSocketClient extends EventEmitter<DaemonClientEvents> {
       case 'copilot-list-sessions':
         // Handled via 'message' event by CopilotManager
         break;
+
+      case 'preview-proxy-request':
+      case 'preview-ws-open':
+      case 'preview-ws-data':
+      case 'preview-ws-close':
+        // Handled via 'message' event by PreviewProxyHandler
+        break;
     }
   }
 

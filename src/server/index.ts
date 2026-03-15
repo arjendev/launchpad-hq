@@ -31,6 +31,7 @@ import onboardingRoutes from "./routes/onboarding.js";
 import selfDaemonPlugin from "./self-daemon/plugin.js";
 import selfDaemonRoutes from "./routes/self-daemon.js";
 import tunnelPlugin from "./routes/tunnel.js";
+import previewRoutes from "./routes/preview.js";
 
 const config = loadConfig();
 
@@ -109,6 +110,10 @@ await server.register(selfDaemonRoutes);
 // --- Tunnel (Dev Tunnels integration for remote access) ---
 
 await server.register(tunnelPlugin);
+
+// --- Preview proxy (proxies app previews through daemon WS) ---
+
+await server.register(previewRoutes);
 
 // --- Lifecycle ---
 

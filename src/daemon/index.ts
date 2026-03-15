@@ -14,6 +14,8 @@ import { setupDaemonTerminal, DaemonTerminalManager } from './terminal/index.js'
 import { CopilotManager, discoverCopilotAgents } from './copilot/index.js';
 import { CliSessionManager } from './copilot-cli/index.js';
 import { logIncoming, logOutgoing } from './logger.js';
+import { PreviewProxyHandler } from './preview.js';
+import { detectPreviewPort } from './preview-detect.js';
 
 export interface DaemonProcess {
   client: DaemonWebSocketClient;
@@ -21,6 +23,7 @@ export interface DaemonProcess {
   terminalManager: DaemonTerminalManager;
   copilot: CopilotManager;
   cliSessions: CliSessionManager;
+  previewHandler: PreviewProxyHandler | null;
   shutdown: () => void;
 }
 
@@ -159,6 +162,65 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     });
   });
 
+  // --- Preview proxy handler ---
+
+  let previewHandler: PreviewProxyHandler | null = null;
+  let previewDetectTimer: ReturnType<typeof setInterval> | null = null;
+
+  function startPreview(port: number, autoDetected: boolean, detectedFrom?: 'config' | 'devcontainer' | 'port-scan' | 'package-json'): void {
+    if (previewHandler) return; // Already running
+    previewHandler = new PreviewProxyHandler({
+      client,
+      projectId: config.projectId,
+      previewPort: port,
+      autoDetected,
+      detectedFrom,
+    });
+    addCapability(daemonInfo, 'preview');
+    console.log(`🖼 Preview proxy enabled on port ${port} (${detectedFrom ?? 'config'})`);
+  }
+
+  // Preview message routing (must be registered before connection)
+  client.on('message', (msg) => {
+    if (!msg.type.startsWith('preview-')) return;
+    if (previewHandler) {
+      previewHandler.handleMessage(msg);
+    }
+  });
+
+  // On authentication: send config if explicit port, or auto-detect
+  client.on('authenticated', () => {
+    if (config.previewPort) {
+      startPreview(config.previewPort, false, 'config');
+      previewHandler!.sendConfig();
+    } else {
+      // Auto-detect on first auth, then periodically (dev server may start later)
+      void detectAndStartPreview();
+      previewDetectTimer = setInterval(() => {
+        if (!previewHandler) void detectAndStartPreview();
+      }, 30_000);
+    }
+  });
+
+  async function detectAndStartPreview(): Promise<void> {
+    try {
+      const detected = await detectPreviewPort(config.projectPath);
+      if (detected && !previewHandler) {
+        startPreview(detected.port, true, detected.source);
+        if (client.isAuthenticated) {
+          previewHandler!.sendConfig();
+        }
+        // Stop polling once we found a port
+        if (previewDetectTimer) {
+          clearInterval(previewDetectTimer);
+          previewDetectTimer = null;
+        }
+      }
+    } catch {
+      // Silent — detection is best-effort
+    }
+  }
+
   // --- Start connection ---
 
   console.log(`🚀 Daemon starting (project=${config.projectId}, hq=${config.hqUrl})`);
@@ -168,6 +230,13 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
 
   function shutdown(): void {
     console.log('\n⏏ Daemon shutting down…');
+    if (previewDetectTimer) {
+      clearInterval(previewDetectTimer);
+      previewDetectTimer = null;
+    }
+    if (previewHandler) {
+      previewHandler.cleanup();
+    }
     void copilot.stop().catch(() => {});
     void cliSessions.stop().catch(() => {});
     terminalCleanup();
@@ -176,7 +245,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     console.log('👋 Daemon stopped.');
   }
 
-  return { client, state, terminalManager, copilot, cliSessions, shutdown };
+  return { client, state, terminalManager, copilot, cliSessions, previewHandler, shutdown };
 }
 
 function addCapability(daemonInfo: DaemonInfo, capability: string): void {

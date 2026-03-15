@@ -263,6 +263,40 @@ export class DaemonWsHandler {
         this.registry.emit("copilot:plan-response" as never, this.wsToDaemonId.get(ws), msg.payload);
         break;
 
+      case "preview-config": {
+        const daemonIdForPreview = this.wsToDaemonId.get(ws) ?? msg.payload.projectId;
+        this.registry.updatePreviewConfig(
+          daemonIdForPreview,
+          msg.payload.port,
+          msg.payload.autoDetected,
+          msg.payload.detectedFrom,
+        );
+        this.broadcast("preview", {
+          type: "preview:config",
+          projectId: msg.payload.projectId,
+          port: msg.payload.port,
+          autoDetected: msg.payload.autoDetected,
+          detectedFrom: msg.payload.detectedFrom,
+        });
+        this.log.info(
+          { projectId: msg.payload.projectId, port: msg.payload.port },
+          "Preview config updated",
+        );
+        break;
+      }
+
+      case "preview-proxy-response":
+        this.registry.emit("preview:proxy-response" as never, msg.payload);
+        break;
+
+      case "preview-ws-data":
+        this.registry.emit("preview:ws-data" as never, msg.payload);
+        break;
+
+      case "preview-ws-close":
+        this.registry.emit("preview:ws-close" as never, msg.payload);
+        break;
+
       case "auth-response":
         // Should not arrive after auth; ignore
         break;

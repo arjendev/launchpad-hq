@@ -14,6 +14,7 @@ export interface DaemonConfig {
   projectId: string;
   projectName: string;
   projectPath: string;
+  previewPort?: number;
 }
 
 interface ConfigFile {
@@ -23,6 +24,9 @@ interface ConfigFile {
     id?: string;
     name?: string;
     path?: string;
+  };
+  preview?: {
+    port?: number;
   };
 }
 
@@ -83,6 +87,12 @@ export function loadDaemonConfig(overrides?: Partial<DaemonConfig>): DaemonConfi
     file?.project?.path ??
     process.cwd();
 
+  const previewPortRaw =
+    overrides?.previewPort ??
+    (process.env.LAUNCHPAD_PREVIEW_PORT ? Number(process.env.LAUNCHPAD_PREVIEW_PORT) : undefined) ??
+    file?.preview?.port;
+  const previewPort = previewPortRaw && Number.isFinite(previewPortRaw) ? previewPortRaw : undefined;
+
   if (!token) {
     throw new Error(
       'Daemon token is required. Set LAUNCHPAD_DAEMON_TOKEN or add "token" to .launchpad/daemon.json',
@@ -95,7 +105,7 @@ export function loadDaemonConfig(overrides?: Partial<DaemonConfig>): DaemonConfi
     );
   }
 
-  return { hqUrl, token, projectId, projectName, projectPath };
+  return { hqUrl, token, projectId, projectName, projectPath, previewPort };
 }
 
 /** Derive a project name from the current directory basename */

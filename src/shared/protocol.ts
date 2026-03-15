@@ -335,6 +335,67 @@ export interface CopilotAuthStatusMessage extends BaseMessage<'copilot-auth-stat
   payload: { authenticated: boolean; user?: string; scopes?: string[] };
 }
 
+// ---------------------------------------------------------------------------
+// Preview proxy messages (app preview via HQ tunnel)
+// ---------------------------------------------------------------------------
+
+/** Daemon → HQ: daemon reports its preview port config */
+export interface PreviewConfigMessage extends BaseMessage<'preview-config'> {
+  payload: {
+    projectId: string;
+    port: number;
+    autoDetected: boolean;
+    detectedFrom?: 'config' | 'devcontainer' | 'port-scan' | 'package-json';
+  };
+}
+
+/** HQ → Daemon: proxy an HTTP request to the project's local dev server */
+export interface PreviewProxyRequestMessage extends BaseMessage<'preview-proxy-request'> {
+  payload: {
+    requestId: string;
+    method: string;
+    path: string;
+    headers: Record<string, string>;
+    body?: string; // base64 encoded for binary
+  };
+}
+
+/** Daemon → HQ: proxy response back from the project's local dev server */
+export interface PreviewProxyResponseMessage extends BaseMessage<'preview-proxy-response'> {
+  payload: {
+    requestId: string;
+    statusCode: number;
+    headers: Record<string, string>;
+    body: string; // base64 encoded
+  };
+}
+
+/** HQ → Daemon: open a WebSocket channel to the local dev server */
+export interface PreviewWsOpenMessage extends BaseMessage<'preview-ws-open'> {
+  payload: {
+    channelId: string;
+    path: string;
+    headers: Record<string, string>;
+  };
+}
+
+/** HQ ↔ Daemon: relay WebSocket data */
+export interface PreviewWsDataMessage extends BaseMessage<'preview-ws-data'> {
+  payload: {
+    channelId: string;
+    data: string; // base64
+  };
+}
+
+/** HQ ↔ Daemon: close a WebSocket channel */
+export interface PreviewWsCloseMessage extends BaseMessage<'preview-ws-close'> {
+  payload: {
+    channelId: string;
+    code?: number;
+    reason?: string;
+  };
+}
+
 export interface AttentionItemMessage extends BaseMessage<'attention-item'> {
   payload: {
     projectId: string;
@@ -403,7 +464,11 @@ export type DaemonToHqMessage =
   | CopilotToolInvocationMessage
   | AuthResponseMessage
   | CopilotPermissionRequestMessage
-  | CopilotUserInputRequestMessage;
+  | CopilotUserInputRequestMessage
+  | PreviewConfigMessage
+  | PreviewProxyResponseMessage
+  | PreviewWsDataMessage
+  | PreviewWsCloseMessage;
 
 // ---------------------------------------------------------------------------
 // HQ → Daemon messages
@@ -603,7 +668,11 @@ export type HqToDaemonMessage =
   | CopilotListModelsMessage
   | CopilotDeleteSessionMessage
   | CopilotPermissionResponseMessage
-  | CopilotUserInputResponseMessage;
+  | CopilotUserInputResponseMessage
+  | PreviewProxyRequestMessage
+  | PreviewWsOpenMessage
+  | PreviewWsDataMessage
+  | PreviewWsCloseMessage;
 
 // ---------------------------------------------------------------------------
 // Combined union — every message that can travel over the wire
