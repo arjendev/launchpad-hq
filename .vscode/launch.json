@@ -7,6 +7,7 @@
       "request": "launch",
       "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx",
       "args": ["${workspaceFolder}/src/server/index.ts"],
+      "env": { "LAUNCHPAD_SELF_DAEMON": "true" },
       "restart": true,
       "skipFiles": ["<node_internals>/**"],
       "console": "integratedTerminal"

@@ -20,6 +20,12 @@ npx github:arjendev/launchpad-hq
 
 This clones the repo, builds it, and runs the CLI. First run takes a minute; subsequent runs are cached.
 
+To also start the built-in daemon (which manages your local project), add the `--self-daemon` flag:
+
+```bash
+npx github:arjendev/launchpad-hq --self-daemon
+```
+
 ### Install from npm <Badge type="tip" text="coming soon" />
 
 ```bash

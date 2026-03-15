@@ -7,6 +7,7 @@
  *   launchpad-hq               — start HQ server (default)
  *   launchpad-hq --hq          — start HQ server (explicit)
  *   launchpad-hq --port 8080   — start HQ server on a custom port (1024-65535)
+ *   launchpad-hq --self-daemon  — start HQ with built-in daemon
  *   launchpad-hq --daemon      — start daemon mode
  *   launchpad-hq --daemon --watch — start daemon with auto-restart on file changes
  *   launchpad-hq --daemon --preview-port 4000 — daemon with explicit preview port
@@ -33,12 +34,14 @@ if (args.includes('--help') || args.includes('-h')) {
 Usage:
   npx github:arjendev/launchpad-hq               Start HQ server (default port 3000)
   npx github:arjendev/launchpad-hq --port 8080    Start on a custom port (1024-65535)
+  npx github:arjendev/launchpad-hq --self-daemon    Start HQ with built-in daemon
   npx github:arjendev/launchpad-hq --daemon        Start daemon mode
   npx github:arjendev/launchpad-hq --daemon --watch Daemon with auto-restart on changes
   npx github:arjendev/launchpad-hq --help          Show this help
 
 Options:
   --port <port>           HQ server port (1024-65535, default: 3000)
+  --self-daemon           Enable built-in daemon when running HQ
   --daemon                Start in daemon mode instead of HQ mode
   --watch                 Auto-restart daemon on file changes (with --daemon)
   --hq-url <url>          Daemon: HQ WebSocket URL
@@ -55,6 +58,7 @@ Prerequisites:
 
 const isDaemon = args.includes('--daemon');
 const isWatch = args.includes('--watch');
+const isSelfDaemon = args.includes('--self-daemon');
 
 /**
  * Parse a `--flag <value>` or `--flag=<value>` pair from CLI args.
@@ -145,9 +149,12 @@ if (isDaemon && isWatch) {
     process.exit(1);
   }
 } else {
-  // HQ mode — apply --port flag via process.env before server config loads
+  // HQ mode — apply CLI flags via process.env before server config loads
   if (cliPort !== undefined) {
     process.env.PORT = String(cliPort);
+  }
+  if (isSelfDaemon) {
+    process.env.LAUNCHPAD_SELF_DAEMON = 'true';
   }
 
   // HQ mode — check first-launch onboarding before server boot

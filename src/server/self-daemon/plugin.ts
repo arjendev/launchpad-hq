@@ -2,7 +2,7 @@
  * Self-daemon Fastify plugin.
  *
  * Spawns HQ's own daemon as a child process once the server is listening.
- * Disabled by setting LAUNCHPAD_SELF_DAEMON=false.
+ * Disabled by default. Enable with --self-daemon flag or LAUNCHPAD_SELF_DAEMON=true.
  */
 
 import type { FastifyInstance } from "fastify";
@@ -25,7 +25,7 @@ export interface SelfDaemonPluginOptions {
   projectId?: string;
   /** Override the daemon token */
   token?: string;
-  /** Override enabled flag (default: reads LAUNCHPAD_SELF_DAEMON env) */
+  /** Override enabled flag (default: disabled unless LAUNCHPAD_SELF_DAEMON=true) */
   enabled?: boolean;
 }
 
@@ -34,7 +34,7 @@ async function selfDaemonPlugin(
   options: SelfDaemonPluginOptions,
 ) {
   const enabled =
-    options.enabled ?? process.env.LAUNCHPAD_SELF_DAEMON !== "false";
+    options.enabled ?? process.env.LAUNCHPAD_SELF_DAEMON === "true";
 
   const token = options.token ?? generateDaemonToken();
   const projectId = options.projectId ?? detectProjectId();
