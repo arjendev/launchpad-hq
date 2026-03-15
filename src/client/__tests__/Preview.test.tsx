@@ -5,7 +5,7 @@ import { render } from "../../test-utils/client.js";
 import { PreviewButton } from "../components/PreviewButton";
 import { PreviewModal } from "../components/PreviewModal";
 import { PreviewPanel } from "../components/PreviewPanel";
-import { buildPreviewUrl, formatDetectionSource } from "../services/preview-hooks";
+import { buildPreviewUrl, buildLocalPreviewUrl, formatDetectionSource } from "../services/preview-hooks";
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -233,6 +233,16 @@ describe("buildPreviewUrl", () => {
   it("strips trailing slash from shareUrl", () => {
     const tunnel = { status: "running" as const, info: null, shareUrl: "https://tunnel.example/", error: null, configured: true };
     expect(buildPreviewUrl(tunnel, "acme/widget")).toBe("https://tunnel.example/preview/acme%2Fwidget/");
+  });
+});
+
+describe("buildLocalPreviewUrl", () => {
+  it("returns a relative preview path", () => {
+    expect(buildLocalPreviewUrl("acme/widget")).toBe("/preview/acme%2Fwidget/");
+  });
+
+  it("encodes special characters in projectId", () => {
+    expect(buildLocalPreviewUrl("org/my repo")).toBe("/preview/org%2Fmy%20repo/");
   });
 });
 

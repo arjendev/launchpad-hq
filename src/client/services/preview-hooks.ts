@@ -125,6 +125,11 @@ export function buildPreviewUrl(tunnelState: TunnelState | undefined, projectId:
   return `${base}/preview/${encodeURIComponent(projectId)}/`;
 }
 
+/** Build a local (relative) preview URL that works without a tunnel. */
+export function buildLocalPreviewUrl(projectId: string): string {
+  return `/preview/${encodeURIComponent(projectId)}/`;
+}
+
 /** Format detection source for display (e.g. "Vite" from "vite.config.ts"). */
 export function formatDetectionSource(detectedFrom?: string): string | null {
   if (!detectedFrom) return null;

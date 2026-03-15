@@ -1,8 +1,8 @@
-import { Paper, Group, Stack, Text, Anchor, ActionIcon, Box, Tooltip } from "@mantine/core";
+import { Paper, Group, Stack, Text, Anchor, ActionIcon, Box, Badge, Tooltip } from "@mantine/core";
 import { IconExternalLink, IconPlugConnected } from "@tabler/icons-react";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { useDaemonForProject, useTunnelStatus } from "../services/hooks.js";
-import { usePreviewList, buildPreviewUrl } from "../services/preview-hooks.js";
+import { usePreviewList, buildPreviewUrl, buildLocalPreviewUrl, formatDetectionSource } from "../services/preview-hooks.js";
 
 export function DaemonInfoBar() {
   const { selectedProject } = useSelectedProject();
@@ -18,9 +18,6 @@ export function DaemonInfoBar() {
 
   // Filter previews for the current project
   const projectPreviews = previews?.filter((p) => p.projectId === projectId) ?? [];
-  const previewUrls = projectPreviews
-    .map((p) => ({ projectId: p.projectId, url: buildPreviewUrl(tunnel ?? undefined, p.projectId) }))
-    .filter((p): p is { projectId: string; url: string } => !!p.url);
 
   if (!selectedProject || isLoading) return null;
 
@@ -57,37 +54,62 @@ export function DaemonInfoBar() {
           </Group>
         </Group>
 
-        {/* Preview URLs or placeholder */}
-        {previewUrls.length > 0 ? (
-          previewUrls.map(({ projectId: pid, url }) => (
-            <Group key={pid} gap={4} wrap="nowrap" style={{ minWidth: 0 }}>
-              <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>Preview:</Text>
-              <Anchor
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                size="xs"
-                ff="monospace"
-                truncate
-                style={{ flex: 1, minWidth: 0 }}
-              >
-                {url}
-              </Anchor>
-              <Tooltip label="Open preview" withArrow>
-                <ActionIcon
-                  component="a"
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  variant="subtle"
-                  size="xs"
-                  color="gray"
-                >
-                  <IconExternalLink size={12} />
-                </ActionIcon>
-              </Tooltip>
-            </Group>
-          ))
+        {/* Preview entries or placeholder */}
+        {projectPreviews.length > 0 ? (
+          projectPreviews.map((preview) => {
+            const localUrl = buildLocalPreviewUrl(preview.projectId);
+            const tunnelUrl = buildPreviewUrl(tunnel ?? undefined, preview.projectId);
+            const source = formatDetectionSource(preview.detectedFrom);
+
+            return (
+              <Stack key={preview.projectId} gap={4}>
+                <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
+                  <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>Preview:</Text>
+                  <Badge size="xs" variant="light" color="blue">
+                    Port {preview.port}{source ? ` (${source})` : ""}
+                  </Badge>
+                  <Anchor
+                    href={localUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    size="xs"
+                    fw={500}
+                  >
+                    Open Preview
+                  </Anchor>
+                  <Tooltip label="Open preview in new tab" withArrow>
+                    <ActionIcon
+                      component="a"
+                      href={localUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      variant="subtle"
+                      size="xs"
+                      color="gray"
+                    >
+                      <IconExternalLink size={12} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Group>
+                {tunnelUrl && (
+                  <Group gap={4} wrap="nowrap" style={{ minWidth: 0, paddingLeft: 20 }}>
+                    <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>Tunnel:</Text>
+                    <Anchor
+                      href={tunnelUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      size="xs"
+                      ff="monospace"
+                      truncate
+                      style={{ flex: 1, minWidth: 0 }}
+                    >
+                      {tunnelUrl}
+                    </Anchor>
+                  </Group>
+                )}
+              </Stack>
+            );
+          })
         ) : (
           <Text size="xs" c="dimmed" fs="italic">
             Locally running applications will appear here when detected.
