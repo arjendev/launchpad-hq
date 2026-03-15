@@ -9,6 +9,13 @@
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+### 2026-03-15: DevTunnel crash fix — EventEmitter error listener pattern
+- All EventEmitter subclasses must register a default `error` listener in constructor
+- TunnelManager was crashing when `devtunnel` CLI missing or auth expired
+- Pattern: Install empty listener in constructor, let consumers add additional ones
+- Also: `tunnelErrorGuidance()` maps error codes to user-facing messages; reuse for any CLI-wrapping module
+- Tunnel auto-start is fire-and-forget (`.then()`) — never block server boot on optional features
+
 ### 2026-03-13: GitHub Auth Module Structure
 - Auth module lives in `src/server/github/` with three files: `types.ts`, `auth.ts`, `plugin.ts`
 - `auth.ts` exports `getGitHubToken()`, `getCachedUser()`, `getCachedAuth()`, `clearAuthCache()`, and `GitHubAuthError`

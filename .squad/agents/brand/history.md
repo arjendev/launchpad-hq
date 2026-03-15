@@ -24,6 +24,15 @@
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+### 2026-03-15: Onboarding wizard framework — @clack/prompts + shared LaunchpadConfig type
+- Framework: WizardStep interface with `prompt()`, `validate()`, `apply()` hooks
+- Terminal UI: @clack/prompts (cleaner than inquirer, built-in isCancel() for Ctrl+C detection)
+- LaunchpadConfig type shared with Romilly's settings module to prevent drift
+- Non-interactive fallback: Auto-apply defaults and mark onboarding complete in CI/Docker/piped input (no TTY)
+- Persistence: Uses Romilly's `saveLaunchpadConfig()` from settings API; wizard accepts optional `onSave` callback for test injection
+- CLI-level invocation: Runs before server import, blocks on config setup
+- Cross-agent: Wizard steps receive other agents' configuration (e.g., TARS DevTunnel step sets tunnel.configured, tunnel.mode)
+
 ### 2026-03-13: Phase 2 Summary
 
 **Completed Issues:** #16, #17 (2/5 Phase 2 items)  
