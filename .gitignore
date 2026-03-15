@@ -34,3 +34,4 @@ DevTunnels/
 # VitePress
 docs/.vitepress/cache
 docs/.vitepress/dist
+*.tgz
