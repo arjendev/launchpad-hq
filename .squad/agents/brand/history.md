@@ -396,3 +396,18 @@ Replaced the three placeholder wizard steps with real @clack/prompts implementat
 **Pattern:** Each step uses `p.note()` for context/explanation followed by `p.select()` for the actual choice. This gives users enough info to make an informed decision without overwhelming them.
 
 **Testing:** 29 new unit tests (prompt mocks, validate edge cases, apply immutability). All 814 tests pass.
+
+### 2026-03-16: Project app preview UI — PreviewButton, PreviewModal, PreviewPanel (#54)
+- **Phase 1 — Preview button + QR modal per project:**
+  - Created `src/client/services/preview-hooks.ts` — TanStack Query hooks (`usePreviewList`, `usePreviewState`, `usePreviewQr`) with 10s polling, WebSocket "preview" channel integration for real-time cache invalidation, mutation hooks (`useStartPreview`, `useStopPreview`), and URL/detection helpers.
+  - Created `src/client/components/PreviewButton.tsx` — small ActionIcon (IconDeviceDesktop) with disabled/active states, tooltip, opens PreviewModal on click.
+  - Created `src/client/components/PreviewModal.tsx` — modal with QR code from `/api/preview/:projectId/qr`, copyable preview URL, port info with detection source badge, "Open in new tab" button.
+  - Integrated into `ProjectList.tsx` — PreviewButton added next to menu actions, preview port/source badge on project cards.
+- **Phase 2 — Detection status display:**
+  - Project cards show "Preview: 5173 (Vite)" badge with tooltip when preview is auto-detected.
+- **Phase 3 — Mobile preview panel + controls:**
+  - Created `src/client/components/PreviewPanel.tsx` — dedicated panel with all active previews, QR thumbnails, port/detection badges, mobile-optimized layout with large tap targets.
+  - Updated `TunnelModal.tsx` — added section showing accessible project preview URLs when tunnel is running.
+- **Supporting changes:** Added `PreviewEntry`, `PreviewState`, `PreviewQrResponse` types to `types.ts`; added "preview" to Channel union in `ws-types.ts`.
+- **Tests:** 20 new tests (Preview.test.tsx) covering PreviewButton states, PreviewModal rendering, PreviewPanel display, and helper functions. All 969 tests passing.
+- **Pattern:** Followed existing REST + WebSocket merge pattern from Phase 2 (fetch initial data via TanStack Query, invalidate on WebSocket updates). Used selective git add for parallel agent session.

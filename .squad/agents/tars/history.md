@@ -281,3 +281,11 @@ Cooper groomed onboarding wizard epic and created 7 GitHub issues assigned acros
 - **Key fixes**: (1) Default `error` listener in TunnelManager constructor logs instead of crashing. (2) `handleError()` called before throw on CLI_NOT_FOUND. (3) New `AUTH_EXPIRED` error code with stderr pattern detection. (4) `tunnelErrorGuidance()` maps error codes to actionable user messages. (5) Plugin uses `getTunnelManager({ logger })` with try/catch. (6) Startup auto-start is non-blocking (`.then()` not `await`).
 - **Testing**: 10 new unit tests in `src/server/__tests__/tunnel.test.ts`; all 774 tests pass.
 - **Pattern**: EventEmitter classes in this project MUST have a default `error` listener to prevent unhandled crashes. This is now the established pattern.
+
+### 2026-03-15: Issue #54 — Preview Proxy Handler (Daemon Side)
+- **Architecture**: Option A — single HQ DevTunnel, path-based routing. Phone → DevTunnel → HQ Fastify → (WS) → Daemon → localhost:previewPort. No new devtunnel processes.
+- **Protocol**: 6 new message types: `preview-config`, `preview-proxy-request`, `preview-proxy-response`, `preview-ws-open`, `preview-ws-data`, `preview-ws-close`. Added to both DaemonToHq and HqToDaemon unions.
+- **PreviewProxyHandler**: HTTP proxy using Node.js `http.request`, base64 body encoding for binary safety, 10s timeout, error codes: 404 (ECONNREFUSED), 502 (proxy error), 504 (timeout). WebSocket relay via channelId-keyed map for HMR support.
+- **Port auto-detection**: 3-tier: devcontainer.json `forwardPorts` → package.json script heuristics (explicit `--port`, framework defaults like vite→5173, next→3000) → port scan on common ports. Periodic re-detection (30s) if dev server not yet running.
+- **Config extension**: `previewPort` added to DaemonConfig, loaded via overrides → `LAUNCHPAD_PREVIEW_PORT` env → config file `preview.port`.
+- **Testing**: 22 new tests (10 proxy handler, 12 port detection). All 969 tests pass.
