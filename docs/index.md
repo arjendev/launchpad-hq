@@ -5,6 +5,9 @@ hero:
   name: Launchpad HQ
   text: HQ for your AI-powered dev fleet.
   tagline: "Track all your projects, every Copilot session, every tool call — from one dashboard.\n\nToday it's visibility and productivity. Soon, it's your Context Hub — where tools, skills, and context follow every agent, everywhere."
+  image:
+    src: /overview.png
+    alt: Launchpad HQ Dashboard Overview
   actions:
     - theme: brand
       text: Get Started

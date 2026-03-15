@@ -6,7 +6,7 @@ Track all your projects, every Copilot session, every tool call — from one das
 
 Today it's visibility and productivity. Soon, it's your Context Hub — where tools, skills, and context follow every agent, everywhere.
 
-<!-- TODO: add screenshot -->
+![Launchpad HQ Overview](overview.png)
 
 ---
 
