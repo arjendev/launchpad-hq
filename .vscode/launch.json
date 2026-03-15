@@ -20,6 +20,16 @@
       "sourceMaps": true,
       "preLaunchTask": "dev:client"
     },
+    {
+      "name": "Docs (VitePress)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/vitepress",
+      "args": ["dev", "docs"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
   ],
   "compounds": [
     {
