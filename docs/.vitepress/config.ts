@@ -20,6 +20,7 @@ export default defineConfig({
       '/guide/': [
         { text: 'Getting Started', link: '/guide/getting-started' },
         { text: 'Onboarding', link: '/guide/onboarding' },
+        { text: 'Networking & Environments', link: '/guide/networking' },
         { text: 'Architecture', link: '/guide/architecture' },
       ],
       '/features/': [
