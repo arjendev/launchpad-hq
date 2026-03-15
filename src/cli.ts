@@ -48,6 +48,8 @@ Options:
   --token <token>         Daemon: authentication token
   --project-id <id>       Daemon: project identifier (owner/repo)
   --preview-port <port>   Daemon: explicit preview port
+  --host <host>           Bind address (default: 127.0.0.1, auto 0.0.0.0 in devcontainers)
+  --verbose               Enable debug-level logging
   --tunnel                Auto-start Dev Tunnel on boot
   --help, -h              Show this help message
 

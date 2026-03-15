@@ -34,9 +34,12 @@ import previewRoutes from "./routes/preview.js";
 
 const config = loadConfig();
 
+// Log level: --verbose → debug, default → info (both dev and prod)
+const logLevel = process.argv.includes("--verbose") ? "debug" : "info";
+
 const server = Fastify({
   logger: {
-    level: config.isDev ? "info" : "warn",
+    level: logLevel,
   },
 });
 
