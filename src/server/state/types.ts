@@ -104,6 +104,20 @@ export interface ProjectInbox {
   messages: InboxMessage[];
 }
 
+/**
+ * Top-level launchpad configuration stored in ~/.launchpad/config.json.
+ * Separate from ProjectConfig (which lives in the state repo).
+ */
+export interface LaunchpadConfig {
+  version: 1;
+  /** How launchpad persists state: "local" (filesystem only) or "git" (GitHub repo). */
+  stateMode: "local" | "git";
+}
+
+export function defaultLaunchpadConfig(): LaunchpadConfig {
+  return { version: 1, stateMode: "local" };
+}
+
 // ---- defaults ---------------------------------------------------------------
 
 export function defaultProjectConfig(): ProjectConfig {
