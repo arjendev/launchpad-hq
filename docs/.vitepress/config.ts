@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'Launchpad HQ',
   description: 'Command and control center for managing multiple projects',
-  base: '/launchpad-hq/',
+  base: '/docs/',
   appearance: 'dark',
   vite: {
     server: {
