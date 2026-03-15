@@ -290,9 +290,9 @@ export function SessionList() {
 
   return (
     <Stack gap={0} h="100%">
-      <Text size="xs" fw={600} p="xs" pb={4}>Sessions</Text>
-
       <DaemonInfoBar />
+
+      <Text size="xs" fw={600} p="xs" pb={4}>Sessions</Text>
 
       {/* Session type toggle + action buttons */}
       <Stack gap={4} px="xs" pt="xs">
