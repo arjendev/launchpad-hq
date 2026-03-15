@@ -32,16 +32,6 @@ function statusLabel(project: DashboardProject): string {
   return "healthy";
 }
 
-const RUNTIME_TARGET_LABELS: Record<string, string> = {
-  "wsl-devcontainer": "WSL+DC",
-  wsl: "WSL",
-  local: "Local",
-};
-
-function runtimeTargetLabel(target: string): string {
-  return RUNTIME_TARGET_LABELS[target] ?? target;
-}
-
 function workStateLabel(state: string): string | null {
   switch (state) {
     case "working":
@@ -119,11 +109,7 @@ function ProjectItem({
             <Badge size="xs" variant="light" color={project.daemonStatus === "online" ? "green" : "gray"}>
               {project.daemonStatus === "online" ? "Online" : "Offline"}
             </Badge>
-            {runtimeTargetLabel(project.runtimeTarget) && (
-              <Badge size="xs" variant="light" color="grape">
-                {runtimeTargetLabel(project.runtimeTarget)}
-              </Badge>
-            )}
+
             <Badge size="xs" variant="light" color="violet">
               {project.openIssueCount} issues
             </Badge>
