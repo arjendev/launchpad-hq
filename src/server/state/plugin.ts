@@ -9,20 +9,23 @@ declare module "fastify" {
   interface FastifyInstance {
     stateService: StateService;
     launchpadConfig: LaunchpadConfig;
+    /** Hot-swap the active StateService after a stateMode change. */
+    reinitializeStateService: (config: LaunchpadConfig) => Promise<void>;
   }
 }
 
-async function statePlugin(fastify: FastifyInstance) {
-  const lpConfig = await loadLaunchpadConfig();
-  fastify.decorate("launchpadConfig", lpConfig);
-
-  let stateManager: StateService;
-
+/**
+ * Build the appropriate StateService for the given config.
+ * Calls sync() to warm cache / ensure directories exist.
+ * Returns empty defaults if the state repo is missing or has no data.
+ */
+async function buildStateService(
+  fastify: FastifyInstance,
+  lpConfig: LaunchpadConfig,
+): Promise<StateService> {
   if (lpConfig.stateMode === "git") {
-    // Git mode requires GitHub auth — plugin dependency guarantees it exists
     const { githubToken, githubUser } = fastify;
 
-    // Derive repo name from stateRepo config (e.g. "owner/repo" → "repo")
     const repoName = lpConfig.stateRepo
       ? lpConfig.stateRepo.split("/").pop()
       : undefined;
@@ -33,7 +36,6 @@ async function statePlugin(fastify: FastifyInstance) {
       repo: repoName,
     });
 
-    // Warm the local cache from GitHub on startup
     try {
       await gitManager.sync();
       fastify.log.info("State synced from launchpad-state repo (git mode)");
@@ -44,25 +46,43 @@ async function statePlugin(fastify: FastifyInstance) {
       );
     }
 
-    stateManager = gitManager;
-  } else {
-    // Local mode — filesystem only, no GitHub dependency for state
-    const localManager = new LocalStateManager();
-
-    try {
-      await localManager.sync();
-      fastify.log.info("State ready (local mode)");
-    } catch (err) {
-      fastify.log.warn(
-        { err },
-        "Failed to initialize local state directory",
-      );
-    }
-
-    stateManager = localManager;
+    return gitManager;
   }
 
+  // Local mode — filesystem only, no GitHub dependency for state
+  const localManager = new LocalStateManager();
+
+  try {
+    await localManager.sync();
+    fastify.log.info("State ready (local mode)");
+  } catch (err) {
+    fastify.log.warn(
+      { err },
+      "Failed to initialize local state directory",
+    );
+  }
+
+  return localManager;
+}
+
+async function statePlugin(fastify: FastifyInstance) {
+  const lpConfig = await loadLaunchpadConfig();
+  fastify.decorate("launchpadConfig", lpConfig);
+
+  const stateManager = await buildStateService(fastify, lpConfig);
   fastify.decorate("stateService", stateManager);
+
+  fastify.decorate(
+    "reinitializeStateService",
+    async (newConfig: LaunchpadConfig) => {
+      const newService = await buildStateService(fastify, newConfig);
+      fastify.stateService = newService;
+      fastify.launchpadConfig = newConfig;
+      fastify.log.info(
+        `State service reinitialized (mode: ${newConfig.stateMode})`,
+      );
+    },
+  );
 }
 
 export default fp(statePlugin, {

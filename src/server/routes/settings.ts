@@ -114,6 +114,25 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
 
       await saveLaunchpadConfig(updated);
 
+      // Detect stateMode change and hot-swap the active StateService
+      const stateModeChanged =
+        body.stateMode !== undefined && body.stateMode !== current.stateMode;
+
+      if (stateModeChanged && fastify.reinitializeStateService) {
+        try {
+          await fastify.reinitializeStateService(updated);
+          fastify.log.info(
+            `State service swapped: ${current.stateMode} → ${updated.stateMode}`,
+          );
+        } catch (err) {
+          const message =
+            err instanceof Error ? err.message : "Unknown error";
+          fastify.log.error(
+            `Failed to reinitialize state service: ${message}`,
+          );
+        }
+      }
+
       // Detect tunnel mode change and start/stop accordingly
       const tunnelModeChanged =
         body.tunnel?.mode !== undefined &&
