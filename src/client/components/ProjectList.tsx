@@ -109,22 +109,14 @@ function ProjectItem({
                   </Badge>
                 )}
               </Group>
-              <Group gap={4} mt={2}>
-                <Text
-                  component="span"
-                  size="xs"
-                  title={project.daemonStatus === "online" ? "Daemon online" : "Daemon offline"}
-                >
-                  {project.daemonStatus === "online" ? "🟢" : "⚫"}
-                </Text>
-                <Text size="xs" c="dimmed">
-                  {project.daemonStatus === "online" ? "Online" : "Offline"}
-                </Text>
-              </Group>
+
             </Box>
           </Group>
 
           <Group gap={4} mt={4}>
+            <Badge size="xs" variant="light" color={project.daemonStatus === "online" ? "green" : "gray"}>
+              {project.daemonStatus === "online" ? "Online" : "Offline"}
+            </Badge>
             <Badge size="xs" variant="light" color="grape">
               {runtimeTargetLabel(project.runtimeTarget)}
             </Badge>
