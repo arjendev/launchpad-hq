@@ -236,3 +236,35 @@
 ### 2026-03-14: Tunnel UI uses REST polling, not WebSocket
 **By:** Brand (Frontend Dev)
 **What:** Tunnel status UI polls `GET /api/tunnel` every 5s via TanStack Query rather than WebSocket. Tunnel state changes infrequently. Upgrade path: switch to `useSubscription("tunnel")` if WS channel added later.
+
+---
+
+## Copilot SDK Auto-Fallback (Archived 2026-03-15)
+
+### 2026-03-14: Copilot SDK Auto-Fallback to Mock
+**By:** TARS
+**Status:** Implemented
+**What:** Feature-detect SDK availability, auto-fallback to mock with warning. `isSdkAvailable()` exported from `sdk-adapter.ts`. `CopilotManager` constructor: if SDK unavailable and not mock mode, use `MockCopilotAdapter` + `console.warn()`. Global `uncaughtException`/`unhandledRejection` handlers in `cli.ts`.
+**Why:** Daemon should always start. Reduced capability is better than a crash.
+
+---
+
+## Onboarding Wizard Decomposition (Archived 2026-03-15)
+
+### 2026-03-15: Onboarding Wizard Issue Decomposition
+**By:** Cooper (Lead)
+**Status:** Groomed — ready for implementation
+**Issues Created:** #39–#45
+
+| # | Title | Owner | Priority |
+|---|-------|-------|----------|
+| #39 | State management: local vs git persistence modes | Romilly | P1 |
+| #40 | First-launch onboarding wizard (core framework) | Romilly + Brand | P0 |
+| #41 | Onboarding step: State storage mode | Brand | P1 |
+| #42 | Onboarding step: Copilot session preference | Brand | P1 |
+| #43 | Onboarding step: Default Copilot model selection | Brand | P1 |
+| #44 | Onboarding step: DevTunnel configuration | TARS + Brand | P1 |
+| #45 | Fix: DevTunnel errors should not crash the server | TARS | P0 |
+
+**Dependency:** #45 independent. #39 + #40 parallel. #41–#44 after #40.
+**Architecture:** LaunchpadConfig at `~/.launchpad/config.json`. Wizard intercepts in `src/cli.ts` before server boot. LocalStateManager as second `StateService` impl.
