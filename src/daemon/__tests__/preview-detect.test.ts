@@ -88,6 +88,35 @@ describe('detectPreviewPort', () => {
       expect(result).toEqual({ port: 4200, source: 'devcontainer' });
     });
 
+    it('handles devcontainer.json with trailing commas', async () => {
+      mockExistsSync.mockImplementation((path) => {
+        return String(path).includes('.devcontainer/devcontainer.json');
+      });
+      mockReadFileSync.mockReturnValue(`{
+        // Forward the dev server port
+        "forwardPorts": [3000],
+        "build": {},
+      }`);
+
+      const result = await detectPreviewPort('/project');
+
+      expect(result).toEqual({ port: 3000, source: 'devcontainer' });
+    });
+
+    it('preserves URLs with // inside strings', async () => {
+      mockExistsSync.mockImplementation((path) => {
+        return String(path).includes('.devcontainer/devcontainer.json');
+      });
+      mockReadFileSync.mockReturnValue(`{
+        "image": "ghcr.io//myimage:latest",
+        "forwardPorts": [5173]
+      }`);
+
+      const result = await detectPreviewPort('/project');
+
+      expect(result).toEqual({ port: 5173, source: 'devcontainer' });
+    });
+
     it('skips invalid devcontainer.json', async () => {
       mockExistsSync.mockImplementation((path) => {
         return String(path).includes('.devcontainer/devcontainer.json');

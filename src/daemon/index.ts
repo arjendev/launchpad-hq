@@ -167,6 +167,11 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
   let previewHandler: PreviewProxyHandler | null = null;
   let previewDetectTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** Max retries for periodic re-detection (15 s × 20 = 5 min) */
+  const PREVIEW_RETRY_INTERVAL_MS = 15_000;
+  const PREVIEW_MAX_RETRIES = 20;
+  let previewRetryCount = 0;
+
   function startPreview(port: number, autoDetected: boolean, detectedFrom?: 'config' | 'devcontainer' | 'port-scan' | 'package-json'): void {
     if (previewHandler) return; // Already running
     previewHandler = new PreviewProxyHandler({
@@ -178,6 +183,13 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     });
     addCapability(daemonInfo, 'preview');
     console.log(`🖼 Preview proxy enabled on port ${port} (${detectedFrom ?? 'config'})`);
+  }
+
+  function stopPreviewRetry(): void {
+    if (previewDetectTimer) {
+      clearInterval(previewDetectTimer);
+      previewDetectTimer = null;
+    }
   }
 
   // Preview message routing (must be registered before connection)
@@ -196,11 +208,23 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
       previewHandler!.sendConfig();
     } else {
       console.log(`🔍 Preview detect: no explicit previewPort, attempting auto-detection for projectPath=${config.projectPath}`);
-      // Auto-detect on first auth, then periodically (dev server may start later)
+      // Auto-detect on first auth, then retry every 15s for up to 5 min
+      previewRetryCount = 0;
       void detectAndStartPreview();
       previewDetectTimer = setInterval(() => {
-        if (!previewHandler) void detectAndStartPreview();
-      }, 30_000);
+        if (previewHandler) {
+          stopPreviewRetry();
+          return;
+        }
+        previewRetryCount++;
+        if (previewRetryCount > PREVIEW_MAX_RETRIES) {
+          console.log(`🔍 Preview detect: gave up after ${PREVIEW_MAX_RETRIES} retries`);
+          stopPreviewRetry();
+          return;
+        }
+        console.log(`🔍 Preview detect: retry ${previewRetryCount}/${PREVIEW_MAX_RETRIES}, scanning...`);
+        void detectAndStartPreview();
+      }, PREVIEW_RETRY_INTERVAL_MS);
     }
   });
 
@@ -213,11 +237,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
         if (client.isAuthenticated) {
           previewHandler!.sendConfig();
         }
-        // Stop polling once we found a port
-        if (previewDetectTimer) {
-          clearInterval(previewDetectTimer);
-          previewDetectTimer = null;
-        }
+        stopPreviewRetry();
       }
     } catch {
       // Silent — detection is best-effort
@@ -233,10 +253,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
 
   function shutdown(): void {
     console.log('\n⏏ Daemon shutting down…');
-    if (previewDetectTimer) {
-      clearInterval(previewDetectTimer);
-      previewDetectTimer = null;
-    }
+    stopPreviewRetry();
     if (previewHandler) {
       previewHandler.cleanup();
     }

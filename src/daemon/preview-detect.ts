@@ -78,8 +78,7 @@ function readDevcontainerPort(projectPath: string): DetectedPort | null {
 
     try {
       const raw = readFileSync(filePath, 'utf-8');
-      // Strip JSON comments (// and /* */) for devcontainer.json compatibility
-      const cleaned = raw.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+      const cleaned = stripJsonc(raw);
       const parsed = JSON.parse(cleaned) as { forwardPorts?: unknown[] };
 
       if (Array.isArray(parsed.forwardPorts) && parsed.forwardPorts.length > 0) {
@@ -91,12 +90,65 @@ function readDevcontainerPort(projectPath: string): DetectedPort | null {
       } else {
         console.log('🔍 Preview detect: devcontainer.json has no forwardPorts');
       }
-    } catch {
-      console.log(`🔍 Preview detect: failed to parse ${filePath}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log(`🔍 Preview detect: failed to parse ${filePath}: ${msg}`);
     }
   }
 
   return null;
+}
+
+/**
+ * Strip JSONC features (comments + trailing commas) so JSON.parse can handle
+ * devcontainer.json and similar files.  Preserves `//` and `/*` inside strings.
+ */
+function stripJsonc(raw: string): string {
+  let result = '';
+  let i = 0;
+  const len = raw.length;
+
+  while (i < len) {
+    // String literal — copy verbatim (preserves URLs, comment-like content)
+    if (raw[i] === '"') {
+      result += '"';
+      i++;
+      while (i < len && raw[i] !== '"') {
+        if (raw[i] === '\\') {
+          result += raw[i] + (raw[i + 1] ?? '');
+          i += 2;
+        } else {
+          result += raw[i];
+          i++;
+        }
+      }
+      if (i < len) {
+        result += '"';
+        i++;
+      }
+      continue;
+    }
+
+    // Single-line comment
+    if (raw[i] === '/' && i + 1 < len && raw[i + 1] === '/') {
+      while (i < len && raw[i] !== '\n') i++;
+      continue;
+    }
+
+    // Block comment
+    if (raw[i] === '/' && i + 1 < len && raw[i + 1] === '*') {
+      i += 2;
+      while (i < len && !(raw[i] === '*' && i + 1 < len && raw[i + 1] === '/')) i++;
+      i += 2; // skip closing */
+      continue;
+    }
+
+    result += raw[i];
+    i++;
+  }
+
+  // Strip trailing commas before ] or }
+  return result.replace(/,\s*([\]}])/g, '$1');
 }
 
 /**
