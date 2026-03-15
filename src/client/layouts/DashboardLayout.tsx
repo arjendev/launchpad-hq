@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppShell, Flex, ScrollArea, Stack, Text, Title, Group, ActionIcon, Tooltip } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { IconSettings2 } from "@tabler/icons-react";
@@ -15,13 +15,21 @@ import { MobileNavBar } from "../components/MobileNavBar.js";
 import type { MobileTab } from "../components/MobileNavBar.js";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { useSelectedSession } from "../contexts/SessionContext.js";
-import { useDaemonForProject, useInboxCount } from "../services/hooks.js";
+import { useDaemonForProject, useInboxCount, useSettings } from "../services/hooks.js";
 export function DashboardLayout() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [mobileTab, setMobileTab] = useState<MobileTab>("projects");
   const { selectedProject } = useSelectedProject();
   const { selectedSession, selectSession, terminalOpen, closeTerminal } = useSelectedSession();
   const navigate = useNavigate();
+  const { data: settings } = useSettings();
+
+  // Redirect to onboarding wizard when setup is incomplete
+  useEffect(() => {
+    if (settings && !settings.onboardingComplete) {
+      void navigate({ to: "/onboarding" });
+    }
+  }, [settings, navigate]);
 
   const projectId = selectedProject
     ? `${selectedProject.owner}/${selectedProject.repo}`
