@@ -27,6 +27,7 @@ import terminalRoutes from "./routes/terminals.js";
 import copilotSessionRoutes from "./routes/copilot-sessions.js";
 import inboxRoutes from "./routes/inbox.js";
 import settingsRoutes from "./routes/settings.js";
+import onboardingRoutes from "./routes/onboarding.js";
 import selfDaemonPlugin from "./self-daemon/plugin.js";
 import selfDaemonRoutes from "./routes/self-daemon.js";
 import tunnelPlugin from "./routes/tunnel.js";
@@ -98,6 +99,7 @@ await server.register(terminalRoutes);
 await server.register(copilotSessionRoutes);
 await server.register(inboxRoutes);
 await server.register(settingsRoutes);
+await server.register(onboardingRoutes);
 
 // --- Self-daemon (spawns HQ's own daemon as a child process) ---
 

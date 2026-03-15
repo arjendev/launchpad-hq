@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   AppShell,
   Group,
@@ -15,6 +15,8 @@ import {
   ScrollArea,
   ActionIcon,
   Tooltip,
+  TextInput,
+  Loader,
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import {
@@ -24,6 +26,8 @@ import {
   IconBrain,
   IconWorldShare,
   IconInfoCircle,
+  IconCheck,
+  IconX,
 } from "@tabler/icons-react";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -31,9 +35,11 @@ import {
   useUpdateSettings,
   useTunnelStatus,
   useListModels,
+  useValidateRepo,
 } from "../services/hooks.js";
-import type { LaunchpadConfig } from "../services/types.js";
+import type { LaunchpadConfig, TunnelState } from "../services/types.js";
 import { ThemeToggle } from "../components/ThemeToggle.js";
+import { useSubscription } from "../contexts/WebSocketContext.js";
 
 const AVAILABLE_MODELS = [
   { value: "claude-opus-4.6", label: "Claude Opus 4.6 — best for complex tasks" },
@@ -43,22 +49,6 @@ const AVAILABLE_MODELS = [
   { value: "gpt-5.1", label: "GPT-5.1 — OpenAI, good general purpose" },
   { value: "gemini-3-pro-preview", label: "Gemini 3 Pro — Google, preview" },
 ];
-
-function tunnelStatusBadge(status: string | undefined, configured: boolean) {
-  if (!configured) return <Badge color="gray" variant="light">Not configured</Badge>;
-  switch (status) {
-    case "running":
-      return <Badge color="green" variant="light">Connected</Badge>;
-    case "starting":
-      return <Badge color="yellow" variant="light">Starting…</Badge>;
-    case "stopping":
-      return <Badge color="yellow" variant="light">Stopping…</Badge>;
-    case "error":
-      return <Badge color="red" variant="light">Error</Badge>;
-    default:
-      return <Badge color="gray" variant="light">Disconnected</Badge>;
-  }
-}
 
 interface SettingSectionProps {
   icon: React.ReactNode;
@@ -97,16 +87,24 @@ export function SettingsPage() {
   const updateSettings = useUpdateSettings();
   const { data: tunnel } = useTunnelStatus();
   const { data: modelsData } = useListModels();
+  const validateRepo = useValidateRepo();
 
   // Local form state — synced from server on load
   const [stateMode, setStateMode] = useState<string>("local");
+  const [stateRepo, setStateRepo] = useState<string>("");
   const [sessionType, setSessionType] = useState<string>("sdk");
   const [defaultModel, setDefaultModel] = useState<string>("claude-opus-4.6");
   const [tunnelMode, setTunnelMode] = useState<string>("on-demand");
+  const [tunnelStopped, setTunnelStopped] = useState(false);
+
+  // Subscribe to real-time tunnel status updates via WebSocket
+  const { data: wsTunnelStatus } = useSubscription<TunnelState>("tunnel");
+  const liveTunnel = wsTunnelStatus ?? tunnel ?? null;
 
   useEffect(() => {
     if (settings) {
       setStateMode(settings.stateMode);
+      setStateRepo(settings.stateRepo ?? "");
       setSessionType(settings.copilot.defaultSessionType);
       setDefaultModel(settings.copilot.defaultModel);
       setTunnelMode(settings.tunnel.mode);
@@ -127,6 +125,18 @@ export function SettingsPage() {
     saveSetting({ stateMode: value as "local" | "git" });
   }
 
+  const handleValidateRepo = useCallback(() => {
+    if (!stateRepo.trim()) return;
+    validateRepo.mutate(stateRepo.trim(), {
+      onSuccess: (result) => {
+        if (result.valid) {
+          saveSetting({ stateRepo: stateRepo.trim() });
+        }
+      },
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateRepo]);
+
   function handleSessionTypeChange(value: string) {
     setSessionType(value);
     saveSetting({ copilot: { defaultSessionType: value as "sdk" | "cli", defaultModel } });
@@ -139,8 +149,13 @@ export function SettingsPage() {
   }
 
   function handleTunnelModeChange(value: string) {
+    const prev = tunnelMode;
     setTunnelMode(value);
+    setTunnelStopped(false);
     saveSetting({ tunnel: { mode: value as "always" | "on-demand", configured: settings?.tunnel.configured ?? false } });
+    if (prev === "always" && value === "on-demand") {
+      setTunnelStopped(true);
+    }
   }
 
   const maxWidth = isMobile ? "100%" : 640;
@@ -200,6 +215,45 @@ export function SettingsPage() {
                   ? "Fast & private — stored on this machine only"
                   : "Synced everywhere — requires GitHub token with repo scope"}
               </Text>
+              {stateMode === "git" && (
+                <>
+                  <Group gap="xs" align="flex-end">
+                    <TextInput
+                      label="GitHub Repository"
+                      placeholder="owner/repo"
+                      description="The private repo to store launchpad state"
+                      value={stateRepo}
+                      onChange={(e) => { setStateRepo(e.currentTarget.value); validateRepo.reset(); }}
+                      style={{ flex: 1 }}
+                      disabled={isLoading}
+                    />
+                    <Button
+                      variant="light"
+                      onClick={handleValidateRepo}
+                      loading={validateRepo.isPending}
+                      disabled={!stateRepo.trim() || isLoading}
+                      mb={1}
+                    >
+                      Validate
+                    </Button>
+                  </Group>
+                  {validateRepo.isSuccess && validateRepo.data.valid && (
+                    <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
+                      {validateRepo.data.message || "Repository validated — you have write access."}
+                    </Alert>
+                  )}
+                  {validateRepo.isSuccess && !validateRepo.data.valid && (
+                    <Alert color="red" variant="light" icon={<IconX size={16} />}>
+                      {validateRepo.data.message || "Validation failed."}
+                    </Alert>
+                  )}
+                  {validateRepo.isError && (
+                    <Alert color="red" variant="light" icon={<IconX size={16} />}>
+                      {validateRepo.error.message}
+                    </Alert>
+                  )}
+                </>
+              )}
             </SettingSection>
 
             {/* ── Copilot Session Preference ───────────────────── */}
@@ -250,8 +304,30 @@ export function SettingsPage() {
             >
               <Group justify="space-between">
                 <Text size="sm" fw={500}>Tunnel status</Text>
-                {tunnelStatusBadge(tunnel?.status, settings?.tunnel.configured ?? false)}
+                {liveTunnel?.status === "running" ? (
+                  <Badge color="green" variant="light" leftSection="🟢">Running</Badge>
+                ) : liveTunnel?.status === "error" ? (
+                  <Badge color="red" variant="light" leftSection="🔴">Error</Badge>
+                ) : liveTunnel?.status === "starting" ? (
+                  <Badge color="yellow" variant="light" leftSection={<Loader size={10} />}>Starting…</Badge>
+                ) : liveTunnel?.status === "stopping" ? (
+                  <Badge color="yellow" variant="light" leftSection={<Loader size={10} />}>Stopping…</Badge>
+                ) : (
+                  <Badge color="gray" variant="light" leftSection="⚪">Not configured</Badge>
+                )}
               </Group>
+
+              {liveTunnel?.status === "running" && liveTunnel.info?.url && (
+                <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
+                  Tunnel URL: <strong>{liveTunnel.info.url}</strong>
+                </Alert>
+              )}
+
+              {liveTunnel?.status === "error" && liveTunnel.error && (
+                <Alert color="red" variant="light" icon={<IconX size={16} />}>
+                  {liveTunnel.error}
+                </Alert>
+              )}
 
               <Divider />
 
@@ -270,6 +346,11 @@ export function SettingsPage() {
                   ? "Start tunnels manually when you need them"
                   : "Auto-start a tunnel every time HQ launches"}
               </Text>
+              {tunnelStopped && tunnelMode === "on-demand" && (
+                <Alert color="blue" variant="light" withCloseButton onClose={() => setTunnelStopped(false)}>
+                  Tunnel stopped.
+                </Alert>
+              )}
               {tunnelMode === "always" && !settings?.tunnel.configured && (
                 <Alert color="yellow" variant="light">
                   Run <strong>devtunnel user login</strong> in your terminal to authenticate, then restart launchpad-hq.

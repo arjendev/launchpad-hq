@@ -1411,3 +1411,31 @@ export function useUpdateSettings() {
     },
   });
 }
+
+/** Validate a GitHub repo for git state storage. */
+export function useValidateRepo() {
+  return useMutation<{ valid: boolean; message: string }, Error, string>({
+    mutationFn: (repo) =>
+      fetchJson<{ valid: boolean; message: string }>("/api/settings/validate-repo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo }),
+      }),
+  });
+}
+
+// ── Onboarding ──────────────────────────────────────────────────────────────
+
+/** Reset onboarding so the setup wizard can be re-run. */
+export function useResetOnboarding() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean; onboardingComplete: boolean }, Error, void>({
+    mutationFn: () =>
+      fetchJson<{ ok: boolean; onboardingComplete: boolean }>("/api/onboarding/reset", {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["settings"] });
+    },
+  });
+}
