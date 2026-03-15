@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Launchpad HQ
   text: HQ for your AI-powered dev fleet.
-  tagline: "See every Copilot session, every project, every tool call — from one dashboard. Today it's visibility. Soon, every agent gets your context, your tools, your MCP servers — automatically."
+  tagline: "Track all your projects, every Copilot session, every tool call — from one dashboard. Today it's about productivity and visibility. Soon, every agent gets your context, your tools, your MCP servers — automatically."
   actions:
     - theme: brand
       text: Get Started
