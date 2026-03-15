@@ -58,7 +58,10 @@ async function buildStateService(
 
     try {
       await gitManager.sync();
-      fastify.log.info("State synced from launchpad-state repo (git mode)");
+      fastify.log.info(
+        { owner, repo },
+        "State synced from launchpad-state repo (git mode)",
+      );
     } catch (err) {
       fastify.log.warn(
         { err },
