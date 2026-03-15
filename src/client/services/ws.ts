@@ -46,11 +46,15 @@ export class WebSocketManager {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private disposed = false;
 
-  private readonly url: string;
+  private readonly baseUrl: string;
+  private readonly autoDetectedUrl: boolean;
   private readonly reconnectDelay: number;
   private readonly maxReconnectDelay: number;
   private readonly pingInterval: number;
   private readonly maxQueueSize: number;
+
+  /** Resolved WS URL (includes session token once fetched). */
+  private url: string;
 
   /** Messages queued while disconnected — replayed on reconnect. */
   private messageQueue: ClientMessage[] = [];
@@ -68,7 +72,9 @@ export class WebSocketManager {
   private messageListeners = new Set<(msg: ServerMessage) => void>();
 
   constructor(options: WebSocketManagerOptions = {}) {
-    this.url = options.url ?? getDefaultWsUrl();
+    this.baseUrl = options.url ?? getDefaultWsUrl();
+    this.autoDetectedUrl = !options.url;
+    this.url = this.baseUrl;
     this.reconnectDelay = options.reconnectDelay ?? DEFAULT_RECONNECT_DELAY;
     this.maxReconnectDelay = options.maxReconnectDelay ?? DEFAULT_MAX_RECONNECT_DELAY;
     this.pingInterval = options.pingInterval ?? DEFAULT_PING_INTERVAL;
@@ -88,7 +94,13 @@ export class WebSocketManager {
       return;
     }
     this.setStatus("connecting");
-    this.createSocket();
+    // Only fetch session token when using the auto-detected URL (production).
+    // When an explicit URL is provided (e.g. tests), connect directly.
+    if (this.autoDetectedUrl) {
+      this.fetchTokenAndConnect();
+    } else {
+      this.createSocket();
+    }
   }
 
   /** Permanently close the connection and stop reconnecting. */
@@ -174,6 +186,37 @@ export class WebSocketManager {
   }
 
   // --- Internal ---
+
+  /** Fetch the session token from the API and then create the socket. */
+  private fetchTokenAndConnect(): void {
+    const apiBase = typeof window !== "undefined"
+      ? `${window.location.protocol}//${window.location.host}`
+      : "http://localhost:3000";
+
+    let result: Promise<Response>;
+    try {
+      result = fetch(`${apiBase}/api/settings`);
+    } catch {
+      // fetch unavailable (e.g. test environment) — connect without token
+      this.createSocket();
+      return;
+    }
+
+    result
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((data: { sessionToken?: string }) => {
+        if (this.disposed) return;
+        if (data.sessionToken) {
+          const sep = this.baseUrl.includes("?") ? "&" : "?";
+          this.url = `${this.baseUrl}${sep}token=${encodeURIComponent(data.sessionToken)}`;
+        }
+        this.createSocket();
+      })
+      .catch(() => {
+        // If token fetch fails, try connecting without it (will be rejected by server)
+        if (!this.disposed) this.scheduleReconnect();
+      });
+  }
 
   private createSocket(): void {
     // Null out handlers on the old socket to prevent duplicate message dispatch

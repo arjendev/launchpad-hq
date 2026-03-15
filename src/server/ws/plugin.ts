@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import fp from "fastify-plugin";
 import { WebSocketServer } from "ws";
@@ -15,6 +16,8 @@ declare module "fastify" {
       /** Number of connected clients. */
       clients: () => number;
     };
+    /** Random session token generated at startup for WS auth. */
+    sessionToken: string;
   }
 }
 
@@ -24,12 +27,26 @@ async function websocketPlugin(fastify: FastifyInstance) {
   const manager = new ConnectionManager();
   const wss = new WebSocketServer({ noServer: true });
 
+  // Generate a random session token for WS authentication
+  const sessionToken = randomBytes(32).toString("hex");
+  fastify.decorate("sessionToken", sessionToken);
+
   // Handle upgrade requests on the /ws path
   fastify.server.on("upgrade", (request, socket, head) => {
     const url = new URL(request.url ?? "/", `http://${request.headers.host}`);
 
     if (url.pathname !== "/ws") {
       // Not ours — let other upgrade handlers (e.g. daemon WS) take it
+      return;
+    }
+
+    // Authenticate: require valid session token via query param or Sec-WebSocket-Protocol header
+    const queryToken = url.searchParams.get("token");
+    const protocolHeader = request.headers["sec-websocket-protocol"];
+    const headerToken = typeof protocolHeader === "string" ? protocolHeader : undefined;
+    if (queryToken !== sessionToken && headerToken !== sessionToken) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      socket.destroy();
       return;
     }
 

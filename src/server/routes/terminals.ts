@@ -34,6 +34,14 @@ const terminalRoutes: FastifyPluginAsync = async (server) => {
     const terminalId = randomUUID();
     const { cols, rows } = request.body ?? {};
 
+    // Validate cols/rows if provided
+    if (cols !== undefined && (!Number.isInteger(cols) || cols < 1 || cols > 500)) {
+      return reply.status(400).send({ error: 'bad_request', message: 'cols must be an integer between 1 and 500' });
+    }
+    if (rows !== undefined && (!Number.isInteger(rows) || rows < 1 || rows > 200)) {
+      return reply.status(400).send({ error: 'bad_request', message: 'rows must be an integer between 1 and 200' });
+    }
+
     const sent = server.daemonRegistry.sendToDaemon(id, {
       type: 'terminal-spawn',
       timestamp: Date.now(),

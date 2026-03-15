@@ -206,6 +206,12 @@ async function previewPlugin(fastify: FastifyInstance) {
         });
       }
       const body = request.body as { port?: number } | undefined;
+      if (body?.port !== undefined && (!Number.isInteger(body.port) || body.port < 1024 || body.port > 65535)) {
+        return reply.status(400).send({
+          error: "bad_request",
+          message: "port must be an integer between 1024 and 65535",
+        });
+      }
       const sent = registry.sendToDaemon(daemon.daemonId, {
         type: "command",
         timestamp: Date.now(),
