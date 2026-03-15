@@ -9,9 +9,9 @@
     "source=copilot-cli-data,target=/home/node/.copilot,type=volume"
   ],
   "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers/features/copilot-cli:1": {},
-    "ghcr.io/stuartleeks/dev-container-features/dev-tunnels": {}    
+    "ghcr.io/devcontainers/features/github-cli:1.1.0": {},
+    "ghcr.io/devcontainers/features/copilot-cli:1.0.0": {},
+    "ghcr.io/stuartleeks/dev-container-features/dev-tunnels:0.0.3": {}
   },
   "postCreateCommand": "sudo chown -R node:node /home/node/.copilot && npm install && npx playwright install chromium --with-deps",
   "customizations": {
