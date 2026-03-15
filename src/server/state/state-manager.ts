@@ -36,12 +36,12 @@ export interface StateManagerOptions {
 }
 
 /**
- * Manages the user's launchpad-state GitHub repo.
+ * Git-backed state manager that persists to the user's launchpad-state GitHub repo.
  *
  * Read path:  local cache → GitHub API (on cache miss / startup sync)
  * Write path: GitHub API → local cache (write-through)
  */
-export class StateManager implements StateService {
+export class GitStateManager implements StateService {
   private readonly client: GitHubStateClient;
   private readonly cache: LocalCache;
 
@@ -213,3 +213,9 @@ export class StateManager implements StateService {
     }
   }
 }
+
+/**
+ * @deprecated Use `GitStateManager` instead. Retained as an alias for backward compatibility.
+ */
+export const StateManager = GitStateManager;
+export type StateManager = GitStateManager;
