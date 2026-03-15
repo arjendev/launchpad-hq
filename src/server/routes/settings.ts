@@ -1,16 +1,49 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { LaunchpadConfig } from "../state/types.js";
+import { defaultLaunchpadConfig } from "../state/types.js";
 import {
   loadLaunchpadConfig,
   saveLaunchpadConfig,
+  saveBootstrapConfig,
 } from "../state/launchpad-config.js";
 import { getGitHubToken } from "../github/auth.js";
 import { loadConfig } from "../config.js";
 
+/**
+ * Deep-merge a partial update into an existing LaunchpadConfig.
+ */
+function mergeConfig(
+  current: LaunchpadConfig,
+  body: Partial<LaunchpadConfig>,
+): LaunchpadConfig {
+  const defaults = defaultLaunchpadConfig();
+  return {
+    ...current,
+    ...body,
+    copilot: {
+      ...defaults.copilot,
+      ...current.copilot,
+      ...(body.copilot ?? {}),
+    },
+    tunnel: {
+      ...defaults.tunnel,
+      ...current.tunnel,
+      ...(body.tunnel ?? {}),
+    },
+    version: 1,
+  };
+}
+
 const settingsRoutes: FastifyPluginAsync = async (fastify) => {
-  /** Return the current launchpad settings. */
+  /**
+   * Return the current launchpad settings.
+   * In git mode, reads from the state repo (via fastify.launchpadConfig which
+   * was resolved at boot). In local mode, reads from ~/.launchpad/config.json.
+   */
   fastify.get("/api/settings", async () => {
-    return loadLaunchpadConfig();
+    // fastify.launchpadConfig is already resolved from the right source at boot
+    // and kept up-to-date by PUT. Return it directly.
+    return fastify.launchpadConfig;
   });
 
   /** Validate a GitHub repo exists and user has write access. */
@@ -88,7 +121,7 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put<{ Body: Partial<LaunchpadConfig> }>(
     "/api/settings",
     async (request, reply) => {
-      const current = await loadLaunchpadConfig();
+      const current = fastify.launchpadConfig;
       const body = request.body as Partial<LaunchpadConfig>;
 
       if (
@@ -101,22 +134,7 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
           .send({ error: 'stateMode must be "local" or "git"' });
       }
 
-      const updated: LaunchpadConfig = {
-        ...current,
-        ...body,
-        // Deep-merge nested objects so partial updates don't lose fields
-        copilot: {
-          ...current.copilot,
-          ...(body.copilot ?? {}),
-        },
-        tunnel: {
-          ...current.tunnel,
-          ...(body.tunnel ?? {}),
-        },
-        version: 1, // always pin version
-      };
-
-      await saveLaunchpadConfig(updated);
+      const updated = mergeConfig(current, body);
 
       // Detect stateMode change and hot-swap the active StateService
       const stateModeChanged =
@@ -135,6 +153,21 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
             `Failed to reinitialize state service: ${message}`,
           );
         }
+      } else {
+        // No mode switch — persist to the appropriate backend
+        if (updated.stateMode === "git") {
+          // Full config to state repo, bootstrap-only locally
+          await fastify.stateService.saveLaunchpadConfig(updated);
+          await saveBootstrapConfig({
+            version: 1,
+            stateMode: updated.stateMode,
+            stateRepo: updated.stateRepo,
+          });
+        } else {
+          // Local mode — full config to ~/.launchpad/config.json
+          await saveLaunchpadConfig(updated);
+        }
+        fastify.launchpadConfig = updated;
       }
 
       // Detect tunnel mode change and start/stop accordingly
@@ -150,18 +183,31 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
             const { tunnelPort } = loadConfig();
             await fastify.tunnelManager.start(tunnelPort);
             updated.tunnel.configured = true;
-            await saveLaunchpadConfig(updated);
+            // Persist the tunnel.configured update
+            if (updated.stateMode === "git") {
+              await fastify.stateService.saveLaunchpadConfig(updated);
+            } else {
+              await saveLaunchpadConfig(updated);
+            }
           } catch (err) {
             const message = err instanceof Error ? err.message : "Failed to start tunnel";
             updated.tunnel.configured = false;
-            await saveLaunchpadConfig(updated);
+            if (updated.stateMode === "git") {
+              await fastify.stateService.saveLaunchpadConfig(updated);
+            } else {
+              await saveLaunchpadConfig(updated);
+            }
             fastify.log.warn(`Tunnel start failed on settings change: ${message}`);
           }
         } else if (updated.tunnel.mode === "on-demand") {
           try {
             await fastify.tunnelManager.stop();
             updated.tunnel.configured = false;
-            await saveLaunchpadConfig(updated);
+            if (updated.stateMode === "git") {
+              await fastify.stateService.saveLaunchpadConfig(updated);
+            } else {
+              await saveLaunchpadConfig(updated);
+            }
           } catch (err) {
             const message = err instanceof Error ? err.message : "Failed to stop tunnel";
             fastify.log.warn(`Tunnel stop failed on settings change: ${message}`);

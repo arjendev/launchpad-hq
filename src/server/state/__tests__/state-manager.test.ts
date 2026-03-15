@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { StateManager } from "../state-manager.js";
 import type { GitHubStateClient } from "../github-state-client.js";
 import type { LocalCache } from "../local-cache.js";
-import type { ProjectConfig, ProjectEntry, EnrichmentData, UserPreferences } from "../types.js";
+import type { ProjectConfig, ProjectEntry, EnrichmentData, UserPreferences, LaunchpadConfig } from "../types.js";
+import { defaultLaunchpadConfig } from "../types.js";
 
 /** Build a full ProjectEntry with sensible defaults. */
 function makeProject(overrides: Partial<ProjectEntry> & Pick<ProjectEntry, "owner" | "repo">): ProjectEntry {
@@ -58,10 +59,11 @@ describe("StateManager", () => {
       await manager.sync();
 
       expect(client.ensureRepo).toHaveBeenCalledOnce();
-      // Should try to read all three state files
+      // Should try to read all four state files (including launchpad-config.json)
       expect(client.readFile).toHaveBeenCalledWith("config.json");
       expect(client.readFile).toHaveBeenCalledWith("preferences.json");
       expect(client.readFile).toHaveBeenCalledWith("enrichment.json");
+      expect(client.readFile).toHaveBeenCalledWith("launchpad-config.json");
     });
 
     it("writes pulled files to local cache", async () => {
@@ -419,6 +421,67 @@ describe("StateManager", () => {
       );
 
       expect(updated?.defaultCopilotSdkAgent).toBeNull();
+    });
+  });
+
+  // ---- getLaunchpadConfig / saveLaunchpadConfig ------------------------------
+
+  describe("getLaunchpadConfig()", () => {
+    it("returns defaults when nothing stored", async () => {
+      const { manager } = createMocks();
+
+      const config = await manager.getLaunchpadConfig();
+
+      expect(config).toEqual(defaultLaunchpadConfig());
+    });
+
+    it("reads from local cache first", async () => {
+      const { manager, cache, client } = createMocks();
+
+      const stored: LaunchpadConfig = {
+        ...defaultLaunchpadConfig(),
+        stateMode: "git",
+        stateRepo: "acme/state",
+        onboardingComplete: true,
+      };
+      cache.read.mockResolvedValue({
+        content: JSON.stringify(stored),
+        sha: "cached-sha",
+      });
+
+      const config = await manager.getLaunchpadConfig();
+
+      expect(config.stateMode).toBe("git");
+      expect(config.onboardingComplete).toBe(true);
+      expect(client.readFile).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("saveLaunchpadConfig()", () => {
+    it("writes to GitHub then updates cache", async () => {
+      const { manager, client, cache } = createMocks();
+
+      cache.read.mockResolvedValue({ content: "{}", sha: "old-sha" });
+
+      const config: LaunchpadConfig = {
+        ...defaultLaunchpadConfig(),
+        onboardingComplete: true,
+        copilot: { defaultSessionType: "cli", defaultModel: "gpt-4" },
+      };
+      await manager.saveLaunchpadConfig(config);
+
+      const expectedContent = JSON.stringify(config, null, 2) + "\n";
+
+      expect(client.writeFile).toHaveBeenCalledWith(
+        "launchpad-config.json",
+        expectedContent,
+        "old-sha",
+      );
+      expect(cache.write).toHaveBeenCalledWith(
+        "launchpad-config.json",
+        expectedContent,
+        "new-sha-123",
+      );
     });
   });
 });

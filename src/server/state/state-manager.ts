@@ -6,6 +6,7 @@ import type {
   UserPreferences,
   EnrichmentData,
   ProjectInbox,
+  LaunchpadConfig,
   StateService,
 } from "./types.js";
 import {
@@ -13,12 +14,14 @@ import {
   defaultUserPreferences,
   defaultEnrichmentData,
   defaultProjectInbox,
+  defaultLaunchpadConfig,
 } from "./types.js";
 
 const FILES = {
   config: "config.json",
   preferences: "preferences.json",
   enrichment: "enrichment.json",
+  launchpadConfig: "launchpad-config.json",
 } as const;
 
 export interface StateManagerDeps {
@@ -84,6 +87,14 @@ export class GitStateManager implements StateService {
     await this.writeState(FILES.enrichment, data);
   }
 
+  async getLaunchpadConfig(): Promise<LaunchpadConfig> {
+    return this.readState(FILES.launchpadConfig, defaultLaunchpadConfig);
+  }
+
+  async saveLaunchpadConfig(config: LaunchpadConfig): Promise<void> {
+    await this.writeState(FILES.launchpadConfig, config);
+  }
+
   private inboxPath(owner: string, repo: string): string {
     return `inbox/${owner}/${repo}.json`;
   }
@@ -108,6 +119,7 @@ export class GitStateManager implements StateService {
       this.pullFile(FILES.config),
       this.pullFile(FILES.preferences),
       this.pullFile(FILES.enrichment),
+      this.pullFile(FILES.launchpadConfig),
     ]);
   }
 

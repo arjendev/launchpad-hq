@@ -5,6 +5,8 @@ export { LocalCache } from "./local-cache.js";
 export {
   loadLaunchpadConfig,
   saveLaunchpadConfig,
+  loadBootstrapConfig,
+  saveBootstrapConfig,
   LAUNCHPAD_CONFIG_PATH,
 } from "./launchpad-config.js";
 export type {
@@ -15,6 +17,7 @@ export type {
   ProjectEnrichmentEntry,
   StateService,
   LaunchpadConfig,
+  BootstrapConfig,
 } from "./types.js";
 export {
   defaultProjectConfig,

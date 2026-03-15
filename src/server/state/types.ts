@@ -56,6 +56,10 @@ export interface StateService {
   savePreferences(prefs: UserPreferences): Promise<void>;
   getEnrichment(): Promise<EnrichmentData>;
   saveEnrichment(data: EnrichmentData): Promise<void>;
+  /** Read the LaunchpadConfig from the state backend (git repo or local state dir). */
+  getLaunchpadConfig(): Promise<LaunchpadConfig>;
+  /** Persist the LaunchpadConfig to the state backend. */
+  saveLaunchpadConfig(config: LaunchpadConfig): Promise<void>;
   /** Force-pull all state files from GitHub. */
   sync(): Promise<void>;
   /** Find a project by its daemon auth token. */
@@ -123,6 +127,16 @@ export interface LaunchpadConfig {
     configured: boolean;
   };
   onboardingComplete: boolean;
+}
+
+/**
+ * Minimal bootstrap config that always lives locally in ~/.launchpad/config.json.
+ * In git mode this is ALL that stays local — just enough to know where the state repo is.
+ */
+export interface BootstrapConfig {
+  version: 1;
+  stateMode: "local" | "git";
+  stateRepo?: string;
 }
 
 export function defaultLaunchpadConfig(): LaunchpadConfig {

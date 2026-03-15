@@ -8,6 +8,7 @@ import type {
   UserPreferences,
   EnrichmentData,
   ProjectInbox,
+  LaunchpadConfig,
   StateService,
 } from "./types.js";
 import {
@@ -15,12 +16,14 @@ import {
   defaultUserPreferences,
   defaultEnrichmentData,
   defaultProjectInbox,
+  defaultLaunchpadConfig,
 } from "./types.js";
 
 const FILES = {
   config: "config.json",
   preferences: "preferences.json",
   enrichment: "enrichment.json",
+  launchpadConfig: "launchpad-config.json",
 } as const;
 
 export interface LocalStateManagerOptions {
@@ -64,6 +67,14 @@ export class LocalStateManager implements StateService {
   async saveEnrichment(data: EnrichmentData): Promise<void> {
     data.updatedAt = new Date().toISOString();
     await this.writeJson(FILES.enrichment, data);
+  }
+
+  async getLaunchpadConfig(): Promise<LaunchpadConfig> {
+    return this.readJson(FILES.launchpadConfig, defaultLaunchpadConfig);
+  }
+
+  async saveLaunchpadConfig(config: LaunchpadConfig): Promise<void> {
+    await this.writeJson(FILES.launchpadConfig, config);
   }
 
   async getInbox(owner: string, repo: string): Promise<ProjectInbox> {

@@ -36,6 +36,7 @@ async function buildServer(): Promise<FastifyInstance> {
       currentConfig = config;
     },
   );
+  vi.spyOn(launchpadConfigModule, "saveBootstrapConfig").mockResolvedValue(undefined);
 
   const localManager = new LocalStateManager({ root: join(tmpDir, "state") });
   await localManager.sync();
@@ -58,6 +59,24 @@ async function buildServer(): Promise<FastifyInstance> {
 
   return server;
 }
+
+describe("GET /api/settings", () => {
+  it("returns the current launchpadConfig from the server", async () => {
+    const server = await buildServer();
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/api/settings",
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.onboardingComplete).toBe(true);
+    expect(body.stateMode).toBe("local");
+
+    await server.close();
+  });
+});
 
 describe("PUT /api/settings — state mode hot-swap", () => {
   it("calls reinitializeStateService when stateMode changes", async () => {

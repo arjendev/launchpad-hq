@@ -2,13 +2,18 @@ import type { FastifyInstance } from "fastify";
 import fp from "fastify-plugin";
 import { GitStateManager } from "./state-manager.js";
 import { LocalStateManager } from "./local-state-manager.js";
-import { loadLaunchpadConfig } from "./launchpad-config.js";
+import {
+  loadLaunchpadConfig,
+  saveBootstrapConfig,
+} from "./launchpad-config.js";
 import type { StateService, LaunchpadConfig } from "./types.js";
+import { defaultLaunchpadConfig } from "./types.js";
 
 interface StateSnapshot {
   config: Awaited<ReturnType<StateService["getConfig"]>>;
   preferences: Awaited<ReturnType<StateService["getPreferences"]>>;
   enrichment: Awaited<ReturnType<StateService["getEnrichment"]>>;
+  launchpadConfig: LaunchpadConfig;
 }
 
 declare module "fastify" {
@@ -89,6 +94,7 @@ function resolveStateRepoTarget(
 
 async function captureStateSnapshot(
   stateService: StateService,
+  currentLpConfig: LaunchpadConfig,
 ): Promise<StateSnapshot> {
   const [config, preferences, enrichment] = await Promise.all([
     stateService.getConfig(),
@@ -96,7 +102,7 @@ async function captureStateSnapshot(
     stateService.getEnrichment(),
   ]);
 
-  return { config, preferences, enrichment };
+  return { config, preferences, enrichment, launchpadConfig: currentLpConfig };
 }
 
 async function migrateStateSnapshot(
@@ -104,9 +110,12 @@ async function migrateStateSnapshot(
   stateService: StateService,
   snapshot: StateSnapshot,
 ): Promise<void> {
-  await stateService.saveConfig(snapshot.config);
-  await stateService.savePreferences(snapshot.preferences);
-  await stateService.saveEnrichment(snapshot.enrichment);
+  await Promise.all([
+    stateService.saveConfig(snapshot.config),
+    stateService.savePreferences(snapshot.preferences),
+    stateService.saveEnrichment(snapshot.enrichment),
+    stateService.saveLaunchpadConfig(snapshot.launchpadConfig),
+  ]);
   try {
     await stateService.sync();
   } catch (err) {
@@ -117,27 +126,70 @@ async function migrateStateSnapshot(
   }
 }
 
-async function statePlugin(fastify: FastifyInstance) {
-  const lpConfig = await loadLaunchpadConfig();
-  fastify.decorate("launchpadConfig", lpConfig);
+/**
+ * Resolve the effective LaunchpadConfig.
+ * In git mode the full config lives in the state repo; bootstrap fields
+ * (stateMode, stateRepo) always come from the local file.
+ */
+async function resolveFullLaunchpadConfig(
+  localConfig: LaunchpadConfig,
+  stateService: StateService,
+): Promise<LaunchpadConfig> {
+  if (localConfig.stateMode !== "git") return localConfig;
 
-  const stateManager = await buildStateService(fastify, lpConfig);
+  const defaults = defaultLaunchpadConfig();
+  const remote = await stateService.getLaunchpadConfig();
+  return {
+    ...defaults,
+    ...remote,
+    // Deep-merge nested objects
+    copilot: { ...defaults.copilot, ...(remote.copilot ?? {}) },
+    tunnel: { ...defaults.tunnel, ...(remote.tunnel ?? {}) },
+    // Bootstrap fields ALWAYS come from local
+    version: 1,
+    stateMode: localConfig.stateMode,
+    stateRepo: localConfig.stateRepo,
+  };
+}
+
+async function statePlugin(fastify: FastifyInstance) {
+  const localConfig = await loadLaunchpadConfig();
+
+  const stateManager = await buildStateService(fastify, localConfig);
+
+  // In git mode, read the full config from the state repo
+  const lpConfig = await resolveFullLaunchpadConfig(localConfig, stateManager);
+
+  fastify.decorate("launchpadConfig", lpConfig);
   fastify.decorate("stateService", stateManager);
 
   fastify.decorate(
     "reinitializeStateService",
     async (newConfig: LaunchpadConfig) => {
-      const shouldMigrateLocalState =
+      const shouldMigrateState =
         fastify.launchpadConfig.stateMode === "local" &&
         newConfig.stateMode === "git";
-      const stateSnapshot = shouldMigrateLocalState
-        ? await captureStateSnapshot(fastify.stateService)
+      const stateSnapshot = shouldMigrateState
+        ? await captureStateSnapshot(fastify.stateService, fastify.launchpadConfig)
         : null;
 
       const newService = await buildStateService(fastify, newConfig);
 
       if (stateSnapshot) {
         await migrateStateSnapshot(fastify, newService, stateSnapshot);
+      }
+
+      // In git mode, write bootstrap-only locally and full config to state repo
+      if (newConfig.stateMode === "git") {
+        await saveBootstrapConfig({
+          version: 1,
+          stateMode: newConfig.stateMode,
+          stateRepo: newConfig.stateRepo,
+        });
+        // If we didn't migrate (which already saved), save launchpad config to state repo
+        if (!stateSnapshot) {
+          await newService.saveLaunchpadConfig(newConfig);
+        }
       }
 
       fastify.stateService = newService;

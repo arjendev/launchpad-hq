@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   loadLaunchpadConfig,
   saveLaunchpadConfig,
+  loadBootstrapConfig,
+  saveBootstrapConfig,
 } from "../launchpad-config.js";
 import { defaultLaunchpadConfig } from "../types.js";
 
@@ -70,6 +72,79 @@ describe("launchpad-config", () => {
       const loaded = await loadLaunchpadConfig(configPath);
 
       expect(loaded).toEqual(config);
+    });
+  });
+
+  describe("loadBootstrapConfig()", () => {
+    it("returns defaults when config file does not exist", async () => {
+      const bootstrap = await loadBootstrapConfig(configPath);
+      expect(bootstrap).toEqual({ version: 1, stateMode: "local" });
+    });
+
+    it("reads stateMode and stateRepo from a full config file", async () => {
+      const data = {
+        ...defaultLaunchpadConfig(),
+        stateMode: "git",
+        stateRepo: "owner/repo",
+      };
+      writeFileSync(configPath, JSON.stringify(data), "utf-8");
+
+      const bootstrap = await loadBootstrapConfig(configPath);
+      expect(bootstrap.stateMode).toBe("git");
+      expect(bootstrap.stateRepo).toBe("owner/repo");
+    });
+
+    it("reads from a minimal bootstrap file", async () => {
+      writeFileSync(
+        configPath,
+        JSON.stringify({ version: 1, stateMode: "git", stateRepo: "a/b" }),
+        "utf-8",
+      );
+
+      const bootstrap = await loadBootstrapConfig(configPath);
+      expect(bootstrap).toEqual({ version: 1, stateMode: "git", stateRepo: "a/b" });
+    });
+
+    it("defaults stateMode to local for unknown values", async () => {
+      writeFileSync(configPath, JSON.stringify({ stateMode: "cloud" }), "utf-8");
+
+      const bootstrap = await loadBootstrapConfig(configPath);
+      expect(bootstrap.stateMode).toBe("local");
+    });
+  });
+
+  describe("saveBootstrapConfig()", () => {
+    it("writes only bootstrap fields", async () => {
+      await saveBootstrapConfig(
+        { version: 1, stateMode: "git", stateRepo: "owner/repo" },
+        configPath,
+      );
+
+      const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+      expect(raw).toEqual({ version: 1, stateMode: "git", stateRepo: "owner/repo" });
+      // Should NOT contain copilot, tunnel, onboardingComplete
+      expect(raw.copilot).toBeUndefined();
+      expect(raw.tunnel).toBeUndefined();
+      expect(raw.onboardingComplete).toBeUndefined();
+    });
+
+    it("omits stateRepo when not set", async () => {
+      await saveBootstrapConfig({ version: 1, stateMode: "local" }, configPath);
+
+      const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+      expect(raw).toEqual({ version: 1, stateMode: "local" });
+      expect(raw.stateRepo).toBeUndefined();
+    });
+
+    it("creates parent directories", async () => {
+      const nested = join(tmpDir, "deep", "nested", "config.json");
+      await saveBootstrapConfig(
+        { version: 1, stateMode: "git", stateRepo: "x/y" },
+        nested,
+      );
+
+      const bootstrap = await loadBootstrapConfig(nested);
+      expect(bootstrap.stateMode).toBe("git");
     });
   });
 });

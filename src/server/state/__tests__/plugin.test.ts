@@ -33,6 +33,7 @@ async function importStatePlugin() {
       import("node:fs/promises").then((fs) =>
         fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf-8"),
       ),
+    saveBootstrapConfig: vi.fn().mockResolvedValue(undefined),
     LAUNCHPAD_CONFIG_PATH: configPath,
   }));
 
@@ -144,6 +145,10 @@ describe("statePlugin", () => {
           return defaultEnrichmentData();
         }
         async saveEnrichment() {}
+        async getLaunchpadConfig() {
+          return defaultLaunchpadConfig();
+        }
+        async saveLaunchpadConfig() {}
         async getInbox() {
           throw new Error("not implemented");
         }
@@ -229,6 +234,7 @@ describe("statePlugin", () => {
     const gitSaveConfig = vi.fn().mockResolvedValue(undefined);
     const gitSavePreferences = vi.fn().mockResolvedValue(undefined);
     const gitSaveEnrichment = vi.fn().mockResolvedValue(undefined);
+    const gitSaveLaunchpadConfig = vi.fn().mockResolvedValue(undefined);
 
     vi.doMock("../local-state-manager.js", () => ({
       LocalStateManager: class LocalStateManager {
@@ -245,6 +251,10 @@ describe("statePlugin", () => {
           return localEnrichment;
         }
         async saveEnrichment() {}
+        async getLaunchpadConfig() {
+          return defaultLaunchpadConfig();
+        }
+        async saveLaunchpadConfig() {}
         async getInbox() {
           throw new Error("not implemented");
         }
@@ -289,6 +299,12 @@ describe("statePlugin", () => {
         async saveEnrichment(enrichment: unknown) {
           return gitSaveEnrichment(enrichment);
         }
+        async getLaunchpadConfig() {
+          return defaultLaunchpadConfig();
+        }
+        async saveLaunchpadConfig(config: unknown) {
+          return gitSaveLaunchpadConfig(config);
+        }
         async getInbox() {
           throw new Error("not implemented");
         }
@@ -325,6 +341,7 @@ describe("statePlugin", () => {
     expect(gitSaveConfig).toHaveBeenCalledWith(localConfig);
     expect(gitSavePreferences).toHaveBeenCalledWith(localPreferences);
     expect(gitSaveEnrichment).toHaveBeenCalledWith(localEnrichment);
+    expect(gitSaveLaunchpadConfig).toHaveBeenCalled();
     expect(gitSync).toHaveBeenCalledTimes(2);
 
     await server.close();
@@ -342,6 +359,8 @@ describe("statePlugin", () => {
         savePreferences: vi.fn().mockResolvedValue(undefined),
         getEnrichment: vi.fn().mockResolvedValue(defaultEnrichmentData()),
         saveEnrichment: vi.fn().mockResolvedValue(undefined),
+        getLaunchpadConfig: vi.fn().mockResolvedValue(defaultLaunchpadConfig()),
+        saveLaunchpadConfig: vi.fn().mockResolvedValue(undefined),
         getInbox: vi.fn(),
         saveInbox: vi.fn(),
         getProjectByToken: vi.fn(),
