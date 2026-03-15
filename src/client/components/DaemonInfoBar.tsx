@@ -2,7 +2,7 @@ import { Paper, Group, Stack, Text, ActionIcon, Box, Badge, Tooltip } from "@man
 import { IconExternalLink, IconPlugConnected } from "@tabler/icons-react";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { useDaemonForProject, useTunnelStatus } from "../services/hooks.js";
-import { usePreviewList, buildPreviewUrl, buildLocalPreviewUrl, formatDetectionSource } from "../services/preview-hooks.js";
+import { usePreviewList, buildPreviewUrl, buildLocalPreviewUrl } from "../services/preview-hooks.js";
 
 export function DaemonInfoBar() {
   const { selectedProject } = useSelectedProject();
@@ -59,14 +59,13 @@ export function DaemonInfoBar() {
           projectPreviews.map((preview) => {
             const localUrl = buildLocalPreviewUrl(preview.projectId);
             const tunnelUrl = buildPreviewUrl(tunnel ?? undefined, preview.projectId);
-            const source = formatDetectionSource(preview.detectedFrom);
 
             return (
               <Stack key={preview.projectId} gap={4}>
                 <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
                   <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>Preview:</Text>
                   <Badge size="xs" variant="light" color="blue">
-                    Port {preview.port}{source ? ` (${source})` : ""}
+                    Port {preview.port}
                   </Badge>
                   <a
                     href={localUrl}

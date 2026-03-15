@@ -99,6 +99,16 @@ export function useRegenerateDaemonToken() {
   });
 }
 
+/** Fetch a single project detail (includes existing daemonToken). */
+export function useGetProjectDetail() {
+  return useMutation<ProjectEntry, Error, { owner: string; repo: string }>({
+    mutationFn: ({ owner, repo }) =>
+      fetchJson<ProjectEntry>(
+        `/api/projects/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+      ),
+  });
+}
+
 /** Search GitHub users/orgs. Query is debounced on the caller side. */
 export function useDiscoverUsers(query: string) {
   return useQuery<DiscoverUsersResponse>({
