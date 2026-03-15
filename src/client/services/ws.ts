@@ -101,7 +101,12 @@ export class WebSocketManager {
       this.ws.onclose = null;
       this.ws.onerror = null;
       this.ws.onmessage = null;
-      this.ws.close();
+      // Only close if the socket has actually opened; closing a CONNECTING
+      // socket triggers a harmless but noisy "closed before connection
+      // established" console warning (common with React StrictMode).
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CLOSING) {
+        this.ws.close();
+      }
       this.ws = null;
     }
     this.setStatus("disconnected");

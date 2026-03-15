@@ -1,4 +1,4 @@
-import { Paper, Group, Stack, Text, Anchor, ActionIcon, Box, Badge, Tooltip } from "@mantine/core";
+import { Paper, Group, Stack, Text, ActionIcon, Box, Badge, Tooltip } from "@mantine/core";
 import { IconExternalLink, IconPlugConnected } from "@tabler/icons-react";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { useDaemonForProject, useTunnelStatus } from "../services/hooks.js";
@@ -68,15 +68,14 @@ export function DaemonInfoBar() {
                   <Badge size="xs" variant="light" color="blue">
                     Port {preview.port}{source ? ` (${source})` : ""}
                   </Badge>
-                  <Anchor
+                  <a
                     href={localUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    size="xs"
-                    fw={500}
+                    style={{ fontSize: "var(--mantine-font-size-xs)", fontWeight: 500 }}
                   >
                     Open Preview
-                  </Anchor>
+                  </a>
                   <Tooltip label="Open preview in new tab" withArrow>
                     <ActionIcon
                       component="a"
@@ -94,17 +93,22 @@ export function DaemonInfoBar() {
                 {tunnelUrl && (
                   <Group gap={4} wrap="nowrap" style={{ minWidth: 0, paddingLeft: 20 }}>
                     <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>Tunnel:</Text>
-                    <Anchor
+                    <a
                       href={tunnelUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      size="xs"
-                      ff="monospace"
-                      truncate
-                      style={{ flex: 1, minWidth: 0 }}
+                      style={{
+                        fontSize: "var(--mantine-font-size-xs)",
+                        fontFamily: "var(--mantine-font-family-monospace)",
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
                     >
                       {tunnelUrl}
-                    </Anchor>
+                    </a>
                   </Group>
                 )}
               </Stack>
