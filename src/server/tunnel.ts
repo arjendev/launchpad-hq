@@ -31,6 +31,8 @@ export interface TunnelState {
   info: TunnelInfo | null;
   shareUrl: string | null;
   error: string | null;
+  /** True when the tunnel is actually running (not just configured in settings). */
+  configured: boolean;
 }
 
 export interface TunnelManagerOptions {
@@ -91,6 +93,7 @@ export class TunnelManager extends EventEmitter {
   private info: TunnelInfo | null = null;
   private lastError: string | null = null;
   private stopping = false;
+  private startPromise: Promise<TunnelInfo> | null = null;
 
   private readonly logger?: FastifyBaseLogger;
   private readonly startupTimeoutMs: number;
@@ -128,10 +131,18 @@ export class TunnelManager extends EventEmitter {
   /**
    * Start a dev tunnel hosting the given local port.
    * Resolves once the tunnel URL has been parsed from stdout.
+   *
+   * Idempotent: returns immediately if already running, or returns the
+   * in-flight promise if a start is already in progress.
    */
   async start(port: number): Promise<TunnelInfo> {
     if (this.status === "running" && this.info) {
       return this.info;
+    }
+
+    // Already starting — return the in-flight promise (avoid duplicate spawns)
+    if (this.status === "starting" && this.startPromise) {
+      return this.startPromise;
     }
 
     const cliReady = await this.isCliAvailable();
@@ -147,7 +158,7 @@ export class TunnelManager extends EventEmitter {
     this.setStatus("starting");
     this.lastError = null;
 
-    return new Promise<TunnelInfo>((resolve, reject) => {
+    this.startPromise = new Promise<TunnelInfo>((resolve, reject) => {
       const child = spawn(
         this.cliBinary,
         ["host", "-p", String(port)],
@@ -256,12 +267,22 @@ export class TunnelManager extends EventEmitter {
       });
 
       child.on("exit", (code, signal) => {
+        cleanup();
+
         if (this.stopping) {
           this.logger?.info("Dev tunnel stopped");
+          // If stop() was called during startup, reject the start promise
+          if (this.status === "starting") {
+            reject(
+              new TunnelError(
+                "Tunnel stopped before startup completed",
+                "PROCESS_ERROR",
+              ),
+            );
+          }
+          this.process = null;
           return;
         }
-
-        cleanup();
 
         if (this.status === "starting") {
           // Never reached "running" — reject the start() promise
@@ -285,17 +306,31 @@ export class TunnelManager extends EventEmitter {
         "Spawned devtunnel host process",
       );
     });
+
+    try {
+      return await this.startPromise;
+    } finally {
+      this.startPromise = null;
+    }
   }
 
   /**
    * Stop the tunnel gracefully (SIGTERM, then SIGKILL after 5 s).
+   *
+   * Idempotent: no-op if already stopped with no process running.
    */
   async stop(): Promise<void> {
+    // Already stopped — true no-op (no event, no state change)
+    if (this.status === "stopped" && !this.process) {
+      return;
+    }
+
     this.stopping = true;
 
     if (!this.process) {
-      this.setStatus("stopped");
       this.info = null;
+      this.lastError = null;
+      this.setStatus("stopped");
       return;
     }
 
@@ -310,6 +345,7 @@ export class TunnelManager extends EventEmitter {
         clearTimeout(killTimeout);
         this.process = null;
         this.info = null;
+        this.lastError = null;
         this.setStatus("stopped");
         resolve();
       });
@@ -327,6 +363,8 @@ export class TunnelManager extends EventEmitter {
 
   /**
    * Full tunnel state snapshot (for API responses).
+   * The `configured` field reflects whether the tunnel is actually running,
+   * not just whether the user has set mode to "always" in settings.
    */
   getState(): TunnelState {
     return {
@@ -334,6 +372,7 @@ export class TunnelManager extends EventEmitter {
       info: this.info,
       shareUrl: this.getShareUrl(),
       error: this.lastError,
+      configured: this.status === "running",
     };
   }
 

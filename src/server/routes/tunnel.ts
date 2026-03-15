@@ -65,6 +65,7 @@ async function tunnelPlugin(fastify: FastifyInstance) {
         info: null,
         shareUrl: null,
         error: null,
+        configured: false,
       } satisfies TunnelState;
     }
   });
