@@ -277,3 +277,10 @@ Wave 1 delivered foundational daemon architecture, frontend UI, and backend data
 - Brand integrated TunnelButton/Modal UI with REST polling hooks and QR code display
 - Coordinator fixed TS2783 duplicate error property in tunnel routes
 - All work committed; tunnel feature ready for testing
+
+### 2026-03-15: Onboarding Wizard Issues #39–#45
+Cooper groomed onboarding wizard epic and created 7 GitHub issues assigned across the team. **You own issues #39–#40**:
+- **#39 (P1)**: State management — local vs git persistence modes — Add `LocalStateManager` impl of `StateService` interface (filesystem-only, no GitHub). Current `StateManager` is hardwired to `GitHubStateClient`.
+- **#40 (P0, shared with Brand)**: First-launch onboarding wizard core framework — Wire wizard into `src/cli.ts` before server import. Create `LaunchpadConfig` schema + parsing. Wizard runs in terminal, collects choices, writes config, server boots normally.
+
+Dependencies: #40 is P0 blocker for wizard steps #41–#44 owned by Brand/TARS. #39 should complete in parallel or before #41. Full context: `.squad/decisions.md`. Architecture: new `LaunchpadConfig` persisted at `~/.launchpad/config.json` (distinct from ServerConfig/ProjectConfig), read at boot before plugins load. Implementation order: #45 (TARS crash fix) → (#39+#40 parallel) → (#41–#44 steps).

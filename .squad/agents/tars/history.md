@@ -246,3 +246,10 @@ Key achievements:
 - Brand implemented TunnelButton/Modal UI with real-time status polling (5s intervals), QR fetching, and copy-to-clipboard
 - Coordinator fixed TS2783 duplicate error property in tunnel routes
 - All work committed; ready for Phase 3+ token auth enhancements
+
+### 2026-03-15: Onboarding Wizard Issues #39–#45
+Cooper groomed onboarding wizard epic and created 7 GitHub issues assigned across the team. **You own issues #44–#45**:
+- **#44 (P1, shared with Brand)**: Onboarding step UI — DevTunnel configuration (enable/configure tunnel in wizard)
+- **#45 (P0, independent)**: Fix — DevTunnel errors should not crash server (default error listener, logger passthrough)
+
+#45 is your top priority — ship it independently first. It's a real bug fix with no dependencies. Then tackle #44 after Brand finishes #40 (wizard framework). Full context in `.squad/decisions.md`. Architecture: new `LaunchpadConfig` layer at `~/.launchpad/config.json`, wizard runs in terminal before server boot.

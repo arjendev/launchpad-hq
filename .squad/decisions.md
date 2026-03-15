@@ -681,3 +681,63 @@ If Romilly adds a `tunnel` WebSocket channel later, the frontend can switch to `
 ## Impact
 
 Low — routine implementation choice. No framework or API surface change.
+
+---
+
+### Decision: Onboarding Wizard Issue Decomposition
+
+**Date:** 2026-03-15
+**Author:** Cooper (Lead)
+**Status:** Groomed — ready for implementation
+**Issues Created:** #39–#45
+
+## Context
+
+Arjen requested a first-launch onboarding wizard with state management mode selection, Copilot preferences, and DevTunnel configuration. Explored the codebase and decomposed into 7 issues.
+
+## Architectural Decisions
+
+1. **New LaunchpadConfig layer** — `~/.launchpad/config.json` persists user choices (machine-local, distinct from ServerConfig and ProjectConfig). Read at boot before plugins load.
+
+2. **Wizard intercepts in src/cli.ts** — before `await import('./server/index.js')`. Runs in terminal, collects choices, writes config, then server boots normally.
+
+3. **LocalStateManager needed** — second `StateService` implementation for filesystem-only state. Current `StateManager` is hardwired to `GitHubStateClient`. The `StateService` interface is clean; adding local impl is straightforward. Key decision: `LocalStateManager` replaces the `LocalCache` pattern, not supplements it.
+
+4. **Tunnel code well-structured** — `TunnelManager` has proper error types and status tracking. Crash fix (#45) is mostly default error listener + logger passthrough. Auto-start path already has try/catch.
+
+5. **Copilot session types already supported** — `src/server/routes/copilot-sessions.ts` handles `sessionType: "sdk" | "cli"` in `SessionConfigWire`. Wizard just sets the default.
+
+## Issue Breakdown
+
+| # | Title | Type | Owner | Priority | Description |
+|---|-------|------|-------|----------|-------------|
+| #39 | State management: local vs git persistence modes | enhancement | Romilly | P1 | Add `LocalStateManager` impl of `StateService` interface |
+| #40 | First-launch onboarding wizard (core framework) | enhancement | Romilly + Brand | P0 | Wire wizard into cli.ts, LaunchpadConfig schema/parsing |
+| #41 | Onboarding step: State storage mode | enhancement | Brand | P1 | UI step: choose local vs git mode |
+| #42 | Onboarding step: Copilot session preference (SDK vs CLI) | enhancement | Brand | P1 | UI step: choose default session type |
+| #43 | Onboarding step: Default Copilot model selection | enhancement | Brand | P1 | UI step: choose default model |
+| #44 | Onboarding step: DevTunnel configuration | enhancement | TARS + Brand | P1 | UI step: enable/configure tunnel |
+| #45 | Fix: DevTunnel errors should not crash the server | bug | TARS | P0 | Default error listener, logger passthrough |
+
+## Dependency Graph
+
+```
+#39 (state backends) ─────┐
+                          ├──→ #41 (state step)
+#40 (wizard framework) ───┤
+                          ├──→ #42 (copilot mode step)
+                          ├──→ #43 (model step)
+                          └──→ #44 (devtunnel step)
+
+#45 (crash fix) ← independent, can ship first
+```
+
+## Implementation Order
+
+1. **#45** — ship independently, fixes real bug, unblocks nothing
+2. **#39 + #40** — in parallel (state backends + wizard framework)
+3. **#41, #42, #43, #44** — after #40 completes (wizard steps, parallelize across Brand/TARS)
+
+## Impact
+
+New feature: machine-local configuration persistence + first-launch wizard. Enables all planned onboarding UX. Spans 3 agents (Romilly backend, Brand frontend, TARS tunnel integration).

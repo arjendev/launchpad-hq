@@ -350,3 +350,13 @@ The QR code feature is a Phase 3+ enhancement. Pre-work (P2 temporary tunnel) is
 - Romilly integrated Fastify tunnel plugin with 4 routes, QR endpoint, WS broadcasts, and `--tunnel` CLI flag
 - Coordinator fixed TS2783 duplicate error property
 - All work committed; tunnel feature ready for Phase 3+ authentication research
+
+### 2026-03-15: Onboarding Wizard Issues #39–#45
+Cooper groomed onboarding wizard epic and created 7 GitHub issues assigned across your team. **You own issues #40–#44**:
+- **#40 (P0)**: First-launch onboarding wizard core framework (shared with Romilly) — wire wizard into cli.ts, LaunchpadConfig schema
+- **#41**: Onboarding step UI — State storage mode (local vs git)
+- **#42**: Onboarding step UI — Copilot session preference (SDK vs CLI)
+- **#43**: Onboarding step UI — Default Copilot model selection
+- **#44 (shared with TARS)**: Onboarding step UI — DevTunnel configuration
+
+Dependencies: #41–#44 all block on #40. Architecture summary: New `LaunchpadConfig` persisted at `~/.launchpad/config.json` (distinct from ServerConfig/ProjectConfig). Wizard runs in terminal before server boot, collects choices, writes config. See `.squad/decisions.md` for full decision doc.
