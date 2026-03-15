@@ -338,3 +338,16 @@ Dependencies: #40 is P0 blocker for wizard steps #41–#44 owned by Brand/TARS. 
 - **Total tests**: 908 baseline → 969 final (+61: 22 + 15 + 20 + 4 coordination tests)
 - **Build & typecheck**: Clean, no regressions
 - **Decision**: Single HQ tunnel with path-based routing (Option A); Map-based request matching with 30s timeout; base64 encoding for binary safety over WebSocket
+
+### 2026-03-15: Fix silent state fallback — git mode auth check
+
+**Problem:** TARS's non-fatal auth change (commit 0c77d35) added a silent fallback in `src/server/state/plugin.ts`: when `stateMode: "git"` was configured but `githubToken` was null (due to auth failure), the state plugin quietly switched to `LocalStateManager`. This created a split-brain — user expected state in the git repo but changes went to local filesystem.
+
+**Root cause:** The `buildStateService()` function checked `!githubToken || !githubUser` and returned `buildLocalStateService()` with only a `log.warn`. No error surfaced to the user or UI.
+
+**Fix:** Replaced the silent fallback with a thrown error containing clear instructions: run `gh auth login` or set `stateMode: "local"`. Server refuses to start in git mode without valid auth — no split-brain possible.
+
+**Files changed:** `src/server/state/plugin.ts` (throw instead of fallback), `src/server/state/__tests__/plugin.test.ts` (+2 tests for null token and null user cases). Also restored `~/.launchpad/config.json` to `stateMode: "git"`.
+
+**Tests:** 977 passing (2 new). Typecheck + build clean.
+**Commit:** cebeded
