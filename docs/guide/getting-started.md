@@ -1,0 +1,39 @@
+# Getting Started
+
+Launchpad HQ is a local command and control center for managing multiple projects across repositories. It runs as a local web app served by a Fastify server — no hosted services required.
+
+## Prerequisites
+
+- **Node.js** 20 or later
+- **GitHub CLI** (`gh`) installed and authenticated (`gh auth login`)
+- A GitHub account with repos you want to manage
+
+## Quick Start
+
+Run Launchpad HQ directly with npx:
+
+```bash
+npx launchpad-hq
+```
+
+On first run, the **onboarding wizard** will walk you through initial setup:
+
+1. **State mode** — Choose where to store your project state (GitHub repo or local filesystem)
+2. **Copilot preference** — Configure GitHub Copilot SDK or CLI mode
+3. **Default model** — Select your preferred AI model
+4. **DevTunnel** — Optionally enable remote access via Microsoft Dev Tunnels
+
+Once onboarding completes, your browser opens to the three-pane dashboard.
+
+## Adding Your First Project
+
+1. Click the **+** button in the project list panel (left pane)
+2. Enter the GitHub repository URL (e.g. `owner/repo`)
+3. Select the runtime target: **WSL + Devcontainer**, **WSL only**, or **Local folder**
+4. The project appears in the list with a health badge
+
+## Next Steps
+
+- [Onboarding Wizard](./onboarding) — Detailed walkthrough of each setup step
+- [Architecture](./architecture) — How HQ, daemons, and state management work together
+- [Projects](../features/projects) — Managing projects in the dashboard
