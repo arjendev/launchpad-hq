@@ -112,6 +112,10 @@ async function selfDaemonPlugin(
       typeof address === "object" && address ? address.port : 3000;
     config.hqUrl = `ws://localhost:${port}`;
 
+    // Register token directly in the daemon registry so WS auth can
+    // find it immediately, even if the state write below fails.
+    fastify.daemonRegistry.setDaemonToken(projectId, token);
+
     await ensureProjectRegistered();
     await spawner.start();
   });

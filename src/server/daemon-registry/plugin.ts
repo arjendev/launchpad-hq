@@ -15,9 +15,14 @@ async function daemonRegistryPlugin(fastify: FastifyInstance) {
   const registry = new DaemonRegistry();
   const wss = new WebSocketServer({ noServer: true });
 
-  // Token lookup: find daemon token from persisted project state.
-  // Accessed lazily — stateService is available by the time daemons connect.
+  // Token lookup: check in-memory store first (set by self-daemon plugin),
+  // then fall back to persisted project state.
   const tokenLookup: TokenLookup = async (projectId: string) => {
+    // Fast path: token registered directly in memory (self-daemon, etc.)
+    const memToken = registry.getDaemonToken(projectId);
+    if (memToken) return memToken;
+
+    // Slow path: read from state service
     if (!("stateService" in fastify)) return undefined;
     const config = await fastify.stateService.getConfig();
     const [owner, repo] = projectId.split("/");

@@ -50,6 +50,17 @@ export interface DaemonRegistryEvents {
 export class DaemonRegistry extends EventEmitter {
   private daemons = new Map<string, TrackedDaemon>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private tokens = new Map<string, string>();
+
+  /** Store a daemon token in-memory so it's available instantly for WS auth. */
+  setDaemonToken(projectId: string, token: string): void {
+    this.tokens.set(projectId, token);
+  }
+
+  /** Retrieve an in-memory daemon token (set by self-daemon or other callers). */
+  getDaemonToken(projectId: string): string | undefined {
+    return this.tokens.get(projectId);
+  }
 
   /** Register a newly authenticated daemon */
   register(daemonId: string, ws: WebSocket, info: DaemonInfo): void {
