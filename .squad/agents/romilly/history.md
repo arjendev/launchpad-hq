@@ -43,6 +43,19 @@
 - **Resume route pattern — disconnect-before-resume:** Server-side safeguard: the resume endpoint now sends `copilot-disconnect-session` before `copilot-resume-session`. This ensures clean daemon state regardless of client behavior. Belt-and-suspenders against stale event listeners.
 - **Project-scoped SDK agent preference:** Persist the remembered Copilot SDK agent on each `ProjectEntry` as `defaultCopilotSdkAgent`, with `null` meaning "use the default agent". Expose a project-scoped GET/PUT route that merges this stored preference with whatever agent catalog the daemon advertises, and only inject `config.agent` into create-session when the caller explicitly chose one or a remembered non-null preference exists.
 
+### 2026-03-15: Server-side auth + security hardening (#61)
+- **Auth middleware:** `src/server/auth/plugin.ts` — Fastify plugin using `onRequest` hook. Protects all `/api/*` and `/preview/*` routes with `Authorization: Bearer <hqToken>` or `?token=<hqToken>`. Exempt: `/api/health`. Depends on `websocket` plugin for `sessionToken` decorator. Registered in `index.ts` after websocket, before routes.
+- **Token leakage fix:** Removed `sessionToken` from `GET /api/settings` response. Client now receives token only from URL query param.
+- **WS Origin validation (H3):** Added `isAllowedOrigin()` to `ws/plugin.ts`. Validates Origin header on browser WS upgrade — allows `localhost:*`, `127.0.0.1:*`, and the active tunnel URL. Rejects unknown origins with 403.
+- **CORS in production (M8):** `@fastify/cors` now registered in all modes (was dev-only). Dynamic origin callback allows localhost, loopback, and the active tunnel URL hostname. Non-browser requests (no origin) pass through.
+- **Security headers (L1):** Installed `@fastify/helmet`. CSP allows `'self'` + `'unsafe-inline'` for scripts/styles (Vite + Mantine need inline), `ws:` + `wss:` for connect-src, `frame-ancestors: 'none'` (equivalent to X-Frame-Options: DENY).
+- **Preview port validation (M1):** `isValidPreviewPort()` in `preview.ts` rejects ports < 1024, > 65535, non-integers, and a blocklist of 14 infrastructure ports (SSH, PostgreSQL, Redis, Elasticsearch, MongoDB, etc.). Applied to both the start endpoint and the proxy route.
+- **File permissions (M4):** `local-state-manager.ts` and `launchpad-config.ts` now set `mode: 0o700` on directories and `mode: 0o600` on files when writing state.
+- **0.0.0.0 comment (H6):** Added detailed comment in `config.ts` explaining why 0.0.0.0 is safe in devcontainers (Docker bridge isolation + auth middleware + CORS + WS auth).
+- **Startup URL:** Console output now prints `?token=<hqToken>` so the user can click to open the authenticated URL.
+- **Tests:** 23 new tests (11 auth middleware + 12 port validation). Total: 1013 passing.
+- **Coordination:** Brand is doing client-side auth simultaneously — no `src/client/` files touched. TARS is doing daemon hardening — no `src/daemon/` files touched.
+
 ### 2026-03-13: Phase 1 Summary
 
 **Completed Issues:** #7, #12, #13 (3/8 Phase 1 items)  
