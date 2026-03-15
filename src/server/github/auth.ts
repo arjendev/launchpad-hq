@@ -21,29 +21,38 @@ export class GitHubAuthError extends Error {
 let cachedAuth: AuthState | null = null;
 
 /**
- * Shells out to `gh auth token` and returns the token string.
+ * Returns a GitHub token. Checks `GH_TOKEN` / `GITHUB_TOKEN` env vars first
+ * (set by the preflight check), then falls back to shelling out to `gh auth token`.
  * Caches the result in memory after the first successful call.
  */
 export async function getGitHubToken(): Promise<string> {
   if (cachedAuth) return cachedAuth.token;
 
+  // Prefer env vars — the preflight check sets GH_TOKEN so the server
+  // doesn't need to shell out again (which can fail under npx contexts).
+  const envToken = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+
   let token: string;
-  try {
-    const { stdout } = await execFileAsync("gh", ["auth", "token"]);
-    token = stdout.trim();
-  } catch (err: unknown) {
-    const error = err as NodeJS.ErrnoException;
-    if (error.code === "ENOENT") {
+  if (envToken) {
+    token = envToken.trim();
+  } else {
+    try {
+      const { stdout } = await execFileAsync("gh", ["auth", "token"]);
+      token = stdout.trim();
+    } catch (err: unknown) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code === "ENOENT") {
+        throw new GitHubAuthError(
+          "GitHub CLI (gh) not found. Install from https://cli.github.com/",
+          "GH_NOT_FOUND",
+        );
+      }
+      // gh exits non-zero when not authenticated
       throw new GitHubAuthError(
-        "GitHub CLI (gh) not found. Install from https://cli.github.com/",
-        "GH_NOT_FOUND",
+        "Not authenticated. Run: gh auth login",
+        "NOT_AUTHENTICATED",
       );
     }
-    // gh exits non-zero when not authenticated
-    throw new GitHubAuthError(
-      "Not authenticated. Run: gh auth login",
-      "NOT_AUTHENTICATED",
-    );
   }
 
   if (!token) {

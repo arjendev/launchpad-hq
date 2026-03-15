@@ -7,17 +7,20 @@ import { execFile } from "node:child_process";
 
 const TIMEOUT_MS = 5_000;
 
-function run(cmd: string, args: string[]): Promise<void> {
+function run(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: TIMEOUT_MS }, (err) => {
+    execFile(cmd, args, { timeout: TIMEOUT_MS }, (err, stdout) => {
       if (err) reject(err);
-      else resolve();
+      else resolve(stdout);
     });
   });
 }
 
 /**
  * Ensures `gh` is on PATH and the user has a valid auth session.
+ * Captures the auth token and sets it as `GH_TOKEN` so downstream
+ * code (e.g. the Fastify server) can read it from the environment
+ * without shelling out again — which can fail under npx contexts.
  * Exits the process with code 1 and a human-readable message on failure.
  */
 export async function ensureGhAuthenticated(): Promise<void> {
@@ -37,6 +40,18 @@ export async function ensureGhAuthenticated(): Promise<void> {
       "❌ GitHub CLI is not authenticated.\n   Run: gh auth login",
     );
     process.exit(1);
+  }
+
+  // Capture the token so the server can consume it from the environment
+  // instead of shelling out to `gh auth token` again (which can fail
+  // when CWD is inside an npx temp directory).
+  if (!process.env.GH_TOKEN && !process.env.GITHUB_TOKEN) {
+    try {
+      const token = await run("gh", ["auth", "token"]);
+      process.env.GH_TOKEN = token.trim();
+    } catch {
+      // Non-fatal: the server will retry via execFile as a fallback
+    }
   }
 
   console.log("✅ GitHub CLI authenticated");
