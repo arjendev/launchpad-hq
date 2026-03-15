@@ -146,6 +146,15 @@ export class SelfDaemonSpawner {
     this.childProcess = child;
     this.running = true;
 
+    // Ensure the child is killed if the parent exits unexpectedly
+    const killOnExit = () => {
+      if (child.pid && !child.killed) {
+        try { child.kill("SIGKILL"); } catch { /* already dead */ }
+      }
+    };
+    process.once("exit", killOnExit);
+    child.once("exit", () => process.removeListener("exit", killOnExit));
+
     child.stdout?.on("data", (data: Buffer) => {
       this.logger?.info({ source: "self-daemon" }, data.toString().trimEnd());
     });
