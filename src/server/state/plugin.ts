@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import fp from "fastify-plugin";
 import { GitStateManager } from "./state-manager.js";
@@ -59,9 +61,10 @@ async function buildStateService(
     try {
       await gitManager.sync();
       fastify.log.info(
-        { owner, repo },
-        "State synced from launchpad-state repo (git mode)",
+        { stateMode: "git", stateRepo: `${owner}/${repo}` },
+        `State loaded from GitHub repo ${owner}/${repo}`,
       );
+      console.log(`📂 State: git repo ${owner}/${repo}`);
     } catch (err) {
       fastify.log.warn(
         { err },
@@ -82,7 +85,12 @@ async function buildLocalStateService(
 
   try {
     await localManager.sync();
-    fastify.log.info("State ready (local mode)");
+    const stateDir = join(homedir(), ".launchpad");
+    fastify.log.info(
+      { stateMode: "local", path: stateDir },
+      `State loaded from local filesystem: ${stateDir}`,
+    );
+    console.log(`📂 State: local filesystem ${stateDir}`);
   } catch (err) {
     fastify.log.warn(
       { err },
