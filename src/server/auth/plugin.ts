@@ -15,7 +15,13 @@ import fp from "fastify-plugin";
 /** Paths that are exempt from token auth. */
 const EXEMPT_PATHS = new Set(["/api/health"]);
 
-async function authPlugin(fastify: FastifyInstance) {
+async function authPlugin(fastify: FastifyInstance, opts: { isDev?: boolean }) {
+  // In dev mode (VS Code launch), skip auth — Vite dev proxy doesn't forward tokens
+  if (opts.isDev) {
+    fastify.log.info("Auth plugin: dev mode — skipping token validation");
+    return;
+  }
+
   const hqToken = fastify.sessionToken;
 
   fastify.addHook("onRequest", async (request, reply) => {

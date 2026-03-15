@@ -115,7 +115,7 @@ await server.register(websocket);
 
 // --- Auth (depends on websocket for sessionToken) ---
 
-await server.register(authPlugin);
+await server.register(authPlugin, { isDev: config.isDev });
 
 // --- Terminal relay (depends on websocket) ---
 
