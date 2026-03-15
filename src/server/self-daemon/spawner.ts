@@ -12,11 +12,14 @@ import type { FastifyBaseLogger } from "fastify";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-/** Resolved path to the daemon entry module */
-const DAEMON_ENTRY =
-  process.env.NODE_ENV === "production"
-    ? resolve(__dirname, "..", "..", "daemon", "index.js")
-    : resolve(__dirname, "..", "..", "daemon", "index.ts");
+/** Resolved path to the daemon entry module.
+ *  Detect built dist/ context by checking if __dirname contains /dist/,
+ *  rather than relying on NODE_ENV which may not be set in npx installs. */
+const isBuilt =
+  __dirname.includes("/dist/") || __dirname.includes("\\dist\\");
+const DAEMON_ENTRY = isBuilt
+  ? resolve(__dirname, "..", "..", "daemon", "index.js")
+  : resolve(__dirname, "..", "..", "daemon", "index.ts");
 
 export interface SelfDaemonConfig {
   hqUrl: string;

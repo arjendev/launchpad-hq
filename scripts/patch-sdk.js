@@ -17,13 +17,26 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const nodeModules = join(__dirname, '..', 'node_modules');
+
+// Walk up from the package dir to find a node_modules containing the target
+function findPkgDir(pkg) {
+  let dir = join(__dirname, '..');
+  for (let i = 0; i < 10; i++) {
+    const candidate = join(dir, 'node_modules', ...pkg.split('/'));
+    if (existsSync(join(candidate, 'package.json'))) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
 
 /* ── 1. Patch vscode-jsonrpc/package.json with an exports map ─────────── */
 
-const jsonrpcPkg = join(nodeModules, 'vscode-jsonrpc', 'package.json');
+const jsonrpcDir = findPkgDir('vscode-jsonrpc');
+const jsonrpcPkg = jsonrpcDir ? join(jsonrpcDir, 'package.json') : null;
 
-if (existsSync(jsonrpcPkg)) {
+if (jsonrpcPkg) {
   try {
     const raw = readFileSync(jsonrpcPkg, 'utf8');
     const pkg = JSON.parse(raw);
@@ -51,9 +64,10 @@ if (existsSync(jsonrpcPkg)) {
 
 /* ── 2. Fallback: rewrite bare imports in @github/copilot-sdk dist ────── */
 
-const sdkDist = join(nodeModules, '@github', 'copilot-sdk', 'dist');
+const sdkDir = findPkgDir('@github/copilot-sdk');
+const sdkDist = sdkDir ? join(sdkDir, 'dist') : null;
 
-if (existsSync(sdkDist)) {
+if (sdkDist && existsSync(sdkDist)) {
   for (const file of ['session.js', 'client.js']) {
     const target = join(sdkDist, file);
     if (!existsSync(target)) continue;
