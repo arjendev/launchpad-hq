@@ -6,8 +6,10 @@
  * Usage:
  *   launchpad-hq               — start HQ server (default)
  *   launchpad-hq --hq          — start HQ server (explicit)
+ *   launchpad-hq --port 8080   — start HQ server on a custom port (1024-65535)
  *   launchpad-hq --daemon      — start daemon mode
  *   launchpad-hq --daemon --watch — start daemon with auto-restart on file changes
+ *   launchpad-hq --daemon --preview-port 4000 — daemon with explicit preview port
  *   launchpad-hq --daemon --hq-url ws://localhost:3000 --token <TOKEN> --project-id owner/repo
  */
 
@@ -25,6 +27,36 @@ process.on('unhandledRejection', (reason) => {
 const args = process.argv.slice(2);
 const isDaemon = args.includes('--daemon');
 const isWatch = args.includes('--watch');
+
+/**
+ * Parse a `--flag <value>` or `--flag=<value>` pair from CLI args.
+ * Returns the raw string value, or undefined if the flag is absent.
+ */
+function getArgValue(flag: string): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag && args[i + 1]) return args[i + 1];
+    if (args[i].startsWith(`${flag}=`)) return args[i].slice(flag.length + 1);
+  }
+  return undefined;
+}
+
+/**
+ * Parse and validate a port number from CLI args.
+ * Exits with an error message if the value is not a valid port (1024-65535).
+ */
+function parsePort(flag: string): number | undefined {
+  const raw = getArgValue(flag);
+  if (raw === undefined) return undefined;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    console.error(`❌ Invalid ${flag} value "${raw}": must be an integer between 1024 and 65535`);
+    process.exit(1);
+  }
+  return port;
+}
+
+const cliPort = parsePort('--port');
+const cliPreviewPort = parsePort('--preview-port');
 
 // Pre-flight: ensure GitHub CLI is installed and authenticated
 const { ensureGhAuthenticated } = await import('./preflight/gh-check.js');
@@ -52,24 +84,18 @@ if (isDaemon && isWatch) {
 } else if (isDaemon) {
   try {
     // Parse daemon-specific CLI flags
-    const configOverrides: Record<string, string> = {};
+    const configOverrides: Record<string, string | number | undefined> = {};
 
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (arg === '--hq-url' && args[i + 1]) {
-        configOverrides.hqUrl = args[++i];
-      } else if (arg.startsWith('--hq-url=')) {
-        configOverrides.hqUrl = arg.slice('--hq-url='.length);
-      } else if (arg === '--token' && args[i + 1]) {
-        configOverrides.token = args[++i];
-      } else if (arg.startsWith('--token=')) {
-        configOverrides.token = arg.slice('--token='.length);
-      } else if (arg === '--project-id' && args[i + 1]) {
-        configOverrides.projectId = args[++i];
-      } else if (arg.startsWith('--project-id=')) {
-        configOverrides.projectId = arg.slice('--project-id='.length);
-      }
-    }
+    const hqUrlVal = getArgValue('--hq-url');
+    if (hqUrlVal) configOverrides.hqUrl = hqUrlVal;
+
+    const tokenVal = getArgValue('--token');
+    if (tokenVal) configOverrides.token = tokenVal;
+
+    const projectIdVal = getArgValue('--project-id');
+    if (projectIdVal) configOverrides.projectId = projectIdVal;
+
+    if (cliPreviewPort !== undefined) configOverrides.previewPort = cliPreviewPort;
 
     // Dynamic import keeps HQ-only dependencies out of daemon memory
     const { startDaemon } = await import('./daemon/index.js');
@@ -91,6 +117,11 @@ if (isDaemon && isWatch) {
     process.exit(1);
   }
 } else {
+  // HQ mode — apply --port flag via process.env before server config loads
+  if (cliPort !== undefined) {
+    process.env.PORT = String(cliPort);
+  }
+
   // HQ mode — check first-launch onboarding before server boot
   const { configExists, runOnboardingWizard } = await import('./server/onboarding/index.js');
   if (!configExists()) {
