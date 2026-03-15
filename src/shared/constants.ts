@@ -31,3 +31,9 @@ export const DAEMON_WS_PATH = '/ws/daemon';
 
 /** Custom WebSocket close code: authentication rejected (invalid token) */
 export const WS_CLOSE_AUTH_REJECTED = 4001;
+
+/** Custom WebSocket close code: authentication timed out */
+export const WS_CLOSE_AUTH_TIMEOUT = 4002;
+
+/** Maximum time (ms) for a daemon to complete the auth handshake */
+export const AUTH_HANDSHAKE_TIMEOUT_MS = 15_000;

@@ -126,6 +126,9 @@ if (isDaemon && isWatch) {
     const tokenVal = getArgValue('--token');
     if (tokenVal) configOverrides.token = tokenVal;
 
+    // H4: Redact token from process title so `ps aux` doesn't leak it
+    process.title = 'launchpad-hq daemon';
+
     const projectIdVal = getArgValue('--project-id');
     if (projectIdVal) configOverrides.projectId = projectIdVal;
 

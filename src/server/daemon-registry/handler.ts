@@ -8,7 +8,7 @@ import type {
   AuthRejectMessage,
 } from "../../shared/protocol.js";
 import { validateDaemonToken } from "../../shared/auth.js";
-import { WS_CLOSE_AUTH_REJECTED } from "../../shared/constants.js";
+import { WS_CLOSE_AUTH_REJECTED, WS_CLOSE_AUTH_TIMEOUT, AUTH_HANDSHAKE_TIMEOUT_MS } from "../../shared/constants.js";
 import type { DaemonRegistry } from "./registry.js";
 import type { TerminalRelay } from "../terminal-relay/relay.js";
 
@@ -17,6 +17,7 @@ interface PendingConnection {
   ws: WebSocket;
   nonce: string;
   createdAt: number;
+  authTimer: ReturnType<typeof setTimeout>;
 }
 
 /** Token lookup: given a projectId, return the stored secret (or undefined) */
@@ -45,7 +46,21 @@ export class DaemonWsHandler {
   /** Called when a new daemon WebSocket connects */
   handleConnection(ws: WebSocket): void {
     const nonce = randomUUID();
-    this.pending.set(ws, { ws, nonce, createdAt: Date.now() });
+
+    // H5: Close the socket if auth isn't completed within the timeout window
+    const authTimer = setTimeout(() => {
+      if (this.pending.has(ws)) {
+        this.log.warn({ nonce }, "Daemon auth timeout — closing pending connection");
+        this.pending.delete(ws);
+        try {
+          ws.close(WS_CLOSE_AUTH_TIMEOUT, "Auth timeout");
+        } catch {
+          /* already closed */
+        }
+      }
+    }, AUTH_HANDSHAKE_TIMEOUT_MS);
+
+    this.pending.set(ws, { ws, nonce, createdAt: Date.now(), authTimer });
 
     const challenge: AuthChallengeMessage = {
       type: "auth-challenge",
@@ -122,7 +137,8 @@ export class DaemonWsHandler {
       return;
     }
 
-    // Auth passed — remove from pending, wait for register message
+    // Auth passed — remove from pending, clear timeout, wait for register message
+    clearTimeout(pending.authTimer);
     this.pending.delete(ws);
 
     const accept: AuthAcceptMessage = {
@@ -309,6 +325,10 @@ export class DaemonWsHandler {
 
   /** Handle daemon socket disconnect */
   private handleDisconnect(ws: WebSocket): void {
+    // Clear auth timer if still pending
+    const pending = this.pending.get(ws);
+    if (pending) clearTimeout(pending.authTimer);
+
     // Remove from pending if still authenticating
     this.pending.delete(ws);
     this.wsToDaemonId.delete(ws);
@@ -338,13 +358,16 @@ export class DaemonWsHandler {
     };
     ws.send(JSON.stringify(reject));
     ws.close(WS_CLOSE_AUTH_REJECTED, reason);
+    const pending = this.pending.get(ws);
+    if (pending) clearTimeout(pending.authTimer);
     this.pending.delete(ws);
     this.log.warn({ reason }, "Daemon auth rejected");
   }
 
   /** Clean up all pending connections */
   cleanup(): void {
-    for (const { ws } of this.pending.values()) {
+    for (const { ws, authTimer } of this.pending.values()) {
+      clearTimeout(authTimer);
       try {
         ws.close();
       } catch {

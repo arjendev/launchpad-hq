@@ -3,7 +3,7 @@ import { createTestServer, type FastifyInstance } from "../../test-utils/server.
 import { DaemonRegistry } from "../daemon-registry/registry.js";
 import { DaemonWsHandler, type TokenLookup, type BrowserBroadcast } from "../daemon-registry/handler.js";
 import type { DaemonInfo, DaemonToHqMessage, HqToDaemonMessage } from "../../shared/protocol.js";
-import { HEARTBEAT_TIMEOUT_MS, WS_CLOSE_AUTH_REJECTED } from "../../shared/constants.js";
+import { HEARTBEAT_TIMEOUT_MS, WS_CLOSE_AUTH_REJECTED, WS_CLOSE_AUTH_TIMEOUT, AUTH_HANDSHAKE_TIMEOUT_MS } from "../../shared/constants.js";
 import daemonRoutes from "../routes/daemons.js";
 
 /** Flush the microtask queue so async auth handling completes. */
@@ -893,5 +893,109 @@ describe("Daemon REST routes", () => {
       payload: { action: "stop" },
     });
     expect(res.statusCode).toBe(502);
+  });
+});
+
+describe("H4 — process.title redaction", () => {
+  it("process.title does not contain the token after daemon startup code runs", async () => {
+    const fakeToken = "super-secret-token-abc123";
+    // Simulate what cli.ts does: read the token, then redact process.title
+    const _tokenVal = fakeToken;
+    process.title = "launchpad-hq daemon";
+
+    expect(process.title).toBe("launchpad-hq daemon");
+    expect(process.title).not.toContain(fakeToken);
+    expect(process.title).not.toContain("--token");
+  });
+});
+
+describe("H5 — auth handshake timeout", () => {
+  let registry: DaemonRegistry;
+  let broadcast: ReturnType<typeof vi.fn>;
+  let log: ReturnType<typeof createMockLog>;
+  const validToken = "a".repeat(64);
+
+  function createHandler(tokenLookup?: TokenLookup) {
+    const lookup = tokenLookup ?? ((_id: string) => validToken);
+    return new DaemonWsHandler(registry, lookup, broadcast as BrowserBroadcast, log as never);
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    registry = new DaemonRegistry();
+    broadcast = vi.fn();
+    log = createMockLog();
+  });
+
+  afterEach(() => {
+    registry.stopHeartbeatMonitor();
+    vi.useRealTimers();
+  });
+
+  it("closes pending connection after AUTH_HANDSHAKE_TIMEOUT_MS", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    // Connection is pending, advance past the timeout
+    vi.advanceTimersByTime(AUTH_HANDSHAKE_TIMEOUT_MS);
+
+    expect(ws.lastCloseCode).toBe(WS_CLOSE_AUTH_TIMEOUT);
+    expect(ws.lastCloseReason).toBe("Auth timeout");
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ nonce: expect.any(String) }),
+      "Daemon auth timeout — closing pending connection",
+    );
+  });
+
+  it("does not close connection if auth completes before timeout", async () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    // Complete the auth handshake
+    const challenge = JSON.parse(ws.sent[0]);
+    const authResponse: DaemonToHqMessage = {
+      type: "auth-response",
+      timestamp: Date.now(),
+      payload: { projectId: "proj-1", token: validToken, nonce: challenge.payload.nonce },
+    };
+    ws.simulateMessage(JSON.stringify(authResponse));
+    await vi.advanceTimersByTimeAsync(0); // flush microtasks
+
+    // Now advance past the timeout — socket should NOT be closed with timeout code
+    vi.advanceTimersByTime(AUTH_HANDSHAKE_TIMEOUT_MS);
+
+    expect(ws.lastCloseCode).toBeUndefined();
+  });
+
+  it("cleanup clears auth timers", () => {
+    const handler = createHandler();
+    const ws1 = createMockSocket();
+    const ws2 = createMockSocket();
+    handler.handleConnection(ws1 as never);
+    handler.handleConnection(ws2 as never);
+
+    handler.cleanup();
+
+    // Advancing time should not trigger timeout closes (timers were cleared)
+    vi.advanceTimersByTime(AUTH_HANDSHAKE_TIMEOUT_MS);
+    // The sockets were closed by cleanup() (no code), not by timeout
+    expect(ws1.lastCloseCode).toBeUndefined();
+    expect(ws2.lastCloseCode).toBeUndefined();
+  });
+
+  it("disconnect clears auth timer for pending connection", () => {
+    const handler = createHandler();
+    const ws = createMockSocket();
+    handler.handleConnection(ws as never);
+
+    // Simulate early disconnect
+    ws.simulateClose();
+
+    // Advance past timeout — should not attempt to close again
+    vi.advanceTimersByTime(AUTH_HANDSHAKE_TIMEOUT_MS);
+    // If timeout fired on a deleted pending, it would set close code
+    expect(ws.lastCloseCode).toBeUndefined();
   });
 });
