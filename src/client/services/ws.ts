@@ -326,7 +326,7 @@ export class WebSocketManager {
 
 /** Build the default WebSocket URL from the current page location. */
 function getDefaultWsUrl(): string {
-  if (typeof window === "undefined") return "ws://localhost:3000/ws";
+  if (typeof window === "undefined") return "ws://localhost:4321/ws";
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${window.location.host}/ws`;
 }

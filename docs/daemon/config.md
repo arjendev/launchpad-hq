@@ -8,7 +8,7 @@ Create a `daemon.json` in your project root:
 
 ```json
 {
-  "hqUrl": "ws://localhost:3000/ws/daemon",
+  "hqUrl": "ws://localhost:4321/ws/daemon",
   "projectId": "owner/repo",
   "capabilities": {
     "copilot": true,
@@ -22,7 +22,7 @@ Create a `daemon.json` in your project root:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `hqUrl` | `string` | `ws://localhost:3000/ws/daemon` | WebSocket URL of the HQ server |
+| `hqUrl` | `string` | `ws://localhost:4321/ws/daemon` | WebSocket URL of the HQ server |
 | `projectId` | `string` | — | GitHub repository identifier (`owner/repo`) |
 | `capabilities.copilot` | `boolean` | `true` | Enable Copilot SDK bridge |
 | `capabilities.terminal` | `boolean` | `true` | Enable terminal PTY relay |

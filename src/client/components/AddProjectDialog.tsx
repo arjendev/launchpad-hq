@@ -62,7 +62,7 @@ export function AddProjectDialog({ opened, onClose }: AddProjectDialogProps) {
   // After project creation, show the daemon config snippet
   if (createdToken) {
     const configSnippet = [
-      `LAUNCHPAD_HQ_URL=ws://localhost:3000`,
+      `LAUNCHPAD_HQ_URL=ws://localhost:4321`,
       `LAUNCHPAD_DAEMON_TOKEN=${createdToken.token}`,
       `LAUNCHPAD_PROJECT_ID=${createdToken.owner}/${createdToken.repo}`,
     ].join("\n");

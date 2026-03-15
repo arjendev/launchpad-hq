@@ -11,7 +11,7 @@
  *   launchpad-hq --daemon      — start daemon mode
  *   launchpad-hq --daemon --watch — start daemon with auto-restart on file changes
  *   launchpad-hq --daemon --preview-port 4000 — daemon with explicit preview port
- *   launchpad-hq --daemon --hq-url ws://localhost:3000 --token <TOKEN> --project-id owner/repo
+ *   launchpad-hq --daemon --hq-url ws://localhost:4321 --token <TOKEN> --project-id owner/repo
  */
 
 // Global error handlers — installed early so any crash during startup is logged
@@ -32,7 +32,7 @@ if (args.includes('--help') || args.includes('-h')) {
   console.log(`launchpad-hq — personal mission control for GitHub projects
 
 Usage:
-  npx github:arjendev/launchpad-hq               Start HQ server (default port 3000)
+  npx github:arjendev/launchpad-hq               Start HQ server (default port 4321)
   npx github:arjendev/launchpad-hq --port 8080    Start on a custom port (1024-65535)
   npx github:arjendev/launchpad-hq --self-daemon    Start HQ with built-in daemon
   npx github:arjendev/launchpad-hq --daemon        Start daemon mode
@@ -40,7 +40,7 @@ Usage:
   npx github:arjendev/launchpad-hq --help          Show this help
 
 Options:
-  --port <port>           HQ server port (1024-65535, default: 3000)
+  --port <port>           HQ server port (1024-65535, default: 4321)
   --self-daemon           Enable built-in daemon when running HQ
   --daemon                Start in daemon mode instead of HQ mode
   --watch                 Auto-restart daemon on file changes (with --daemon)

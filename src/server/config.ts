@@ -30,7 +30,7 @@ export function loadConfig(): ServerConfig {
     import.meta.url.includes("/dist/") || import.meta.url.includes("\\dist\\");
   const isDev = !isBuilt && process.env.NODE_ENV !== "production";
   const args = process.argv.slice(2);
-  const port = Number(process.env.PORT) || 3000;
+  const port = Number(process.env.PORT) || 4321;
 
   return {
     port,
