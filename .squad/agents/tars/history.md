@@ -79,6 +79,14 @@ TARS delivered the complete GitHub data pipeline for launchpad:
 2. **State persistence** — three-tier architecture (REST client + local cache + manager) for config/preferences/enrichment
 3. **API cache** — TTL-based in-memory cache with LRU eviction, disk snapshots, stats monitoring
 
+### 2026-03-15: Architecture brainstorm — Project app preview via DevTunnels (#54)
+- Analyzed four options for exposing project apps to mobile: HQ path routing (A), per-project DevTunnels (B), HQ-mediated tunnels (C), VS Code discovery (D)
+- Recommended **Option B (Per-Project DevTunnels)** — daemon manages its own tunnel, HQ aggregates URLs
+- Key insight: HTTP-over-WS proxying (Option A) would break HMR/hot reload; direct tunnels preserve native WebSocket upgrade
+- No existing port detection in codebase — daemon has no awareness of project dev server ports
+- Proposed 3-phase plan: manual config → auto-detect (devcontainer.json + port scan) → full HQ integration
+- New protocol messages needed: `preview-tunnel-status` (daemon→HQ), `preview-tunnel-command` (HQ→daemon)
+
 All three modules are now integrated into the server as Fastify plugins with correct dependency ordering:
 - `github-auth` (existing) → `state` (Phase 1) → `api-cache` (Phase 1) → routes
 

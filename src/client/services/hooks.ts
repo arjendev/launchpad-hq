@@ -84,6 +84,21 @@ export function useRemoveProject() {
   });
 }
 
+/** Regenerate the daemon token for a project. Returns the updated project with new token. */
+export function useRegenerateDaemonToken() {
+  const qc = useQueryClient();
+  return useMutation<ProjectEntry, Error, { owner: string; repo: string }>({
+    mutationFn: ({ owner, repo }) =>
+      fetchJson<ProjectEntry>(
+        `/api/projects/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/regenerate-token`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
 /** Search GitHub users/orgs. Query is debounced on the caller side. */
 export function useDiscoverUsers(query: string) {
   return useQuery<DiscoverUsersResponse>({

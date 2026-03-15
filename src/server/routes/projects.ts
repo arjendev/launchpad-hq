@@ -282,6 +282,36 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  // POST /api/projects/:owner/:repo/regenerate-token — generate a new daemon token
+  fastify.post<{ Params: ProjectParams }>(
+    "/api/projects/:owner/:repo/regenerate-token",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+
+      const config = await fastify.stateService.getConfig();
+      const project = config.projects.find(
+        (p) => p.owner.toLowerCase() === owner.toLowerCase() && p.repo.toLowerCase() === repo.toLowerCase(),
+      );
+
+      if (!project) {
+        return reply.status(404).send({
+          error: "not_found",
+          message: `Project ${owner}/${repo} is not being tracked.`,
+        });
+      }
+
+      project.daemonToken = generateDaemonToken();
+      await fastify.stateService.saveConfig(config);
+
+      const daemonInfo = deriveDaemonInfo(fastify, project.owner, project.repo);
+      const response: ProjectDetailResponse = {
+        ...toProjectResponse(project, daemonInfo),
+        daemonToken: project.daemonToken,
+      };
+      return response;
+    },
+  );
+
   // DELETE /api/projects/:owner/:repo — remove a project from tracking
   fastify.delete<{ Params: ProjectParams }>(
     "/api/projects/:owner/:repo",

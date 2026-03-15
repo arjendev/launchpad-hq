@@ -7,14 +7,16 @@ import {
   Group,
   Loader,
   Menu,
+  Modal,
   Stack,
   Text,
   Title,
   UnstyledButton,
 } from "@mantine/core";
-import { useDashboard, useRemoveProject, useInboxCount } from "../services/hooks.js";
+import { useDashboard, useRemoveProject, useInboxCount, useRegenerateDaemonToken } from "../services/hooks.js";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { AddProjectWizard } from "./AddProjectWizard.js";
+import { DaemonSetupInstructions } from "./DaemonSetupInstructions.js";
 import type { DashboardProject } from "../services/types.js";
 
 function statusColor(project: DashboardProject): string {
@@ -56,11 +58,13 @@ function ProjectItem({
   selected,
   onSelect,
   onRemove,
+  onRegenerate,
 }: {
   project: DashboardProject;
   selected: boolean;
   onSelect: () => void;
   onRemove: () => void;
+  onRegenerate: () => void;
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const { data: inboxData } = useInboxCount(project.owner, project.repo);
@@ -128,7 +132,7 @@ function ProjectItem({
           </Group>
         </Box>
 
-        <Menu shadow="md" width={140} position="bottom-end">
+        <Menu shadow="md" width={220} position="bottom-end">
           <Menu.Target>
             <ActionIcon
               variant="subtle"
@@ -141,6 +145,15 @@ function ProjectItem({
             </ActionIcon>
           </Menu.Target>
           <Menu.Dropdown>
+            <Menu.Item
+              onClick={(e) => {
+                e.stopPropagation();
+                onRegenerate();
+              }}
+            >
+              Regenerate daemon command
+            </Menu.Item>
+            <Menu.Divider />
             {!confirmRemove ? (
               <Menu.Item
                 color="red"
@@ -174,7 +187,28 @@ export function ProjectList() {
   const { data, isLoading, isError, error } = useDashboard();
   const { selectedProject, selectProject } = useSelectedProject();
   const removeProject = useRemoveProject();
+  const regenerateToken = useRegenerateDaemonToken();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [regenerateModal, setRegenerateModal] = useState<{
+    owner: string;
+    repo: string;
+    token: string;
+  } | null>(null);
+
+  const handleRegenerate = (owner: string, repo: string) => {
+    regenerateToken.mutate(
+      { owner, repo },
+      {
+        onSuccess: (result) => {
+          setRegenerateModal({
+            owner,
+            repo,
+            token: result.daemonToken ?? "",
+          });
+        },
+      },
+    );
+  };
 
   return (
     <Stack gap="xs" p="md">
@@ -228,6 +262,7 @@ export function ProjectList() {
                 repo: project.repo,
               })
             }
+            onRegenerate={() => handleRegenerate(project.owner, project.repo)}
           />
         );
       })}
@@ -236,6 +271,29 @@ export function ProjectList() {
         opened={addDialogOpen}
         onClose={() => setAddDialogOpen(false)}
       />
+
+      <Modal
+        opened={regenerateModal !== null}
+        onClose={() => setRegenerateModal(null)}
+        title="Regenerated Daemon Command"
+        size="md"
+      >
+        {regenerateModal && (
+          <Stack gap="md">
+            <DaemonSetupInstructions
+              owner={regenerateModal.owner}
+              repo={regenerateModal.repo}
+              token={regenerateModal.token}
+              warning="This invalidates the previous token. Any running daemon for this project will need to reconnect with the new token."
+            />
+            <Group justify="flex-end" mt="xs">
+              <Button onClick={() => setRegenerateModal(null)} size="xs">
+                Done
+              </Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
     </Stack>
   );
 }

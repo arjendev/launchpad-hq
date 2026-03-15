@@ -6,137 +6,16 @@ import {
   Stack,
   Text,
   Alert,
-  Code,
-  CopyButton,
-  ActionIcon,
-  Box,
-  Tabs,
   Loader,
   Stepper,
 } from "@mantine/core";
 import { useAddProject } from "../services/hooks.js";
 import { RepoSearchPicker } from "./RepoSearchPicker.js";
+import { DaemonSetupInstructions } from "./DaemonSetupInstructions.js";
 
 interface AddProjectWizardProps {
   opened: boolean;
   onClose: () => void;
-}
-
-// ── Step 2: Daemon setup instructions ──────────────────────────────
-
-function DaemonSetup({
-  owner,
-  repo,
-  token,
-  onDone,
-}: {
-  owner: string;
-  repo: string;
-  token: string;
-  onDone: () => void;
-}) {
-  const cliCommand = `npx launchpad-hq --daemon --hq-url ws://localhost:3000 --token ${token} --project-id ${owner}/${repo}`;
-
-  const devcontainerSnippet = JSON.stringify(
-    {
-      postStartCommand: `npx launchpad-hq --daemon --hq-url ws://localhost:3000 --token ${token} --project-id ${owner}/${repo}`,
-    },
-    null,
-    2,
-  );
-
-  return (
-    <Stack gap="md">
-      <Alert color="green" variant="light">
-        <Text size="sm">
-          Project <strong>{owner}/{repo}</strong> added successfully!
-        </Text>
-      </Alert>
-
-      <Text size="sm">
-        Every project needs a <strong>daemon</strong> running in the repository
-        folder to connect to HQ. Choose a deployment mode:
-      </Text>
-
-      <Tabs defaultValue="manual">
-        <Tabs.List>
-          <Tabs.Tab value="manual">Run Daemon Manually</Tabs.Tab>
-          <Tabs.Tab value="devcontainer">
-            Devcontainer (Recommended)
-          </Tabs.Tab>
-        </Tabs.List>
-
-        <Tabs.Panel value="manual" pt="sm">
-          <Stack gap="xs">
-            <Text size="sm" c="dimmed">
-              Run this command in your project directory:
-            </Text>
-            <Box pos="relative">
-              <Code block style={{ fontSize: "var(--mantine-font-size-xs)" }}>
-                {cliCommand}
-              </Code>
-              <CopyButton value={cliCommand}>
-                {({ copied, copy }) => (
-                  <ActionIcon
-                    variant="subtle"
-                    size="sm"
-                    onClick={copy}
-                    pos="absolute"
-                    top={8}
-                    right={8}
-                    title={copied ? "Copied!" : "Copy to clipboard"}
-                  >
-                    {copied ? "✓" : "📋"}
-                  </ActionIcon>
-                )}
-              </CopyButton>
-            </Box>
-          </Stack>
-        </Tabs.Panel>
-
-        <Tabs.Panel value="devcontainer" pt="sm">
-          <Stack gap="xs">
-            <Text size="sm" c="dimmed">
-              Add this to your <Code>devcontainer.json</Code> to auto-start the
-              daemon:
-            </Text>
-            <Box pos="relative">
-              <Code block style={{ fontSize: "var(--mantine-font-size-xs)" }}>
-                {devcontainerSnippet}
-              </Code>
-              <CopyButton value={devcontainerSnippet}>
-                {({ copied, copy }) => (
-                  <ActionIcon
-                    variant="subtle"
-                    size="sm"
-                    onClick={copy}
-                    pos="absolute"
-                    top={8}
-                    right={8}
-                    title={copied ? "Copied!" : "Copy to clipboard"}
-                  >
-                    {copied ? "✓" : "📋"}
-                  </ActionIcon>
-                )}
-              </CopyButton>
-            </Box>
-            <Alert color="blue" variant="light">
-              <Text size="xs">
-                The daemon token is shown only once. Save the command before
-                closing this dialog.
-              </Text>
-            </Alert>
-          </Stack>
-        </Tabs.Panel>
-      </Tabs>
-
-      <Group justify="flex-end" mt="xs">
-        <Button onClick={onDone} size="xs">
-          Done
-        </Button>
-      </Group>
-    </Stack>
-  );
 }
 
 // ── Main Wizard ────────────────────────────────────────────────────
@@ -216,12 +95,23 @@ export function AddProjectWizard({
       )}
 
       {step === 1 && createdProject && (
-        <DaemonSetup
-          owner={createdProject.owner}
-          repo={createdProject.repo}
-          token={createdProject.token}
-          onDone={resetAndClose}
-        />
+        <Stack gap="md">
+          <Alert color="green" variant="light">
+            <Text size="sm">
+              Project <strong>{createdProject.owner}/{createdProject.repo}</strong> added successfully!
+            </Text>
+          </Alert>
+          <DaemonSetupInstructions
+            owner={createdProject.owner}
+            repo={createdProject.repo}
+            token={createdProject.token}
+          />
+          <Group justify="flex-end" mt="xs">
+            <Button onClick={resetAndClose} size="xs">
+              Done
+            </Button>
+          </Group>
+        </Stack>
       )}
     </Modal>
   );
