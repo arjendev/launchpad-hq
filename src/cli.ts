@@ -26,6 +26,10 @@ const args = process.argv.slice(2);
 const isDaemon = args.includes('--daemon');
 const isWatch = args.includes('--watch');
 
+// Pre-flight: ensure GitHub CLI is installed and authenticated
+const { ensureGhAuthenticated } = await import('./preflight/gh-check.js');
+await ensureGhAuthenticated();
+
 if (isDaemon && isWatch) {
   // Re-exec with Node's built-in --watch mode (Node 18+)
   // This watches all imported files and restarts on change
