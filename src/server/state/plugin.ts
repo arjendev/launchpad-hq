@@ -38,8 +38,11 @@ async function buildStateService(
     const { githubToken, githubUser } = fastify;
 
     if (!githubToken || !githubUser) {
-      fastify.log.warn("Git state mode requested but GitHub auth unavailable — falling back to local mode");
-      return buildLocalStateService(fastify);
+      throw new Error(
+        "⚠️ Git state mode configured but GitHub auth unavailable. " +
+        "State operations require a valid GitHub token when stateMode is 'git'. " +
+        "Fix: run 'gh auth login' or set stateMode to 'local' in ~/.launchpad/config.json",
+      );
     }
 
     const { owner, repo } = resolveStateRepoTarget(

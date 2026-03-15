@@ -44,11 +44,11 @@ async function importStatePlugin() {
  * Stub the github-auth dependency that the state plugin requires.
  * Uses fastify-plugin so the decorator is visible in the parent scope.
  */
-function fakeGithubAuth() {
+function fakeGithubAuth(opts?: { token?: string | null; user?: { login: string } | null }) {
   return fp(
     async (fastify: FastifyInstance) => {
-      fastify.decorate("githubToken", "ghp_fake_test_token");
-      fastify.decorate("githubUser", { login: "testuser" });
+      fastify.decorate("githubToken", opts?.token !== undefined ? opts.token : "ghp_fake_test_token");
+      fastify.decorate("githubUser", opts?.user !== undefined ? opts.user : { login: "testuser" });
     },
     { name: "github-auth" },
   );
@@ -391,6 +391,32 @@ describe("statePlugin", () => {
       owner: "octo-org",
       repo: "custom-state",
     });
+
+    await server.close();
+  });
+
+  it("throws when git mode is configured but GitHub auth is unavailable", async () => {
+    writeConfig({ ...defaultLaunchpadConfig(), stateMode: "git", stateRepo: "testuser/launchpad-state" });
+    const statePlugin = await importStatePlugin();
+
+    const server = Fastify({ logger: false });
+    server.register(fakeGithubAuth({ token: null, user: null }));
+    server.register(statePlugin);
+
+    await expect(server.ready()).rejects.toThrow("Git state mode configured but GitHub auth unavailable");
+
+    await server.close();
+  });
+
+  it("throws when git mode has token but no user", async () => {
+    writeConfig({ ...defaultLaunchpadConfig(), stateMode: "git", stateRepo: "testuser/launchpad-state" });
+    const statePlugin = await importStatePlugin();
+
+    const server = Fastify({ logger: false });
+    server.register(fakeGithubAuth({ token: "ghp_test", user: null }));
+    server.register(statePlugin);
+
+    await expect(server.ready()).rejects.toThrow("Git state mode configured but GitHub auth unavailable");
 
     await server.close();
   });
