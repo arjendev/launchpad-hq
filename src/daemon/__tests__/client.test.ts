@@ -6,6 +6,7 @@ import {
   DAEMON_WS_PATH,
   HEARTBEAT_INTERVAL_MS,
   RECONNECT_DELAY_MS,
+  WS_CLOSE_AUTH_REJECTED,
 } from '../../shared/constants.js';
 
 /** Create a test WS server on a random port and return it with its URL */
@@ -338,6 +339,36 @@ describe('daemon/client', () => {
       vi.advanceTimersByTime(RECONNECT_DELAY_MS * 10);
 
       expect(client.isConnected).toBe(false);
+    });
+
+    it('does not reconnect and exits on auth rejection (close code 4001)', async () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never);
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      createClient();
+      const connected = new Promise<void>((resolve) => client.on('connected', resolve));
+      client.connect();
+      await connected;
+
+      const disconnected = new Promise<void>((resolve) => client.on('disconnected', resolve));
+
+      // Server closes with auth-rejected code
+      for (const ws of wss.clients) {
+        ws.close(WS_CLOSE_AUTH_REJECTED, 'Invalid token');
+      }
+      await disconnected;
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '❌ Authentication failed: invalid token. Not retrying.',
+      );
+
+      // Advance time — should NOT reconnect
+      vi.advanceTimersByTime(RECONNECT_DELAY_MS * 10);
+      expect(client.isConnected).toBe(false);
+
+      exitSpy.mockRestore();
+      consoleSpy.mockRestore();
     });
   });
 

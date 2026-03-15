@@ -3,7 +3,7 @@ import { createTestServer, type FastifyInstance } from "../../test-utils/server.
 import { DaemonRegistry } from "../daemon-registry/registry.js";
 import { DaemonWsHandler, type TokenLookup, type BrowserBroadcast } from "../daemon-registry/handler.js";
 import type { DaemonInfo, DaemonToHqMessage, HqToDaemonMessage } from "../../shared/protocol.js";
-import { HEARTBEAT_TIMEOUT_MS } from "../../shared/constants.js";
+import { HEARTBEAT_TIMEOUT_MS, WS_CLOSE_AUTH_REJECTED } from "../../shared/constants.js";
 import daemonRoutes from "../routes/daemons.js";
 
 /** Flush the microtask queue so async auth handling completes. */
@@ -13,6 +13,8 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
 function createMockSocket() {
   const sent: string[] = [];
+  let lastCloseCode: number | undefined;
+  let lastCloseReason: string | undefined;
   let closeHandler: (() => void) | null = null;
   let messageHandler: ((data: string) => void) | null = null;
   let errorHandler: ((err: Error) => void) | null = null;
@@ -20,10 +22,14 @@ function createMockSocket() {
     sent,
     readyState: 1,
     OPEN: 1 as const,
+    get lastCloseCode() { return lastCloseCode; },
+    get lastCloseReason() { return lastCloseReason; },
     send(data: string) {
       sent.push(data);
     },
-    close() {
+    close(code?: number, reason?: string) {
+      lastCloseCode = code;
+      lastCloseReason = reason;
       if (closeHandler) closeHandler();
     },
     terminate() {},
@@ -307,6 +313,8 @@ describe("DaemonWsHandler", () => {
     const reject = JSON.parse(ws.sent[1]);
     expect(reject.type).toBe("auth-reject");
     expect(reject.payload.reason).toBe("Nonce mismatch");
+    expect(ws.lastCloseCode).toBe(WS_CLOSE_AUTH_REJECTED);
+    expect(ws.lastCloseReason).toBe("Nonce mismatch");
   });
 
   it("rejects auth with invalid token", async () => {
@@ -327,6 +335,8 @@ describe("DaemonWsHandler", () => {
     const reject = JSON.parse(ws.sent[1]);
     expect(reject.type).toBe("auth-reject");
     expect(reject.payload.reason).toBe("Invalid token");
+    expect(ws.lastCloseCode).toBe(WS_CLOSE_AUTH_REJECTED);
+    expect(ws.lastCloseReason).toBe("Invalid token");
   });
 
   it("accepts auth with correct token and nonce", async () => {

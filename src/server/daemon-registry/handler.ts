@@ -8,6 +8,7 @@ import type {
   AuthRejectMessage,
 } from "../../shared/protocol.js";
 import { validateDaemonToken } from "../../shared/auth.js";
+import { WS_CLOSE_AUTH_REJECTED } from "../../shared/constants.js";
 import type { DaemonRegistry } from "./registry.js";
 import type { TerminalRelay } from "../terminal-relay/relay.js";
 
@@ -328,7 +329,7 @@ export class DaemonWsHandler {
     }
   }
 
-  /** Send auth-reject and close socket */
+  /** Send auth-reject and close socket with 4001 close code */
   private sendReject(ws: WebSocket, reason: string): void {
     const reject: AuthRejectMessage = {
       type: "auth-reject",
@@ -336,7 +337,7 @@ export class DaemonWsHandler {
       payload: { reason },
     };
     ws.send(JSON.stringify(reject));
-    ws.close();
+    ws.close(WS_CLOSE_AUTH_REJECTED, reason);
     this.pending.delete(ws);
     this.log.warn({ reason }, "Daemon auth rejected");
   }

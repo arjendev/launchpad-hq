@@ -20,6 +20,7 @@ import {
   RECONNECT_DELAY_MS,
   RECONNECT_MAX_DELAY_MS,
   RECONNECT_BACKOFF_MULTIPLIER,
+  WS_CLOSE_AUTH_REJECTED,
 } from '../shared/constants.js';
 
 export type CommandHandler = (action: string, args?: Record<string, unknown>) => void;
@@ -97,6 +98,14 @@ export class DaemonWebSocketClient extends EventEmitter<DaemonClientEvents> {
     this.ws.on('close', (code, reason) => {
       this.cleanup();
       this.emit('disconnected', code, reason.toString());
+
+      // Auth rejection is fatal — do not retry
+      if (code === WS_CLOSE_AUTH_REJECTED) {
+        console.error('❌ Authentication failed: invalid token. Not retrying.');
+        process.exit(1);
+        return;
+      }
+
       if (this.shouldReconnect) {
         this.scheduleReconnect();
       }

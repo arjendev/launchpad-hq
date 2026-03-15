@@ -28,3 +28,6 @@ export const TOKEN_BYTE_LENGTH = 32;
 
 /** WebSocket path for daemon connections */
 export const DAEMON_WS_PATH = '/ws/daemon';
+
+/** Custom WebSocket close code: authentication rejected (invalid token) */
+export const WS_CLOSE_AUTH_REJECTED = 4001;
