@@ -167,6 +167,14 @@ export class SelfDaemonSpawner {
         return;
       }
 
+      // Exit code 78 (EX_CONFIG) = auth failure — do not restart
+      if (code === 78) {
+        this.logger?.error(
+          "Self-daemon auth failed — not restarting. Check daemon token.",
+        );
+        return;
+      }
+
       this.logger?.warn(
         { code, signal },
         "Self-daemon exited unexpectedly",

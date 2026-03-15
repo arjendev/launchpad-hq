@@ -102,7 +102,7 @@ export class DaemonWebSocketClient extends EventEmitter<DaemonClientEvents> {
       // Auth rejection is fatal — do not retry
       if (code === WS_CLOSE_AUTH_REJECTED) {
         console.error('❌ Authentication failed: invalid token. Not retrying.');
-        process.exit(1);
+        process.exit(78); // EX_CONFIG — non-restartable auth error
         return;
       }
 

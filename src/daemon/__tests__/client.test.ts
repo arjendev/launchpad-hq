@@ -358,7 +358,7 @@ describe('daemon/client', () => {
       }
       await disconnected;
 
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(exitSpy).toHaveBeenCalledWith(78);
       expect(consoleSpy).toHaveBeenCalledWith(
         '❌ Authentication failed: invalid token. Not retrying.',
       );
