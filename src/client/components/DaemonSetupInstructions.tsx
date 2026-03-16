@@ -25,12 +25,12 @@ export function DaemonSetupInstructions({
 }: DaemonSetupInstructionsProps) {
   const hqPort = window.location.port || "4321";
   const daemonArgs = `--daemon --hq-url ws://localhost:${hqPort} --token ${token} --project-id ${owner}/${repo}`;
-  const npxCommand = `npx github:arjendev/launchpad-hq ${daemonArgs}`;
-  const windowsCommand = `launchpad-hq ${daemonArgs}`;
+  const npxCommand = `npx launchpad-hq ${daemonArgs}`;
+  const globalCommand = `launchpad-hq ${daemonArgs}`;
 
   const devcontainerSnippet = JSON.stringify(
     {
-      postStartCommand: `npx github:arjendev/launchpad-hq ${daemonArgs}`,
+      postStartCommand: `npx launchpad-hq ${daemonArgs}`,
     },
     null,
     2,
@@ -94,13 +94,13 @@ export function DaemonSetupInstructions({
               <Tabs.Panel value="windows">
                 <Stack gap="xs">
                   <Text size="xs" c="dimmed">
-                    First install globally from the release tarball, then run:
+                    Install globally, then run:
                   </Text>
                   <Box pos="relative">
                     <Code block style={{ fontSize: "var(--mantine-font-size-xs)" }}>
-                      {windowsCommand}
+                      {`npm install -g launchpad-hq\n${globalCommand}`}
                     </Code>
-                    <CopyButton value={windowsCommand}>
+                    <CopyButton value={`npm install -g launchpad-hq && ${globalCommand}`}>
                       {({ copied, copy }) => (
                         <ActionIcon
                           variant="subtle"
@@ -116,12 +116,6 @@ export function DaemonSetupInstructions({
                       )}
                     </CopyButton>
                   </Box>
-                  <Alert color="yellow" variant="light">
-                    <Text size="xs">
-                      Windows requires a global install first:{" "}
-                      <Code>npm install -g https://github.com/arjendev/launchpad-hq/releases/download/v0.1.0/launchpad-hq-0.1.0.tgz</Code>
-                    </Text>
-                  </Alert>
                 </Stack>
               </Tabs.Panel>
             </Tabs>

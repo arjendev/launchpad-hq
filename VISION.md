@@ -11,7 +11,7 @@ You're running multiple projects. They live in different repos, different devcon
 **launchpad-hq** is the answer to that. A hub-and-spoke dashboard where the hub gives you full visibility and each project runs a lightweight daemon that reports back. One package, two modes:
 
 ```
-npx github:arjendev/launchpad-hq          # starts the dashboard (hub)
+npx launchpad-hq                           # starts the dashboard (hub)
 launchpad --daemon         # starts a daemon in a project environment (spoke)
 ```
 
@@ -401,7 +401,7 @@ launchpad-hq/
 `launchpad` was taken on npm. **launchpad-hq** keeps the brand and leans into the metaphor — this is headquarters. The place you go to see everything, decide what matters, and launch into action.
 
 ```
-npx github:arjendev/launchpad-hq
+npx launchpad-hq
 ```
 
 ---

@@ -20,7 +20,7 @@ DevTunnel configuration is part of the [onboarding wizard](../guide/onboarding) 
 Start HQ with the `--tunnel` flag:
 
 ```bash
-npx github:arjendev/launchpad-hq --tunnel
+npx launchpad-hq --tunnel
 ```
 
 ### Via Settings

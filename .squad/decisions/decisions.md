@@ -531,3 +531,107 @@ Architecture is fundamentally sound for single-user local tool but requires hard
 - Opus 4.6 (agent-89): `/workspaces/launchpad/.squad/decisions/inbox/cooper-security-review-opus.md`
 - GPT-5.4 (agent-90): `/workspaces/launchpad/.squad/decisions/inbox/cooper-security-review-gpt.md`
 - **Issue:** github.com/arjendev/launchpad-hq/issues/61
+
+## Implementation Decisions (Phase 2)
+
+### 2026-03-16: Issue Grooming — #66, #67, #68
+**By:** Cooper  
+**Date:** 2026-03-16
+
+Three issues now properly scoped and ready for implementation:
+
+**Issue #66: Render markdown in Copilot SDK conversation view**
+- **Type:** Enhancement | **Labels:** enhancement, frontend, copilot-sdk
+- **Problem:** SDK agent responses contain markdown but render as plain text
+- **Solution:** Use markdown-to-jsx or rehype-react with XSS protection
+- **Acceptance:** Headers, code blocks, lists, bold, italic, links render properly with syntax highlighting
+
+**Issue #67: Projects overview doesn't update daemon online/offline status**
+- **Type:** Bug | **Labels:** bug, frontend
+- **Problem:** Daemon info bar updates but projects list doesn't refresh in real-time
+- **Root cause:** WebSocket subscription or state propagation issue between UI components
+- **Solution:** Fix TanStack Query cache propagation or missing useEffect dependency
+- **Acceptance:** Status matches daemon info bar on connect/disconnect, no manual refresh needed
+
+**Issue #68: Onboarding — offer choice between terminal and browser flows**
+- **Type:** Enhancement | **Labels:** enhancement, cli
+- **Problem:** CLI unconditionally opens browser, doesn't support terminal-only or SSH/headless environments
+- **Solution:** Prompt user at startup: "Complete setup in [1] Terminal or [2] Browser?"
+- **Acceptance:** Both flows result in identical final config, choice saved in LaunchpadConfig
+
+### 2026-03-16: Client-side auth implementation (Brand)
+**By:** Brand  
+**Date:** 2026-03-16
+
+Token persistence and client-side auth architecture implemented per Issue #65.
+
+**Decision: sessionStorage for token persistence**
+- **Why sessionStorage:** Per-tab isolation, auto-cleanup on tab close, right security boundary for session tokens
+- **Why not localStorage:** Too long-lived for session tokens, requires explicit cleanup
+- **Implementation:** `setHqToken()` writes to memory + sessionStorage; `getHqToken()` checks memory first, falls back to sessionStorage; `initAuthFromUrl()` checks URL param first (fresh open), then sessionStorage (refresh); `clearHqToken()` for explicit cleanup
+
+**Files changed:**
+- `src/client/services/auth.ts` (token storage)
+- `src/client/services/authFetch.ts` (centralized auth wrapper)
+- `src/client/main.tsx` (URL cleanup)
+- `src/client/services/hooks.ts`, `preview-hooks.ts` (replace fetchJson with authFetchJson)
+- `src/client/components/*` (replace raw fetch with authFetch)
+- `src/client/services/ws.ts` (token from getHqToken directly, no extra API call)
+
+**Status:** Implemented and committed. Full suite green (1022 tests).
+
+**Related:** Server-side URL token auth + security hardening at `.squad/decisions/decisions.md` (Romilly, 2026-03-15)
+
+### 2026-03-16: Server-side auth + security hardening (Romilly)
+**By:** Romilly  
+**Date:** 2026-03-15
+
+Jupyter-style hqToken auth with CORS, helmet security headers, and preview port validation for Issue #61.
+
+**Decisions:**
+1. **URL-based token auth** — Bearer token via `Authorization` header or `?token=` query param
+2. **Health endpoint exempt** — `/api/health` allows monitoring/load balancer probes without auth
+3. **CORS in all modes** — Dynamic origin callback (localhost + active tunnel URL)
+4. **@fastify/helmet for security headers** — CSP allows inline scripts/styles (Vite/Mantine pragmatic trade-off)
+5. **Preview port blocklist** — Infrastructure ports blocked from preview proxy (SSH, PostgreSQL, Redis, etc.)
+6. **File permissions** — Directories 0o700, files 0o600 (prevent other users on same machine from reading)
+
+**Status:** Implemented. Full suite green (1022 tests).
+
+### 2026-03-16: Daemon hardening — Token redaction + auth timeout (TARS)
+**By:** TARS  
+**Date:** 2026-03-16
+
+Defense-in-depth measures for daemon security per Issue #61, Phase 2.
+
+**H4 — Token Redaction**
+- `process.title` set to `'launchpad-hq daemon'` after reading `--token` in `src/cli.ts`
+- Prevents `ps aux` from showing token to co-resident users
+- Convention: Any future CLI args with secrets must be redacted from `process.title` before processing
+
+**H5 — Auth Handshake Timeout**
+- New constants: `AUTH_HANDSHAKE_TIMEOUT_MS = 15_000`, `WS_CLOSE_AUTH_TIMEOUT = 4002`
+- `PendingConnection` carries `authTimer` field
+- Every code path (auth success, rejection, disconnect, cleanup) must `clearTimeout()` to avoid leaks
+- Prevents malicious daemon from holding WebSocket open indefinitely
+
+**Test coverage:** 4 new tests in `daemon-registry.test.ts` using fake timers + 1 for process.title redaction.
+
+**Status:** Implemented. Full suite passing.
+
+### 2026-03-16: Onboarding flow choice via env var signal (Romilly)
+**By:** Romilly  
+**Date:** 2026-03-16
+
+Terminal vs Browser flow selection at startup for Issue #68.
+
+**Decision: Process env var signal**
+- `process.env.LAUNCHPAD_OPEN_ONBOARDING` set by `cli.ts` when user chooses Browser
+- When set, wizard is skipped and server opens browser to `/onboarding?token=<token>` after startup
+- Avoids coupling `cli.ts` to server internals (port, token)
+- Server already knows its own URL — let it handle browser opening
+- Env var is process-scoped, no cleanup needed
+
+**Both paths produce identical LaunchpadConfig end state.**
+
+**Status:** Implemented. Full suite passing (1022 tests).

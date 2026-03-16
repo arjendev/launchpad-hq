@@ -25,16 +25,16 @@ Daemon↔HQ traffic is always plain `ws://` — it stays on the same machine or 
 
 ```bash
 # Override the bind address
-npx github:arjendev/launchpad-hq --host 0.0.0.0
+npx launchpad-hq --host 0.0.0.0
 
 # Change the port (works everywhere)
-npx github:arjendev/launchpad-hq --port 4000
+npx launchpad-hq --port 4000
 
 # Enable Dev Tunnel for remote access
-npx github:arjendev/launchpad-hq --tunnel
+npx launchpad-hq --tunnel
 
 # Or use environment variables
-HOST=0.0.0.0 npx github:arjendev/launchpad-hq
+HOST=0.0.0.0 npx launchpad-hq
 ```
 
 | Flag / Env | Effect |
@@ -74,7 +74,7 @@ The daemon still connects over `ws://` locally — only the browser-facing side 
 Change the port:
 
 ```bash
-npx github:arjendev/launchpad-hq --port 4000
+npx launchpad-hq --port 4000
 ```
 
 ### Remote device can't connect

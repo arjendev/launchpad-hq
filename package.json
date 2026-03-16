@@ -45,6 +45,14 @@
     "dashboard",
     "cli"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arjendev/launchpad-hq.git"
+  },
+  "homepage": "https://github.com/arjendev/launchpad-hq",
+  "bugs": {
+    "url": "https://github.com/arjendev/launchpad-hq/issues"
+  },
   "license": "MIT",
   "dependencies": {
     "@clack/prompts": "^1.1.0",

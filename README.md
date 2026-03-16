@@ -12,14 +12,13 @@ Today it's about visibility, productivity and peace of mind. Tomorrow, we'll add
 
 ## Quick Start
 
-**Linux / macOS / WSL (recommended):**
 ```bash
-npx github:arjendev/launchpad-hq
+npx launchpad-hq
 ```
 
-**Windows (PowerShell) — use pre-built release:**
-```powershell
-npm install -g https://github.com/arjendev/launchpad-hq/releases/download/v0.1.0/launchpad-hq-0.1.0.tgz
+Or install globally:
+```bash
+npm install -g launchpad-hq
 launchpad-hq
 ```
 

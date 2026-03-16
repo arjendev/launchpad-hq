@@ -10,27 +10,21 @@ Launchpad HQ is a local command and control center for managing multiple project
 
 ## Quick Start
 
-### Linux / macOS / WSL (recommended)
-
-Run Launchpad HQ directly from the GitHub repo:
+Run directly with npx (all platforms):
 
 ```bash
-npx github:arjendev/launchpad-hq
+npx launchpad-hq
 ```
 
-This clones the repo, builds it, and runs the CLI. First run takes a minute; subsequent runs are cached.
+Or install globally:
 
-### Windows (PowerShell)
-
-Use the pre-built release tarball to avoid NTFS file lock issues:
-
-```powershell
-npm install -g https://github.com/arjendev/launchpad-hq/releases/download/v0.1.0/launchpad-hq-0.1.0.tgz
+```bash
+npm install -g launchpad-hq
 launchpad-hq
 ```
 
-::: warning Windows native npm
-Installing from GitHub source (`npx github:...`) frequently fails on Windows due to NTFS file locking issues with npm. Always use the pre-built tarball or run from WSL.
+::: tip Building from source
+To install from the GitHub repo instead: `npx github:arjendev/launchpad-hq`. Note that building from source on Windows may fail due to NTFS file locking issues — use WSL or the npm package instead.
 :::
 
 ### Options
@@ -42,16 +36,6 @@ launchpad-hq --verbose         # Debug logging
 launchpad-hq --self-daemon     # Also start the built-in daemon
 launchpad-hq --help            # Show all options
 ```
-
-### Install from npm <Badge type="tip" text="coming soon" />
-
-```bash
-npx github:arjendev/launchpad-hq
-```
-
-::: info
-npm publishing is being set up. For now, use the GitHub-hosted command above.
-:::
 
 On first run, the **onboarding wizard** will walk you through initial setup:
 
@@ -74,7 +58,7 @@ Once onboarding completes, your browser opens to the three-pane dashboard.
 The project uses two lifecycle scripts in `package.json`:
 
 - **`postinstall`** — Runs `node scripts/patch-sdk.js` after every `npm install`. This patches an ESM import in `@github/copilot-sdk` that doesn't resolve correctly in Node.js. This is a temporary workaround until the upstream package is fixed.
-- **`prepare`** — Runs `npm run build` when you install the package from GitHub source (e.g. `npx github:arjendev/launchpad-hq`). In CI environments (where `$CI` is set), the build step is skipped to avoid redundant builds.
+- **`prepare`** — Runs `npm run build` when you install the package from source (e.g. `npx github:arjendev/launchpad-hq`). In CI environments (where `$CI` is set), the build step is skipped to avoid redundant builds.
 
 If you're developing locally, the build runs automatically after install. You can also run it manually:
 
