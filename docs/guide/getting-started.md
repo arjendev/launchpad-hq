@@ -10,7 +10,7 @@ Launchpad HQ is a local command and control center for managing multiple project
 
 ## Quick Start
 
-### Install from GitHub (current)
+### Linux / macOS / WSL (recommended)
 
 Run Launchpad HQ directly from the GitHub repo:
 
@@ -20,10 +20,27 @@ npx github:arjendev/launchpad-hq
 
 This clones the repo, builds it, and runs the CLI. First run takes a minute; subsequent runs are cached.
 
-To also start the built-in daemon (which manages your local project), add the `--self-daemon` flag:
+### Windows (PowerShell)
+
+Use the pre-built release tarball to avoid NTFS file lock issues:
+
+```powershell
+npm install -g https://github.com/arjendev/launchpad-hq/releases/download/v0.1.0/launchpad-hq-0.1.0.tgz
+launchpad-hq
+```
+
+::: warning Windows native npm
+Installing from GitHub source (`npx github:...`) frequently fails on Windows due to NTFS file locking issues with npm. Always use the pre-built tarball or run from WSL.
+:::
+
+### Options
 
 ```bash
-npx github:arjendev/launchpad-hq --self-daemon
+launchpad-hq --port 4321      # Custom port (default: 4321)
+launchpad-hq --host 0.0.0.0   # Bind to all interfaces
+launchpad-hq --verbose         # Debug logging
+launchpad-hq --self-daemon     # Also start the built-in daemon
+launchpad-hq --help            # Show all options
 ```
 
 ### Install from npm <Badge type="tip" text="coming soon" />

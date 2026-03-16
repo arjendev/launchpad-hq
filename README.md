@@ -12,11 +12,20 @@ Today it's about visibility, productivity and peace of mind. Tomorrow, we'll add
 
 ## Quick Start
 
+**Linux / macOS / WSL (recommended):**
 ```bash
 npx github:arjendev/launchpad-hq
 ```
 
-Opens a three-pane mission control dashboard in your browser. Add your GitHub repos, see their issues on a kanban board, and watch Copilot sessions live as they work.
+**Windows (PowerShell) — use pre-built release:**
+```powershell
+npm install -g https://github.com/arjendev/launchpad-hq/releases/download/v0.1.0/launchpad-hq-0.1.0.tgz
+launchpad-hq
+```
+
+> **Requirements:** Node.js 18+ and [GitHub CLI](https://cli.github.com/) authenticated (`gh auth login`)
+
+Opens at `http://localhost:4321` — a three-pane mission control dashboard. Add your GitHub repos, see their issues on a kanban board, and watch Copilot sessions live as they work.
 
 ---
 
