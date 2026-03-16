@@ -42,7 +42,7 @@ function showAuthFailure(): void {
   card.innerHTML = `
     <h2 style="color: #fff; margin: 0 0 0.75rem 0; font-size: 1.25rem;">Session expired</h2>
     <p style="margin: 0; line-height: 1.5;">
-      Please use the URL from the console to reconnect.
+      Open the URL from the console to reconnect.
     </p>
   `;
 
