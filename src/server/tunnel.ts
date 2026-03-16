@@ -172,10 +172,13 @@ export class TunnelManager extends EventEmitter {
 
       const timeout = setTimeout(() => {
         cleanup();
-        const msg = stderrBuf
-          ? `Tunnel failed to start within ${this.startupTimeoutMs}ms. stderr: ${stderrBuf}`
-          : `Tunnel failed to start within ${this.startupTimeoutMs}ms`;
-        const err = new TunnelError(msg, "STARTUP_TIMEOUT");
+        const isAuth = isAuthError(stderrBuf);
+        const msg = isAuth
+          ? "Dev tunnel authentication required. Run `devtunnel user login` to sign in."
+          : stderrBuf
+            ? `Tunnel failed to start within ${this.startupTimeoutMs}ms. stderr: ${stderrBuf}`
+            : `Tunnel failed to start within ${this.startupTimeoutMs}ms`;
+        const err = new TunnelError(msg, isAuth ? "AUTH_EXPIRED" : "STARTUP_TIMEOUT");
         this.handleError(err);
         reject(err);
         this.killProcess();
@@ -286,8 +289,10 @@ export class TunnelManager extends EventEmitter {
 
         if (this.status === "starting") {
           // Never reached "running" — reject the start() promise
-          const msg = `devtunnel exited during startup (code=${code}, signal=${signal}). stderr: ${stderrBuf}`;
           const errorCode = isAuthError(stderrBuf) ? "AUTH_EXPIRED" : "PROCESS_ERROR";
+          const msg = errorCode === "AUTH_EXPIRED"
+            ? "Dev tunnel authentication required. Run `devtunnel user login` to sign in."
+            : `devtunnel exited during startup (code=${code}, signal=${signal}). stderr: ${stderrBuf}`;
           const err = new TunnelError(msg, errorCode);
           this.handleError(err);
           reject(err);
@@ -417,6 +422,9 @@ const AUTH_ERROR_PATTERNS = [
   /token.*expired/i,
   /not logged in/i,
   /credentials/i,
+  /sign in/i,
+  /login required/i,
+  /user login/i,
 ];
 
 function isAuthError(stderr: string): boolean {
