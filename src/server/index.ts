@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync } from "node:fs";
+import { exec } from "node:child_process";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
@@ -163,6 +164,18 @@ await server.register(tunnelPlugin);
 
 await server.register(previewRoutes);
 
+// --- Browser opener (cross-platform, best-effort) ---
+
+function tryOpenBrowser(url: string): void {
+  const cmd =
+    process.platform === "darwin" ? "open" :
+    process.platform === "win32" ? "start \"\"" :
+    "xdg-open";
+  exec(`${cmd} ${JSON.stringify(url)}`, () => {
+    // Silent failure — the URL is printed to the console as fallback
+  });
+}
+
 // --- Lifecycle ---
 
 async function start() {
@@ -171,6 +184,14 @@ async function start() {
     console.log(
       `🚀 launchpad-hq running on http://${config.host}:${config.port}?token=${server.sessionToken} (${config.isDev ? "dev" : "production"})`,
     );
+
+    // If user chose browser-based onboarding, open it now that the server is ready
+    if (process.env.LAUNCHPAD_OPEN_ONBOARDING === "true") {
+      const onboardingUrl = `http://localhost:${config.port}/onboarding?token=${server.sessionToken}`;
+      console.log(`\n🌐 Complete setup in your browser: ${onboardingUrl}`);
+      console.log("   (Waiting for you to finish onboarding in the browser…)\n");
+      tryOpenBrowser(onboardingUrl);
+    }
 
     // Auto-start tunnel if --tunnel flag was passed (non-blocking)
     if (config.tunnel) {

@@ -165,7 +165,31 @@ if (isDaemon && isWatch) {
   // HQ mode — check first-launch onboarding before server boot
   const { configExists, runOnboardingWizard } = await import('./server/onboarding/index.js');
   if (!configExists()) {
-    await runOnboardingWizard();
+    const isTTY = process.stdout.isTTY ?? false;
+
+    if (isTTY) {
+      // Let the user choose: complete setup in the terminal or in the browser
+      const p = await import('@clack/prompts');
+
+      console.log(''); // breathing room
+      const setupMethod = await p.select({
+        message: 'How would you like to set up launchpad?',
+        options: [
+          { value: 'cli', label: 'Terminal (CLI)', hint: 'answer prompts right here' },
+          { value: 'browser', label: 'Browser (Web UI)', hint: 'opens setup in your browser' },
+        ],
+      });
+
+      if (!p.isCancel(setupMethod) && setupMethod === 'browser') {
+        // Signal server to open onboarding in the browser after it starts
+        process.env.LAUNCHPAD_OPEN_ONBOARDING = 'true';
+      } else {
+        await runOnboardingWizard();
+      }
+    } else {
+      // Non-interactive: wizard applies defaults automatically
+      await runOnboardingWizard();
+    }
   }
 
   await import('./server/index.js');
