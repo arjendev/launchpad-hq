@@ -23,12 +23,14 @@ export function DaemonSetupInstructions({
   token,
   warning,
 }: DaemonSetupInstructionsProps) {
-  const hqPort = window.location.port || "3000";
-  const cliCommand = `npx github:arjendev/launchpad-hq --daemon --hq-url ws://localhost:${hqPort} --token ${token} --project-id ${owner}/${repo}`;
+  const hqPort = window.location.port || "4321";
+  const daemonArgs = `--daemon --hq-url ws://localhost:${hqPort} --token ${token} --project-id ${owner}/${repo}`;
+  const npxCommand = `npx github:arjendev/launchpad-hq ${daemonArgs}`;
+  const windowsCommand = `launchpad-hq ${daemonArgs}`;
 
   const devcontainerSnippet = JSON.stringify(
     {
-      postStartCommand: `npx github:arjendev/launchpad-hq --daemon --hq-url ws://localhost:${hqPort} --token ${token} --project-id ${owner}/${repo}`,
+      postStartCommand: `npx github:arjendev/launchpad-hq ${daemonArgs}`,
     },
     null,
     2,
@@ -60,26 +62,69 @@ export function DaemonSetupInstructions({
             <Text size="sm" c="dimmed">
               Run this command in your project directory:
             </Text>
-            <Box pos="relative">
-              <Code block style={{ fontSize: "var(--mantine-font-size-xs)" }}>
-                {cliCommand}
-              </Code>
-              <CopyButton value={cliCommand}>
-                {({ copied, copy }) => (
-                  <ActionIcon
-                    variant="subtle"
-                    size="sm"
-                    onClick={copy}
-                    pos="absolute"
-                    top={8}
-                    right={8}
-                    title={copied ? "Copied!" : "Copy to clipboard"}
-                  >
-                    {copied ? "✓" : "📋"}
-                  </ActionIcon>
-                )}
-              </CopyButton>
-            </Box>
+            <Tabs defaultValue="unix" variant="pills" radius="xl">
+              <Tabs.List mb="xs">
+                <Tabs.Tab value="unix" size="xs">Linux / macOS / WSL</Tabs.Tab>
+                <Tabs.Tab value="windows" size="xs">Windows</Tabs.Tab>
+              </Tabs.List>
+
+              <Tabs.Panel value="unix">
+                <Box pos="relative">
+                  <Code block style={{ fontSize: "var(--mantine-font-size-xs)" }}>
+                    {npxCommand}
+                  </Code>
+                  <CopyButton value={npxCommand}>
+                    {({ copied, copy }) => (
+                      <ActionIcon
+                        variant="subtle"
+                        size="sm"
+                        onClick={copy}
+                        pos="absolute"
+                        top={8}
+                        right={8}
+                        title={copied ? "Copied!" : "Copy to clipboard"}
+                      >
+                        {copied ? "✓" : "📋"}
+                      </ActionIcon>
+                    )}
+                  </CopyButton>
+                </Box>
+              </Tabs.Panel>
+
+              <Tabs.Panel value="windows">
+                <Stack gap="xs">
+                  <Text size="xs" c="dimmed">
+                    First install globally from the release tarball, then run:
+                  </Text>
+                  <Box pos="relative">
+                    <Code block style={{ fontSize: "var(--mantine-font-size-xs)" }}>
+                      {windowsCommand}
+                    </Code>
+                    <CopyButton value={windowsCommand}>
+                      {({ copied, copy }) => (
+                        <ActionIcon
+                          variant="subtle"
+                          size="sm"
+                          onClick={copy}
+                          pos="absolute"
+                          top={8}
+                          right={8}
+                          title={copied ? "Copied!" : "Copy to clipboard"}
+                        >
+                          {copied ? "✓" : "📋"}
+                        </ActionIcon>
+                      )}
+                    </CopyButton>
+                  </Box>
+                  <Alert color="yellow" variant="light">
+                    <Text size="xs">
+                      Windows requires a global install first:{" "}
+                      <Code>npm install -g https://github.com/arjendev/launchpad-hq/releases/download/v0.1.0/launchpad-hq-0.1.0.tgz</Code>
+                    </Text>
+                  </Alert>
+                </Stack>
+              </Tabs.Panel>
+            </Tabs>
           </Stack>
         </Tabs.Panel>
 
