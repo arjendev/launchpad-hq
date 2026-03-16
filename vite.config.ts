@@ -13,15 +13,15 @@ export default defineConfig({
     host: true,
     proxy: {
       "/api": {
-        target: "http://localhost:3000",
+        target: "http://localhost:4321",
         changeOrigin: true,
       },
       "/preview": {
-        target: "http://localhost:3000",
+        target: "http://localhost:4321",
         changeOrigin: true,
       },
       "/ws": {
-        target: "ws://localhost:3000",
+        target: "ws://localhost:4321",
         ws: true,
       },
     },
