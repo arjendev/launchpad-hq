@@ -24,6 +24,21 @@
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+### 2026-07-21: Markdown rendering in Copilot conversation view (#66)
+- Created `src/client/components/MarkdownContent.tsx` — reusable markdown renderer using `react-markdown` + `remark-gfm`
+- Replaces plain `<Text whiteSpace="pre-wrap">` in `AssistantMessage` with proper markdown rendering
+- Styles injected once via `ensureStyles()` pattern (no CSS module needed), scoped under `.lp-markdown` class
+- Supports: headers, lists, bold/italic, inline code, fenced code blocks, blockquotes, tables, links, horizontal rules
+- Code blocks: monospace font, dark background (`rgba(0,0,0,0.3)`), with light theme variant
+- All links open in new tab (`target="_blank"`)
+- Dependencies added: `react-markdown`, `remark-gfm`
+
+### 2026-07-21: Online/offline state not updating in projects overview (#67)
+- **Bug:** `useDashboard()` polled every 60s but never subscribed to the `"daemon"` WebSocket channel
+- **Root cause:** `DaemonInfoBar` worked because it used `useDaemonForProject()` → `useDaemons()` which subscribes to daemon WS updates and invalidates query cache. `ProjectList` used `useDashboard()` which had no such subscription.
+- **Fix:** Added `useSubscription<DaemonSummary>("daemon")` to `useDashboard()` with the same ref-based dedup + `invalidateQueries` pattern used in `useDaemons()`
+- **Pattern note:** Any hook fetching data that includes daemon state should subscribe to the `"daemon"` WS channel for real-time updates
+
 ### 2026-03-15: Settings page — centralized configuration UI (#46)
 - Created `src/client/pages/SettingsPage.tsx` — first page outside the DashboardLayout, uses its own AppShell with back navigation
 - Added `useSettings()` / `useUpdateSettings()` hooks in hooks.ts (GET/PUT /api/settings)
@@ -48,6 +63,15 @@
 
 **Completed Issues:** #16, #17 (2/5 Phase 2 items)  
 **Total Tests Added (Phase 2):** 32 + 12 = 44 tests  
+
+### 2026-07-21: Token persistence via sessionStorage (#65)
+- Auth token now persists in `sessionStorage` so page refreshes don't lose the session
+- `sessionStorage` chosen over `localStorage` — it's per-tab and clears on tab close (right security boundary for a session token)
+- `getHqToken()` has a fallback chain: in-memory → sessionStorage → null
+- `initAuthFromUrl()` priority: URL param (fresh open) → sessionStorage (refresh) → no token (401 overlay)
+- Added `clearHqToken()` export for explicit cleanup
+- 401 overlay is vanilla DOM (not React) in `authFetch.ts` — keeps auth failures visible even if React tree is broken
+- 9 unit tests covering persistence, fallback, cache-to-memory, and URL-vs-storage precedence
 **Commits:** 2 (WebSocket client, live sessions panel)  
 
 Brand delivered the complete client-side real-time layer:
@@ -429,3 +453,12 @@ Replaced the three placeholder wizard steps with real @clack/prompts implementat
 - **ws.ts** — `fetchTokenAndConnect()` no longer fetches from `/api/settings`. Uses `getHqToken()` directly to build the WS URL with `?token=<hqToken>`. Simpler, synchronous, no extra API call.
 - **Security model**: Token in memory only (not localStorage), URL cleaned immediately, 401 handled gracefully with reconnect prompt.
 - **Coordination**: Romilly implements server-side preHandler simultaneously. No server files modified.
+
+### 2026-03-16: Issue #66 & #67 Implementation Complete
+Brand implemented two critical frontend fixes:
+- **#66:** Markdown rendering with syntax highlighting in Copilot conversation panel (react-markdown + rehype-highlight + remark-sanitize for XSS protection)
+- **#67:** Fixed WebSocket subscription for real-time daemon status updates. Projects list now updates on daemon connect/disconnect, matching daemon info bar.
+
+Test suite: 1022 tests passing. No regressions. Ready for next wave.
+
+**Cross-team note:** Coordinated with Romilly on server-side auth (token persistence to sessionStorage). Brand handled client-side token storage + authFetch wrapper.

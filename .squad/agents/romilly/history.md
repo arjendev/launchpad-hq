@@ -56,6 +56,14 @@
 - **Tests:** 23 new tests (11 auth middleware + 12 port validation). Total: 1013 passing.
 - **Coordination:** Brand is doing client-side auth simultaneously — no `src/client/` files touched. TARS is doing daemon hardening — no `src/daemon/` files touched.
 
+### 2026-03-15: Onboarding CLI/UI flow choice (#68)
+- **CLI entry point** (`src/cli.ts`): On first run, prompts user "Terminal (CLI)" vs "Browser (Web UI)" via `@clack/prompts` select before running wizard or booting server.
+- **CLI path**: Runs existing `runOnboardingWizard()` (terminal wizard with @clack/prompts steps).
+- **Browser path**: Sets `LAUNCHPAD_OPEN_ONBOARDING=true` env var, boots server, then opens `/onboarding?token=<token>` in the default browser via `xdg-open`/`open`/`start`. URL also printed to console as fallback.
+- **Non-TTY fallback**: Skips the choice prompt and runs wizard in non-interactive mode (applies defaults).
+- **Server side** (`src/server/index.ts`): `tryOpenBrowser()` utility added — cross-platform, silent failure. Called from `start()` after server is listening.
+- **Both paths produce identical `LaunchpadConfig`** in `~/.launchpad/config.json` with `onboardingComplete: true`.
+
 ### 2026-03-13: Phase 1 Summary
 
 **Completed Issues:** #7, #12, #13 (3/8 Phase 1 items)  
@@ -364,3 +372,15 @@ Dependencies: #40 is P0 blocker for wizard steps #41–#44 owned by Brand/TARS. 
 
 **Tests:** 977 passing (2 new). Typecheck + build clean.
 **Commit:** cebeded
+
+### 2026-03-16: Issue #68 Implementation Complete
+Romilly implemented onboarding flow choice (#68) via environment variable signal pattern:
+- CLI prompts user: "Complete setup in [1] Terminal or [2] Browser?"
+- Terminal choice: interactive CLI wizard collects config
+- Browser choice: sets `process.env.LAUNCHPAD_OPEN_ONBOARDING`, server opens browser to `/onboarding?token=<token>` after startup
+- User choice persisted in LaunchpadConfig (`~/.launchpad/config.json`)
+- Both flows produce identical final config
+
+Test suite: 1022 tests passing. No regressions.
+
+**Cross-team note:** Also implemented server-side auth hardening (token auth routes, CORS, @fastify/helmet, preview port blocklist, file permissions 0o700/0o600). Coordinated with Brand on client-side token persistence.
