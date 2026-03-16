@@ -38,11 +38,24 @@ import type {
 
 /** Fetch cross-project dashboard (includes issue/PR counts per project). */
 export function useDashboard() {
-  return useQuery<DashboardResponse>({
+  const qc = useQueryClient();
+  const query = useQuery<DashboardResponse>({
     queryKey: ["dashboard"],
     queryFn: () => fetchJson<DashboardResponse>("/api/dashboard"),
     refetchInterval: 60_000,
   });
+
+  // Re-fetch dashboard when daemon status changes so project cards update immediately
+  const { data: wsUpdate } = useSubscription<DaemonSummary>("daemon");
+  const prevUpdateRef = useRef<DaemonSummary | null>(null);
+  useEffect(() => {
+    if (wsUpdate && wsUpdate !== prevUpdateRef.current) {
+      prevUpdateRef.current = wsUpdate;
+      void qc.invalidateQueries({ queryKey: ["dashboard"] });
+    }
+  }, [wsUpdate, qc]);
+
+  return query;
 }
 
 /** Add a project to tracking. */
