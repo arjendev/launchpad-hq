@@ -11,7 +11,7 @@
     "scripts/"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "//postinstall": "Patches vscode-jsonrpc exports map and copilot-sdk bare imports for ESM compat",
