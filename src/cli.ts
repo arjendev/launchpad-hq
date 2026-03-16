@@ -32,12 +32,12 @@ if (args.includes('--help') || args.includes('-h')) {
   console.log(`launchpad-hq — personal mission control for GitHub projects
 
 Usage:
-  npx github:arjendev/launchpad-hq               Start HQ server (default port 4321)
-  npx github:arjendev/launchpad-hq --port 8080    Start on a custom port (1024-65535)
-  npx github:arjendev/launchpad-hq --self-daemon    Start HQ with built-in daemon
-  npx github:arjendev/launchpad-hq --daemon        Start daemon mode
-  npx github:arjendev/launchpad-hq --daemon --watch Daemon with auto-restart on changes
-  npx github:arjendev/launchpad-hq --help          Show this help
+  npx launchpad-hq               Start HQ server (default port 4321)
+  npx launchpad-hq --port 8080   Start on a custom port (1024-65535)
+  npx launchpad-hq --self-daemon Start HQ with built-in daemon
+  npx launchpad-hq --daemon      Start daemon mode
+  npx launchpad-hq --daemon --watch  Daemon with auto-restart on changes
+  npx launchpad-hq --help        Show this help
 
 Options:
   --port <port>           HQ server port (1024-65535, default: 4321)

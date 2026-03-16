@@ -249,7 +249,7 @@ export function createDevtunnelStep(ops?: DevtunnelOps): WizardStep {
     if (p.isCancel(configureNow) || !configureNow) {
       p.log.info("No problem! Mode set to on-demand.");
       p.log.info("To configure later, run: devtunnel user login");
-      p.log.info("Then restart HQ with: npx github:arjendev/launchpad-hq --tunnel");
+      p.log.info("Then restart HQ with: npx launchpad-hq --tunnel");
       return { mode: "on-demand", configured: false };
     }
 
@@ -279,7 +279,7 @@ export function createDevtunnelStep(ops?: DevtunnelOps): WizardStep {
     s.stop("Authentication not detected within timeout");
     p.log.info("No worries! Mode set to on-demand.");
     p.log.info("To configure later, run: devtunnel user login");
-    p.log.info("Then restart HQ with: npx github:arjendev/launchpad-hq --tunnel");
+    p.log.info("Then restart HQ with: npx launchpad-hq --tunnel");
     return { mode: "on-demand", configured: false };
   }
 

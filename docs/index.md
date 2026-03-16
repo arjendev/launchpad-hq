@@ -59,7 +59,7 @@ Soon, Launchpad becomes your **Context Hub** — define skills, connect MCP serv
 
 **1. Install and launch**
 ```bash
-npx github:arjendev/launchpad-hq
+npx launchpad-hq
 ```
 
 **2. Add a project**

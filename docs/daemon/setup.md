@@ -7,7 +7,7 @@ Each project in Launchpad HQ runs a daemon process that reports state back to th
 Start a daemon for a project using the `--daemon` flag:
 
 ```bash
-npx github:arjendev/launchpad-hq --daemon
+npx launchpad-hq --daemon
 ```
 
 Run this from within the project directory (or devcontainer).
