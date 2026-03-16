@@ -41,6 +41,7 @@ import type {
 } from "../services/types.js";
 import { DEFAULT_SESSION_ACTIVITY } from "../services/types.js";
 import { authFetch } from "../services/authFetch.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 
 // ── Props ──────────────────────────────────────────────
 
@@ -142,9 +143,7 @@ const AssistantMessage = memo(function AssistantMessage({
           </Group>
         )}
         {entry.content.trim() && (
-          <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-            {entry.content}
-          </Text>
+          <MarkdownContent content={entry.content} />
         )}
         {entry.isStreaming && (
           <Group gap={4} mt={entry.content.trim() ? 4 : 0}>
