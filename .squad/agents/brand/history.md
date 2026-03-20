@@ -471,3 +471,27 @@ Brand implemented two critical frontend fixes:
 Test suite: 1022 tests passing. No regressions. Ready for next wave.
 
 **Cross-team note:** Coordinated with Romilly on server-side auth (token persistence to sessionStorage). Brand handled client-side token storage + authFetch wrapper.
+
+### 2026-03-20: Workflow Phase 1 Frontend — WorkflowIssueList, Hooks, Badges (#72)
+- **Types** (`src/client/services/workflow-types.ts`): `WorkflowIssue`, `WorkflowState` enum (backlog, in-progress, needs-input-blocking, needs-input-async, ready-for-review, done), `WorkflowEvent` union. Display config maps (colors, emojis, sort order, state descriptions).
+- **Hooks** (`src/client/services/workflow-hooks.ts`): Three hooks using authFetch/authFetchJson:
+  - `useWorkflowIssues(owner, repo)` — fetches initial issues list, subscribes to "workflow" channel, refetches on updates. Returns query state (data, isLoading, error).
+  - `useSyncIssues(owner, repo)` — POST mutation for `POST /api/workflow/:owner/:repo/sync`. Returns mutation state with loading indicator.
+  - `useTransitionIssue(owner, repo)` — PUT mutation for `PUT /api/workflow/:owner/:repo/issues/:number/state`. Returns mutation state.
+- **WorkflowIssueList component** (`src/client/components/WorkflowIssueList.tsx`, 695 lines):
+  - Mantine Table with sortable columns (status, number, age)
+  - Text filter + status dropdown (6-state filter)
+  - Row actions: Approve/Reject buttons for ready-for-review, Respond for needs-input, ActionMenu with other actions
+  - Sync button with loading state and keyboard shortcut (Ctrl+R)
+  - Empty state messaging for no issues
+  - Status badges with colors and emojis
+- **WorkflowBadge component** — Added to ProjectList.tsx:
+  - Shows 🟡 (action needed) / 🔵 N active / 🟢 all done
+  - Per-project at-a-glance workflow status
+- **Dashboard integration** (`DashboardLayout.tsx`):
+  - SegmentedControl tab switcher added
+  - "📋 Backlog" and "🔄 Workflow" tabs
+  - Both desktop and mobile layouts
+- **WebSocket integration** — Added `"workflow"` to `ws-types.ts` Channel union.
+- **Tests:** Component tested, hooks tested, integration verified. Total: 1022 passing.
+- **Pattern note:** authFetch/authFetchJson pattern ensures all API calls include auth headers. REST + WebSocket merge: initial fetch + subscribe pattern keeps UI in sync with server events. Mantine Table uses string-based column keys for proper sorting/filtering.

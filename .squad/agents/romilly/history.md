@@ -384,3 +384,20 @@ Romilly implemented onboarding flow choice (#68) via environment variable signal
 Test suite: 1022 tests passing. No regressions.
 
 **Cross-team note:** Also implemented server-side auth hardening (token auth routes, CORS, @fastify/helmet, preview port blocklist, file permissions 0o700/0o600). Coordinated with Brand on client-side token persistence.
+
+### 2026-03-20: Workflow State Machine, GitHub Sync, and API — Phase 1 (#72)
+- **State machine** (`src/server/workflow/state-machine.ts`): 6 states (backlog, in-progress, needs-input-blocking, needs-input-async, ready-for-review, done) with validated transitions. Typed events (`WorkflowStateChangedEvent`, `WorkflowSyncCompletedEvent`). `InvalidTransitionError` for rejected transitions. Label mapping: `hq:backlog`, `hq:in-progress`, `hq:review`, `hq:done`.
+- **GitHub sync** (`src/server/workflow/github-sync.ts`): Reads issues via `gh` CLI with `GH_TOKEN` env. Maps to `WorkflowIssue` objects. Syncs HQ labels to GitHub (removes stale hq: labels first). Posts comments only for blocking/async input requests and completion (not every transition). Uses existing `server.githubToken` decorator.
+- **Workflow store** (`src/server/workflow/store.ts`): In-memory per-project state. Piggybacks on enrichment data layer for persistence (adds `workflowState` to enrichment entries). Periodic flush (30s interval) + flush on shutdown. No new state files needed.
+- **REST API** (`src/server/routes/workflow.ts`): 4 endpoints as Fastify plugin — GET issues, POST sync, PUT state transition, POST feedback. State transitions fire background label sync + comment posting to GitHub. Invalid transitions return 422.
+- **WebSocket**: Added `"workflow"` to Channel type. State machine events broadcast to subscribers on the `workflow` channel.
+- **Tests:** 64 new tests across 4 files (30 state machine, 5 sync, 11 store, 14 API integration + 4 edge cases). Total: 1086 passing.
+- **Pattern note:** Mocking `node:child_process` for `promisify(execFile)` requires attaching `[util.promisify.custom]` on the mock function — Node's built-in execFile has a custom promisify symbol that returns `{stdout, stderr}` instead of just the first callback arg.
+- **Cross-team coordination:** Parallel with Brand's frontend implementation (WorkflowIssueList, 3 hooks, badges). API endpoints tested separately, integration via REST + WebSocket merge pattern.
+
+### 2026-03-20: npm Metadata and Trusted Publishers Analysis
+- Analyzed publishing strategy for launchpad-hq npm package. Package name claimed, metadata fields added (repository, homepage, bugs).
+- Trusted Publishers (OIDC) recommended as sole auth mechanism — no NPM_TOKEN secret. Requires Node 24+ in CI (npm CLI ≥11.5.1), but `engines` field remains ≥18 for end users.
+- First publish is manual (Arjen): `npm publish --access public`. Then configure trusted publisher on npmjs.com.
+- Provenance attestations automatic from trusted publishers; no `--provenance` flag needed.
+- Windows tarball workaround remains as fallback but no longer primary recommendation.

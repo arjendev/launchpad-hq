@@ -635,3 +635,214 @@ Terminal vs Browser flow selection at startup for Issue #68.
 **Both paths produce identical LaunchpadConfig end state.**
 
 **Status:** Implemented. Full suite passing (1022 tests).
+
+## Phase 1 Workflow System (Romilly)
+
+### 2026-03-20: Workflow Phase 1 — State Machine, GitHub Sync, and API
+
+**Author:** Romilly (Backend Dev)  
+**Date:** 2026-03-20  
+**Issue:** #72  
+**Status:** Implemented
+
+#### Context
+Launchpad needs a workflow management system to track GitHub issues through HQ-defined lifecycle states. Phase 1 establishes the backend foundation.
+
+#### Decisions Made
+
+**1. State model: 6 states, directional transitions only**
+States: `backlog → in-progress → {needs-input-blocking, needs-input-async, ready-for-review} → done`
+
+No backward transitions except `ready-for-review → in-progress` (request changes) and input states back to `in-progress`. The `done` state is terminal. This mirrors a real development workflow.
+
+**2. Label mapping: 4 GitHub labels, not 6**
+`needs-input-blocking` and `needs-input-async` both map to `hq:in-progress` on GitHub. Only 4 labels needed: `hq:backlog`, `hq:in-progress`, `hq:review`, `hq:done`. The blocking/async distinction is HQ-internal.
+
+**3. Comments only for input requests and completion**
+We don't spam GitHub issues with comments for every state change. Only post comments when:
+- Input is requested (blocking or async) — devs need to know
+- Issue is marked done — clear signal
+
+**4. Persistence: piggyback on enrichment data**
+Instead of creating new state files in the state repo, workflow state is stored as `workflowState` metadata on enrichment entries. This avoids adding new files to the state repo schema and reuses the existing flush/sync infrastructure.
+
+**5. GitHub token: use `server.githubToken` decorator**
+The `github-auth` plugin already captures the token at startup. Workflow routes use the decorator instead of shelling out to `gh auth token` on every request.
+
+**6. Sync is client-triggered, not background polling**
+No background polling. The client calls `POST /api/workflow/:owner/:repo/sync` when the user wants fresh data. This keeps the server predictable and avoids rate-limit concerns.
+
+#### Implementation
+- `src/server/workflow/state-machine.ts` — State machine + types
+- `src/server/workflow/github-sync.ts` — GitHub sync service
+- `src/server/workflow/store.ts` — In-memory store with flush
+- `src/server/routes/workflow.ts` — REST API (Fastify plugin)
+- `src/server/workflow/__tests__/*.test.ts` — 64 tests
+- Registered workflow routes in `src/server/index.ts`
+
+## Phase 1 Workflow Frontend (Brand)
+
+### 2026-03-20: Workflow Phase 1 Frontend — WorkflowIssueList, Hooks, Badges
+
+**Author:** Brand (Frontend Dev)  
+**Date:** 2026-03-20  
+**Issue:** #72  
+**Status:** Implemented
+
+#### Context
+Frontend integration for workflow management system alongside backend implementation.
+
+#### Decisions Made
+
+**1. REST + WebSocket merge pattern**
+- Fetch initial data via API
+- Subscribe to "workflow" channel
+- Patch TanStack Query cache on WebSocket updates
+- Ensures UI stays in sync without excessive polling
+
+**2. Three custom hooks for data layer**
+- `useWorkflowIssues(owner, repo)` — fetch + WS refetch
+- `useSyncIssues(owner, repo)` — POST mutation
+- `useTransitionIssue(owner, repo)` — PUT mutation
+- All use `authFetch`/`authFetchJson` pattern for auth header injection
+
+**3. WorkflowIssueList component design**
+- Compact Mantine Table (not drag-and-drop yet)
+- Sortable by status/number/age
+- Filterable by text + status dropdown
+- Row actions: Approve/Reject for review, Respond for input, overflow menu for others
+- Sync button with loading state
+- Empty state messaging
+
+**4. Project integration**
+- WorkflowBadge component in ProjectList: 🟡🔵🟢 status indicators
+- SegmentedControl tabs in DashboardLayout: "📋 Backlog" and "🔄 Workflow"
+- Both desktop and mobile layouts supported
+
+**5. Type alignment**
+- `src/client/services/workflow-types.ts` mirrors server types
+- Display config (colors, emojis, sort order) co-located with types
+
+#### Implementation
+- `src/client/services/workflow-types.ts` — 6-state enum, types, display config
+- `src/client/services/workflow-hooks.ts` — three hooks
+- `src/client/components/WorkflowIssueList.tsx` — main component (695 lines)
+- Integration points: ProjectList.tsx, DashboardLayout.tsx
+- Added "workflow" to client ws-types.ts Channel union
+- All components follow Brand's patterns (TanStack Query, Mantine, hooks)
+
+## npm Publishing Strategy (Cooper, Romilly)
+
+### 2026-03-20: npm Publishing Strategy — Registry, Trusted Publishers, Package Name
+
+**Authors:** Cooper (Research), Romilly (Implementation)  
+**Date:** 2026-03-15 to 2026-03-20  
+**Issue:** #69  
+**Status:** Implemented (Workflow), Proposed (Trusted Publishers)
+
+#### Context
+Launchpad needs to be distributed via npm registry with supply-chain security.
+
+#### Decisions Made
+
+**1. Package name: unscoped `launchpad-hq`**
+- More user-friendly: `npx launchpad-hq` >> `npx @arjendev/launchpad-hq`
+- Name is available on npm registry
+- Claim immediately to prevent squatting
+
+**2. Publish triggers on GitHub release + manual dispatch**
+- `publish.yml` workflow triggers on `published` release event
+- `workflow_dispatch` added for testing
+- Keeps npm versions in sync with GitHub releases
+
+**3. npm Trusted Publishers (OIDC)**
+- No `NPM_TOKEN` secret stored in GitHub
+- GitHub Actions generates short-lived OIDC tokens per publish
+- npm validates against trusted publisher config on npmjs.com
+- First publish is manual (Arjen): `npm publish --access public` to claim name
+- Then configure trusted publisher on npmjs.com
+- Supply-chain verified via provenance attestations (automatic)
+
+**4. Metadata fields**
+- Added `repository`, `homepage`, `bugs` to package.json
+- Standard npm registry metadata for discoverability
+
+**5. Windows tarball remains as fallback**
+- Original tarball workaround for NTFS file locks
+- npm registry installs deliver pre-built `dist/` (no `prepare` execution)
+- GitHub Release tarball stays as fallback but no longer primary recommendation
+
+**6. Install instructions update across team**
+- All references to `npx github:arjendev/launchpad-hq` must update to `npx launchpad-hq`
+- Affects: README.md, docs, UI (DaemonSetupInstructions.tsx), CLI help text
+- Coordinated PR after first publish verified
+
+#### Implementation (Romilly)
+- `publish.yml` workflow with `--provenance` flag
+- `id-token: write` permission for OIDC
+- Build + test gate before publish
+- `NODE_AUTH_TOKEN` secret required initially (before OIDC configured)
+
+#### User Directive (Arjen)
+
+### 2026-03-16: Always use Opus 4.6 for agent spawns
+
+**Author:** Arjen (via Copilot)  
+**Date:** 2026-03-16T16:10:26Z  
+**Status:** Team directive
+
+All agent spawns must use Opus 4.6 (`claude-opus-4.6`). This is the user's preferred model for quality and capabilities. Captured for team memory.
+
+## Context Injection Research Findings (Cooper)
+
+### 2026-03-20: HQ-Level Context Injection — MCP/Skills/Instructions Research
+
+**Author:** Cooper (Lead)  
+**Date:** 2026-03-20  
+**Issue:** #73  
+**Status:** Proposed (Research Complete)
+
+#### Context
+Research spike exploring whether HQ could inject shared context — MCP servers, tools, skills, instructions — into per-project Copilot SDK sessions.
+
+#### Findings
+
+**SDK Support Is Comprehensive**
+The `@github/copilot-sdk@0.1.32` already supports everything needed:
+- **MCP servers:** `SessionConfig.mcpServers` with local (stdio) and remote (HTTP/SSE) transports
+- **Tools:** `defineTool()` at session creation/resume, JSON Schema parameters
+- **Skills:** `skillDirectories` + `disabledSkills` for directory-based skill loading
+- **System prompt:** `systemMessage: { mode: 'append' | 'replace' }` for instruction injection
+
+**Gap Analysis**
+Gap is not in SDK — it's in wire protocol. `SessionConfigWire` needs `mcpServers` added (one field). `buildSharedSdkConfig()` needs to pass it through (one spread).
+
+**Recommended Phased Approach**
+
+1. **Phase 1 — MCP Pass-Through + Instruction Layering** (~3-4 days)
+   - Wire types, daemon passthrough, project config, layered system prompt composition
+   - Builds on Issue #60
+   - Low-risk, high-value
+
+2. **Phase 2 — HQ Proxy Tools** (~1 week)
+   - Cross-project tools (list all issues, query knowledge base)
+   - Proxy through HQ
+
+3. **Phase 3 — Skill Sharing** (~1-2 weeks)
+   - Shared skill storage in launchpad-state repo
+   - Daemon sync, SDK skill directory integration
+
+**What to Defer**
+- **HQ as MCP proxy** — breaks "HQ only aggregates" principle, adds HQ to critical path of tool execution
+- **RAG/embedding search** — requires vector DB, contradicts "no database" architecture decision
+
+#### Issue Created
+GitHub Issue #73 filed with comprehensive analysis across 5 areas:
+- MCP servers (local/remote)
+- Custom tools (definition, parameters)
+- Skills/knowledge sharing
+- System prompt injection
+- Competitive landscape (Claude Projects, ChatGPT Custom Instructions)
+
+#### Next Steps
+Phase 1 is ready to proceed when priorities allow. Builds naturally on Issue #60 (MCP injection) and Issue #72 (workflow system — coordinator sessions would benefit from context injection). No code changes in this research phase.
