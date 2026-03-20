@@ -23,13 +23,15 @@ declare module "fastify" {
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
-async function websocketPlugin(fastify: FastifyInstance) {
+async function websocketPlugin(fastify: FastifyInstance, opts: { isDev?: boolean }) {
   const manager = new ConnectionManager();
   const wss = new WebSocketServer({ noServer: true });
 
   // Generate a random session token for WS authentication
   const sessionToken = randomBytes(32).toString("hex");
   fastify.decorate("sessionToken", sessionToken);
+
+  const isDev = opts.isDev ?? false;
 
   // Handle upgrade requests on the /ws path
   fastify.server.on("upgrade", (request, socket, head) => {
@@ -52,13 +54,16 @@ async function websocketPlugin(fastify: FastifyInstance) {
     }
 
     // Authenticate: require valid session token via query param or Sec-WebSocket-Protocol header
-    const queryToken = url.searchParams.get("token");
-    const protocolHeader = request.headers["sec-websocket-protocol"];
-    const headerToken = typeof protocolHeader === "string" ? protocolHeader : undefined;
-    if (queryToken !== sessionToken && headerToken !== sessionToken) {
-      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-      socket.destroy();
-      return;
+    // In dev mode, skip token validation (Vite proxy doesn't forward tokens)
+    if (!isDev) {
+      const queryToken = url.searchParams.get("token");
+      const protocolHeader = request.headers["sec-websocket-protocol"];
+      const headerToken = typeof protocolHeader === "string" ? protocolHeader : undefined;
+      if (queryToken !== sessionToken && headerToken !== sessionToken) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
     }
 
     wss.handleUpgrade(request, socket, head, (ws) => {

@@ -1406,7 +1406,15 @@ export function useTunnelStatus() {
   return useQuery<TunnelState>({
     queryKey: ["tunnel"],
     queryFn: () => fetchJson<TunnelState>("/api/tunnel"),
-    refetchInterval: 5_000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      // Only poll frequently when tunnel is running or transitioning
+      if (data?.status === "running" || data?.status === "starting" || data?.status === "stopping") {
+        return 5_000;
+      }
+      // When stopped/unconfigured, poll much less frequently
+      return 60_000;
+    },
   });
 }
 

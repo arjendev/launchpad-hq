@@ -113,7 +113,7 @@ if (!config.isDev && existsSync(config.clientDistPath)) {
 
 // --- WebSocket ---
 
-await server.register(websocket);
+await server.register(websocket, { isDev: config.isDev });
 
 // --- Auth (depends on websocket for sessionToken) ---
 
