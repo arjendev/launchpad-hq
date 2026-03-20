@@ -25,6 +25,12 @@ import { DEFAULT_SESSION_ACTIVITY } from "../services/types.js";
 import type { SessionActivity } from "../services/types.js";
 import { authFetch } from "../services/authFetch.js";
 import { DaemonInfoBar } from "./DaemonInfoBar.js";
+import {
+  useCoordinatorStatus,
+  useStartCoordinator,
+  useStopCoordinator,
+} from "../services/workflow-hooks.js";
+import type { CoordinatorStatus } from "../services/workflow-types.js";
 
 // ── Helpers ────────────────────────────────────────────
 
@@ -80,6 +86,130 @@ function getActivityPill(activity: SessionActivity | undefined): { emoji: string
     case "error": return { emoji: "❌", label: "Error", color: "red" };
     default: return null;
   }
+}
+
+// ── Coordinator Card ──────────────────────────────────
+
+const coordinatorDotColor: Record<CoordinatorStatus, string> = {
+  idle: "gray",
+  starting: "yellow",
+  active: "green",
+  crashed: "red",
+};
+
+function CoordinatorCard({ owner, repo }: { owner: string; repo: string }) {
+  const { coordinator, isLoading } = useCoordinatorStatus(owner, repo);
+  const { selectSession } = useSelectedSession();
+  const startCoordinator = useStartCoordinator();
+  const stopCoordinator = useStopCoordinator();
+
+  const status: CoordinatorStatus = coordinator?.status ?? "idle";
+  const dotColor = coordinatorDotColor[status];
+  const isPulsing = status === "starting";
+  const isRunning = status === "active" || status === "starting";
+
+  const activeCount = coordinator?.activeDispatches?.filter(
+    (d) => d.status === "pending" || d.status === "running",
+  ).length ?? 0;
+
+  const handleStartStop = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isRunning) {
+      stopCoordinator.mutate({ owner, repo });
+    } else {
+      startCoordinator.mutate({ owner, repo });
+    }
+  };
+
+  const handleClick = () => {
+    // If coordinator has an active session, we could select it
+    // For now, coordinator doesn't expose a sessionId, so this is a no-op placeholder
+  };
+
+  const uptime = coordinator?.startedAt ? timeAgo(new Date(coordinator.startedAt).getTime()) : null;
+
+  if (isLoading) {
+    return (
+      <Box px="xs" py={6}>
+        <Loader size="xs" />
+      </Box>
+    );
+  }
+
+  return (
+    <UnstyledButton
+      component="div"
+      onClick={handleClick}
+      px="xs"
+      py={6}
+      style={{
+        borderRadius: "var(--mantine-radius-sm)",
+        border: "1px solid var(--mantine-color-default-border)",
+        cursor: "default",
+      }}
+      w="100%"
+    >
+      <Group gap={6} wrap="nowrap">
+        {/* Status dot */}
+        <Box
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: "50%",
+            backgroundColor: `var(--mantine-color-${dotColor}-6)`,
+            flexShrink: 0,
+            animation: isPulsing ? "lp-pulse 1.5s ease-in-out infinite" : undefined,
+          }}
+        />
+
+        <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+          {/* First row: badge + dispatch count */}
+          <Group gap={4} wrap="nowrap" justify="space-between">
+            <Group gap={4} wrap="nowrap">
+              <Badge size="xs" color="violet" variant="light">
+                🤖 Autonomous
+              </Badge>
+            </Group>
+            {isRunning && activeCount > 0 && (
+              <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+                {activeCount} dispatched
+              </Text>
+            )}
+          </Group>
+
+          {/* Second row: uptime/status + start/stop button */}
+          <Group gap={4} wrap="nowrap" justify="space-between">
+            <Text size="xs" c="dimmed">
+              {status === "active" && uptime ? `▶ Started ${uptime}` : null}
+              {status === "starting" ? "⏳ Starting…" : null}
+              {status === "idle" ? "⏸ Idle" : null}
+              {status === "crashed" ? "💥 Crashed" : null}
+            </Text>
+            <Tooltip label={isRunning ? "Stop coordinator" : "Start coordinator"}>
+              <Button
+                variant="subtle"
+                size="compact-xs"
+                color={isRunning ? "red" : "green"}
+                onClick={handleStartStop}
+                loading={startCoordinator.isPending || stopCoordinator.isPending}
+                style={{ flexShrink: 0 }}
+              >
+                {isRunning ? "⏹ Stop" : "▶ Start"}
+              </Button>
+            </Tooltip>
+          </Group>
+        </Stack>
+      </Group>
+
+      {/* Pulse animation keyframes */}
+      <style>{`
+        @keyframes lp-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
+    </UnstyledButton>
+  );
 }
 
 // ── Session Item ───────────────────────────────────────
@@ -294,6 +424,13 @@ export function SessionList() {
       <DaemonInfoBar />
 
       <Text size="xs" fw={600} p="xs" pb={4}>Sessions</Text>
+
+      {/* Coordinator card — always visible when a project is selected */}
+      {owner && repo && (
+        <Box px="xs" pb={4}>
+          <CoordinatorCard owner={owner} repo={repo} />
+        </Box>
+      )}
 
       {/* Session type toggle + action buttons */}
       <Stack gap={4} px="xs" pt="xs">

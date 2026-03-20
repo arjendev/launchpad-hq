@@ -331,6 +331,56 @@ export function useCoordinatorStatus(owner?: string, repo?: string) {
   };
 }
 
+// ── Coordinator start/stop hooks ────────────────────────
+
+/**
+ * Start the autonomous coordinator for a project.
+ */
+export function useStartCoordinator() {
+  const qc = useQueryClient();
+
+  return useMutation<{ ok: boolean }, Error, { owner: string; repo: string }>({
+    mutationFn: async ({ owner, repo }) => {
+      const res = await authFetch(
+        `/api/workflow/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/coordinator/start`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `Start coordinator failed (${res.status})`);
+      }
+      return res.json() as Promise<{ ok: boolean }>;
+    },
+    onSuccess: (_data, { owner, repo }) => {
+      void qc.invalidateQueries({ queryKey: ["coordinator-status", owner, repo] });
+    },
+  });
+}
+
+/**
+ * Stop the autonomous coordinator for a project.
+ */
+export function useStopCoordinator() {
+  const qc = useQueryClient();
+
+  return useMutation<{ ok: boolean }, Error, { owner: string; repo: string }>({
+    mutationFn: async ({ owner, repo }) => {
+      const res = await authFetch(
+        `/api/workflow/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/coordinator/stop`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `Stop coordinator failed (${res.status})`);
+      }
+      return res.json() as Promise<{ ok: boolean }>;
+    },
+    onSuccess: (_data, { owner, repo }) => {
+      void qc.invalidateQueries({ queryKey: ["coordinator-status", owner, repo] });
+    },
+  });
+}
+
 // ── Dispatch issue hook ─────────────────────────────────
 
 /**
