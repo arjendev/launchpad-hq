@@ -191,7 +191,14 @@ export class CopilotSessionAggregator extends EventEmitter {
     let session = this.sessions.get(sessionId);
 
     if (event.type === "session.shutdown") {
-      if (session) this.removeSession(sessionId);
+      if (session) {
+        // Mark as ended (keep visible briefly for UI) rather than removing
+        session.status = "ended";
+        session.activity = createDefaultActivity();
+        session.lastEvent = { type: event.type, timestamp: eventTs };
+        session.updatedAt = Date.now();
+        this.emit("sessions-updated", this.getAllSessions());
+      }
       return;
     }
 

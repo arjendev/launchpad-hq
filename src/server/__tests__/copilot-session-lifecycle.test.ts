@@ -797,7 +797,7 @@ describe("Copilot session lifecycle — integration", () => {
       expect(emitted).toBe(false);
     });
 
-    it("session.shutdown event removes session from aggregator", () => {
+    it("session.shutdown event marks session as ended", () => {
       server.copilotAggregator.trackNewSession("acme/widget", "acme/widget", "s-ended");
       expect(server.copilotAggregator.getSession("s-ended")).toBeDefined();
 
@@ -807,7 +807,10 @@ describe("Copilot session lifecycle — integration", () => {
         timestamp: Date.now(),
       });
 
-      expect(server.copilotAggregator.getSession("s-ended")).toBeUndefined();
+      const session = server.copilotAggregator.getSession("s-ended");
+      expect(session).toBeDefined();
+      expect(session?.status).toBe("ended");
+      expect(session?.activity.phase).toBe("idle");
     });
 
     it("session.shutdown for unknown session does not create a stub", () => {

@@ -508,35 +508,19 @@ export class CopilotManager {
     const session = this.activeSessions.get(sessionId);
     if (session) {
       await session.abort();
-      await session.disconnect();
-
-      const unsub = this.sessionUnsubscribers.get(sessionId);
-      if (unsub) unsub();
-      this.sessionUnsubscribers.delete(sessionId);
-      this.activeSessions.delete(sessionId);
-      logSdk(`Session removed: ${sessionId}`);
+      logSdk(`Session aborted (turn cancelled): ${sessionId}`);
     }
 
-    // Always try to delete from SDK registry
-    if (this.started) {
-      try {
-        await this.client.deleteSession(sessionId);
-      } catch {
-        // session may not exist in registry
-      }
-    }
-
-    // Notify HQ so aggregator can clean up
+    // Notify HQ — session goes idle, not shutdown (it's still resumable)
     this.sendToHq({
       type: 'copilot-session-event',
       timestamp: Date.now(),
       payload: {
         projectId: this.projectId,
         sessionId,
-        event: syntheticEvent('session.shutdown', {
+        event: syntheticEvent('session.idle', {
           sessionId,
           reason: 'aborted',
-          shutdownType: 'routine',
         }),
       },
     });

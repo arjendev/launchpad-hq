@@ -155,7 +155,7 @@ describe('SDK Session Lifecycle (via Manager)', () => {
     expect(listMsg!.payload.sessions.length).toBe(1);
   });
 
-  it('abort calls deleteSession on the client', async () => {
+  it('abort does NOT call deleteSession — session remains alive', async () => {
     await manager.handleMessage({
       type: 'copilot-create-session',
       timestamp: Date.now(),
@@ -173,21 +173,21 @@ describe('SDK Session Lifecycle (via Manager)', () => {
       payload: { sessionId },
     });
 
-    // Verify deleteSession was called
+    // Verify deleteSession was NOT called (abort is non-destructive)
     const deleteCalls = client.calls.filter(c => c.method === 'deleteSession');
-    expect(deleteCalls.length).toBe(1);
-    expect(deleteCalls[0].args[0]).toBe(sessionId);
+    expect(deleteCalls.length).toBe(0);
 
-    // Verify session removed from SDK registry
+    // Session should still be in SDK registry
     sent = [];
     await manager.handleMessage({
       type: 'copilot-list-sessions',
       timestamp: Date.now(),
-      payload: { requestId: 'list-3' },
+      payload: { requestId: 'list-2' },
     });
 
     const listMsg = sent.find(m => m.type === 'copilot-session-list');
-    expect(listMsg!.payload.sessions.length).toBe(0);
+    const ids = listMsg!.payload.sessions.map((s: { sessionId: string }) => s.sessionId);
+    expect(ids).toContain(sessionId);
   });
 
   it('tracks all SDK method calls for audit', async () => {
@@ -218,7 +218,8 @@ describe('SDK Session Lifecycle (via Manager)', () => {
     expect(methodNames).toContain('start');
     expect(methodNames).toContain('createSession');
     expect(methodNames).toContain('listSessions');
-    expect(methodNames).toContain('deleteSession');
+    // abort no longer calls deleteSession — session stays alive
+    expect(methodNames).not.toContain('deleteSession');
   });
 
   it('multiple sessions: create 3, delete 1, verify 2 remain', async () => {
@@ -245,7 +246,7 @@ describe('SDK Session Lifecycle (via Manager)', () => {
       payload: { sessionId: secondSessionId },
     });
 
-    // Verify 2 remain in registry
+    // Verify all 3 remain (abort doesn't remove sessions)
     sent = [];
     await manager.handleMessage({
       type: 'copilot-list-sessions',
@@ -254,8 +255,6 @@ describe('SDK Session Lifecycle (via Manager)', () => {
     });
 
     const listMsg = sent.find(m => m.type === 'copilot-session-list');
-    expect(listMsg!.payload.sessions.length).toBe(2);
-    const ids = listMsg!.payload.sessions.map((s: { sessionId: string }) => s.sessionId);
-    expect(ids).not.toContain(secondSessionId);
+    expect(listMsg!.payload.sessions.length).toBe(3);
   });
 });

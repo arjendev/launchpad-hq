@@ -888,7 +888,7 @@ describe('CopilotManager', () => {
   // -----------------------------------------------------------------------
 
   describe('handleMessage: copilot-abort-session', () => {
-    it('aborts an active session and emits session.shutdown', async () => {
+    it('aborts an active session and emits session.idle', async () => {
       await manager.start();
 
       await manager.handleMessage({
@@ -911,16 +911,16 @@ describe('CopilotManager', () => {
         payload: { sessionId },
       });
 
-      const shutdownEvent = sent.find(
+      const idleEvent = sent.find(
         (m) =>
           m.type === 'copilot-session-event' &&
-          m.payload.event.type === 'session.shutdown',
+          m.payload.event.type === 'session.idle',
       );
-      expect(shutdownEvent).toBeDefined();
-      expect(shutdownEvent!.payload.sessionId).toBe(sessionId);
+      expect(idleEvent).toBeDefined();
+      expect(idleEvent!.payload.sessionId).toBe(sessionId);
     });
 
-    it('removes session from activeSessions after abort', async () => {
+    it('keeps session in activeSessions after abort (resumable)', async () => {
       await manager.start();
 
       await manager.handleMessage({
@@ -943,20 +943,21 @@ describe('CopilotManager', () => {
         payload: { sessionId },
       });
 
-      // Sending a prompt to the aborted session should yield an error
+      // Session should still accept prompts after abort
       sent = [];
       await manager.handleMessage({
         type: 'copilot-send-prompt',
         timestamp: Date.now(),
-        payload: { sessionId, prompt: 'Should fail' },
+        payload: { sessionId, prompt: 'Should succeed' },
       });
 
+      // Should NOT get an error — session is still alive
       const errorEvent = sent.find(
         (m) =>
           m.type === 'copilot-session-event' &&
           m.payload.event.type === 'session.error',
       );
-      expect(errorEvent).toBeDefined();
+      expect(errorEvent).toBeUndefined();
     });
 
     it('silently handles abort for unknown session', async () => {
