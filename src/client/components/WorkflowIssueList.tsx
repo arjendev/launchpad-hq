@@ -472,7 +472,7 @@ function IssueTable({
         </Table.Thead>
         <Table.Tbody>
           {filtered.map((issue) => {
-            const [issueOwner, issueRepo] = issue.project.split("/");
+            const [issueOwner, issueRepo] = (issue.project ?? "").split("/");
             const effectiveOwner = owner ?? issueOwner ?? "";
             const effectiveRepo = repo ?? issueRepo ?? "";
             return (
