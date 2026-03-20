@@ -1091,8 +1091,10 @@ export class CopilotManager {
     if (agentIdOrName === 'default' || agentIdOrName === 'plain') {
       return this.agentCatalog.get(DEFAULT_COPILOT_AGENT_ID);
     }
+    // Case-insensitive search by id, name, or partial match
+    const lower = agentIdOrName.toLowerCase();
     for (const agent of this.agentCatalog.values()) {
-      if (agent.name === agentIdOrName) {
+      if (agent.name?.toLowerCase() === lower || agent.id?.toLowerCase() === lower) {
         return agent;
       }
     }
@@ -1192,11 +1194,15 @@ export class CopilotManager {
 
     // Select preferred agent if specified
     if (opts.agentId) {
-      const agent = this.resolveRequestedAgent(opts.agentId);
-      if (agent) {
-        try { await this.applyAgentSelection(session, agent); } catch (err) {
-          logSdk(`Agent selection failed for coordinator: ${err}`);
+      try {
+        const agent = this.resolveRequestedAgent(opts.agentId);
+        if (agent) {
+          await this.applyAgentSelection(session, agent);
+          logSdk(`Coordinator agent selected: ${agent.name} (${agent.id})`);
         }
+      } catch (err) {
+        const catalogIds = [...this.agentCatalog.values()].map(a => `${a.id}/${a.name}`).join(', ');
+        logSdk(`Agent selection failed for coordinator: ${err} — available: [${catalogIds}]`);
       }
     }
 
@@ -1221,11 +1227,15 @@ export class CopilotManager {
 
     // Re-select preferred agent on resume
     if (opts.agentId) {
-      const agent = this.resolveRequestedAgent(opts.agentId);
-      if (agent) {
-        try { await this.applyAgentSelection(session, agent); } catch (err) {
-          logSdk(`Agent selection failed for coordinator resume: ${err}`);
+      try {
+        const agent = this.resolveRequestedAgent(opts.agentId);
+        if (agent) {
+          await this.applyAgentSelection(session, agent);
+          logSdk(`Coordinator agent re-selected on resume: ${agent.name} (${agent.id})`);
         }
+      } catch (err) {
+        const catalogIds = [...this.agentCatalog.values()].map(a => `${a.id}/${a.name}`).join(', ');
+        logSdk(`Agent selection failed for coordinator resume: ${err} — available: [${catalogIds}]`);
       }
     }
 
