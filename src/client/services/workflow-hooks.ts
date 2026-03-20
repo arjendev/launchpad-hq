@@ -363,6 +363,118 @@ export function useDispatchIssue() {
   });
 }
 
+// ── Create / Update / Comments hooks ────────────────────
+
+interface CreateIssueRequest {
+  title: string;
+  body?: string;
+  labels?: string[];
+}
+
+interface CreateIssueResponse {
+  issue: WorkflowIssue;
+}
+
+/**
+ * Create a new issue via the workflow API.
+ */
+export function useCreateIssue() {
+  const qc = useQueryClient();
+
+  return useMutation<
+    CreateIssueResponse,
+    Error,
+    { owner: string; repo: string } & CreateIssueRequest
+  >({
+    mutationFn: async ({ owner, repo, title, body, labels }) => {
+      const res = await authFetch(
+        `/api/workflow/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, body, labels }),
+        },
+      );
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(errBody?.message ?? `Create issue failed (${res.status})`);
+      }
+      return res.json() as Promise<CreateIssueResponse>;
+    },
+    onSuccess: (_data, { owner, repo }) => {
+      void qc.invalidateQueries({ queryKey: ["workflow-issues", owner, repo] });
+    },
+  });
+}
+
+interface UpdateIssueRequest {
+  title?: string;
+  body?: string;
+}
+
+interface UpdateIssueResponse {
+  issue: WorkflowIssue;
+}
+
+/**
+ * Update an existing issue's title/body.
+ */
+export function useUpdateIssue() {
+  const qc = useQueryClient();
+
+  return useMutation<
+    UpdateIssueResponse,
+    Error,
+    { owner: string; repo: string; issueNumber: number } & UpdateIssueRequest
+  >({
+    mutationFn: async ({ owner, repo, issueNumber, title, body }) => {
+      const res = await authFetch(
+        `/api/workflow/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${issueNumber}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, body }),
+        },
+      );
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(errBody?.message ?? `Update issue failed (${res.status})`);
+      }
+      return res.json() as Promise<UpdateIssueResponse>;
+    },
+    onSuccess: (_data, { owner, repo }) => {
+      void qc.invalidateQueries({ queryKey: ["workflow-issues", owner, repo] });
+    },
+  });
+}
+
+export interface IssueComment {
+  author: string;
+  body: string;
+  createdAt: string;
+}
+
+interface IssueCommentsResponse {
+  comments: IssueComment[];
+}
+
+/**
+ * Fetch issue comments (discussion) from GitHub via the workflow API.
+ */
+export function useIssueComments(owner?: string, repo?: string, issueNumber?: number) {
+  const enabled = !!owner && !!repo && !!issueNumber;
+
+  return useQuery<IssueCommentsResponse>({
+    queryKey: ["issue-comments", owner, repo, issueNumber],
+    queryFn: () =>
+      fetchJson<IssueCommentsResponse>(
+        `/api/workflow/${encodeURIComponent(owner!)}/${encodeURIComponent(repo!)}/issues/${issueNumber!}/comments`,
+      ),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
 // ── All-project aggregate hook ──────────────────────────
 
 /**

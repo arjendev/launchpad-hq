@@ -43,6 +43,8 @@ import {
   type WorkflowState,
 } from "../services/workflow-types.js";
 import { ElicitationCard, scrollToElicitation } from "./ElicitationCard.js";
+import { CreateIssueModal } from "./CreateIssueModal.js";
+import { EditIssueModal } from "./EditIssueModal.js";
 
 // ── Helpers ─────────────────────────────────────────────
 
@@ -122,7 +124,7 @@ function DispatchButton({
         variant="light"
         color="blue"
         loading={dispatch.isPending}
-        onClick={() => dispatch.mutate({ owner, repo, issueNumber: issue.number })}
+        onClick={(e: React.MouseEvent) => { e.stopPropagation(); dispatch.mutate({ owner, repo, issueNumber: issue.number }); }}
         style={{
           transition: "all 0.2s ease",
         }}
@@ -214,24 +216,36 @@ function RowActions({
     return (
       <>
         <Group gap={4} wrap="nowrap">
-          <Tooltip label="Approve — mark as done and close on GitHub">
+          <Tooltip label="Mark as done and close on GitHub">
             <Button
               size="compact-xs"
               variant="light"
-              color="green"
-              onClick={() => handleTransition("done")}
+              color="teal"
+              onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleTransition("done"); }}
               loading={isPending}
-              aria-label="Approve"
+              aria-label="Done"
             >
-              ✓ Approve
+              ✓ Done
+            </Button>
+          </Tooltip>
+          <Tooltip label="Reject — won't implement">
+            <Button
+              size="compact-xs"
+              variant="light"
+              color="red"
+              onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleTransition("rejected"); }}
+              loading={isPending}
+              aria-label="Reject"
+            >
+              🚫 Reject
             </Button>
           </Tooltip>
           <Tooltip label="Request changes — send feedback">
             <ActionIcon
               size="xs"
               variant="light"
-              color="red"
-              onClick={() => setFeedbackOpen(true)}
+              color="orange"
+              onClick={(e: React.MouseEvent) => { e.stopPropagation(); setFeedbackOpen(true); }}
               loading={isPending}
               aria-label="Request changes"
             >
@@ -261,7 +275,7 @@ function RowActions({
               size="compact-xs"
               variant="filled"
               color="yellow"
-              onClick={() => scrollToElicitation(elicitationId)}
+              onClick={(e: React.MouseEvent) => { e.stopPropagation(); scrollToElicitation(elicitationId); }}
               aria-label="Respond"
             >
               💬 Respond
@@ -273,7 +287,7 @@ function RowActions({
               size="xs"
               variant="light"
               color="yellow"
-              onClick={() => handleTransition("in-progress")}
+              onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleTransition("in-progress"); }}
               loading={isPending}
               aria-label="Respond"
             >
@@ -281,6 +295,18 @@ function RowActions({
             </ActionIcon>
           </Tooltip>
         )}
+        <Tooltip label="Reject — won't implement">
+          <ActionIcon
+            size="xs"
+            variant="light"
+            color="red"
+            onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleTransition("rejected"); }}
+            loading={isPending}
+            aria-label="Reject"
+          >
+            🚫
+          </ActionIcon>
+        </Tooltip>
       </Group>
     );
   }
@@ -292,7 +318,7 @@ function RowActions({
         <DispatchButton issue={issue} owner={owner} repo={repo} />
         <Menu shadow="sm" width={180} position="bottom-end">
           <Menu.Target>
-            <ActionIcon size="xs" variant="subtle" color="gray" aria-label="More actions">
+            <ActionIcon size="xs" variant="subtle" color="gray" aria-label="More actions" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
               ⋯
             </ActionIcon>
           </Menu.Target>
@@ -302,6 +328,9 @@ function RowActions({
             </Menu.Item>
             <Menu.Item onClick={() => handleTransition("done")}>
               Mark done
+            </Menu.Item>
+            <Menu.Item color="red" onClick={() => handleTransition("rejected")}>
+              Reject
             </Menu.Item>
           </Menu.Dropdown>
         </Menu>
@@ -314,7 +343,7 @@ function RowActions({
     return (
       <Menu shadow="sm" width={180} position="bottom-end">
         <Menu.Target>
-          <ActionIcon size="xs" variant="subtle" color="gray" aria-label="More actions">
+          <ActionIcon size="xs" variant="subtle" color="gray" aria-label="More actions" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
             ⋯
           </ActionIcon>
         </Menu.Target>
@@ -327,6 +356,9 @@ function RowActions({
           </Menu.Item>
           <Menu.Item onClick={() => handleTransition("done")}>
             Mark done
+          </Menu.Item>
+          <Menu.Item color="red" onClick={() => handleTransition("rejected")}>
+            Reject
           </Menu.Item>
         </Menu.Dropdown>
       </Menu>
@@ -373,6 +405,7 @@ function IssueTable({
   statusFilter,
   projectFilter,
   elicitationByIssue,
+  onRowClick,
 }: {
   issues: WorkflowIssue[];
   owner?: string;
@@ -382,6 +415,7 @@ function IssueTable({
   statusFilter: string;
   projectFilter: string;
   elicitationByIssue: Map<number, string>;
+  onRowClick?: (issue: WorkflowIssue) => void;
 }) {
   const [sortField, setSortField] = useState<SortField>("status");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -480,7 +514,9 @@ function IssueTable({
                 key={`${issue.project}-${issue.number}`}
                 style={{
                   transition: "background-color 0.3s ease",
+                  cursor: onRowClick ? "pointer" : undefined,
                 }}
+                onClick={() => onRowClick?.(issue)}
               >
                 <Table.Td>
                   <StatusBadge state={issue.state} />
@@ -494,6 +530,7 @@ function IssueTable({
                     rel="noopener"
                     c="blue"
                     style={{ textDecoration: "none" }}
+                    onClick={(e: React.MouseEvent) => e.stopPropagation()}
                   >
                     #{issue.number}
                   </Text>
@@ -642,6 +679,8 @@ function ScopedWorkflowView({ owner, repo }: { owner: string; repo: string }) {
 
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editIssue, setEditIssue] = useState<WorkflowIssue | null>(null);
 
   const elicitationByIssue = useMemo(() => {
     const map = new Map<number, string>();
@@ -686,15 +725,25 @@ function ScopedWorkflowView({ owner, repo }: { owner: string; repo: string }) {
             </Indicator>
           )}
         </Group>
-        <Button
-          size="compact-xs"
-          variant="light"
-          onClick={() => sync.mutate()}
-          loading={sync.isPending}
-          disabled={sync.isPending}
-        >
-          {sync.isPending ? "Syncing…" : "⟳ Sync"}
-        </Button>
+        <Group gap="xs">
+          <Button
+            size="compact-xs"
+            variant="light"
+            color="green"
+            onClick={() => setCreateOpen(true)}
+          >
+            + New
+          </Button>
+          <Button
+            size="compact-xs"
+            variant="light"
+            onClick={() => sync.mutate()}
+            loading={sync.isPending}
+            disabled={sync.isPending}
+          >
+            {sync.isPending ? "Syncing…" : "⟳ Sync"}
+          </Button>
+        </Group>
       </Group>
 
       {/* Pending Elicitation Cards */}
@@ -741,6 +790,22 @@ function ScopedWorkflowView({ owner, repo }: { owner: string; repo: string }) {
         statusFilter={statusFilter}
         projectFilter="all"
         elicitationByIssue={elicitationByIssue}
+        onRowClick={(issue) => setEditIssue(issue)}
+      />
+
+      {/* Modals */}
+      <CreateIssueModal
+        opened={createOpen}
+        onClose={() => setCreateOpen(false)}
+        owner={owner}
+        repo={repo}
+      />
+      <EditIssueModal
+        opened={!!editIssue}
+        onClose={() => setEditIssue(null)}
+        issue={editIssue}
+        owner={owner}
+        repo={repo}
       />
     </Stack>
   );

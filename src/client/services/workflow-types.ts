@@ -11,7 +11,8 @@ export type WorkflowState =
   | "needs-input-blocking"
   | "needs-input-async"
   | "ready-for-review"
-  | "done";
+  | "done"
+  | "rejected";
 
 export const WORKFLOW_STATES: readonly WorkflowState[] = [
   "backlog",
@@ -20,6 +21,7 @@ export const WORKFLOW_STATES: readonly WorkflowState[] = [
   "needs-input-async",
   "ready-for-review",
   "done",
+  "rejected",
 ] as const;
 
 // ── Status display config ───────────────────────────────
@@ -37,6 +39,7 @@ export const WORKFLOW_STATE_CONFIG: Record<WorkflowState, WorkflowStateConfig> =
   "needs-input-async":    { label: "Needs Input",    color: "yellow", emoji: "🟡" },
   "ready-for-review":     { label: "Review",         color: "green",  emoji: "🟢" },
   "done":                 { label: "Done",           color: "teal",   emoji: "✅" },
+  "rejected":             { label: "Rejected",       color: "red",    emoji: "🚫" },
 };
 
 // Sort priority (lower = earlier in list)
@@ -47,6 +50,7 @@ export const WORKFLOW_STATE_SORT: Record<WorkflowState, number> = {
   "in-progress":          3,
   "backlog":              4,
   "done":                 5,
+  "rejected":             6,
 };
 
 // ── Issue type ──────────────────────────────────────────
