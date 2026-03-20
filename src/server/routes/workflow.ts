@@ -17,6 +17,16 @@ import {
 } from "../workflow/state-machine.js";
 import { GitHubSyncService } from "../workflow/github-sync.js";
 import { WorkflowStore } from "../workflow/store.js";
+import {
+  coordinatorStarting,
+  coordinatorStarted,
+  coordinatorCrashed,
+  coordinatorStopped,
+  coordinatorHealthPing,
+  addDispatch,
+  updateDispatchStatus,
+} from "../workflow/coordinator-state.js";
+import type { CoordinatorProjectState, TrackedCommit } from "../../shared/protocol.js";
 
 /** Build project key from route params */
 function pk(params: { owner: string; repo: string }): string {
@@ -225,6 +235,293 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       return reply.send({ ok: true, feedback, issue: updated });
     },
   );
+
+  // ==========================================================================
+  // Coordinator Endpoints (Phase 2 — #72)
+  // ==========================================================================
+
+  /** POST /api/workflow/:owner/:repo/coordinator/start — start/resume coordinator */
+  server.post<{ Params: { owner: string; repo: string } }>(
+    "/api/workflow/:owner/:repo/coordinator/start",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+      const projectId = pk(request.params);
+
+      // Check daemon is connected
+      if (!server.daemonRegistry?.getDaemon(projectId)) {
+        return reply.status(503).send({
+          error: "daemon_offline",
+          message: `Daemon for ${projectId} is not connected`,
+        });
+      }
+
+      const coord = store.getCoordinator(owner, repo);
+
+      // If already active, just return current status
+      if (coord.status === "active" || coord.status === "starting") {
+        return reply.send({ ok: true, coordinator: coord });
+      }
+
+      // Transition to starting
+      const updated = coordinatorStarting(coord);
+      store.setCoordinator(owner, repo, updated);
+
+      // Send start message to daemon (include sessionId for resume if available)
+      const sent = server.daemonRegistry.sendToDaemon(projectId, {
+        type: "workflow:start-coordinator",
+        timestamp: Date.now(),
+        payload: {
+          projectId,
+          ...(coord.sessionId ? { sessionId: coord.sessionId } : {}),
+        },
+      });
+
+      if (!sent) {
+        const reverted = coordinatorStopped(updated);
+        store.setCoordinator(owner, repo, reverted);
+        return reply.status(503).send({
+          error: "send_failed",
+          message: "Failed to send start message to daemon",
+        });
+      }
+
+      server.ws.broadcast("workflow", {
+        type: "workflow:coordinator-status-changed",
+        projectId,
+        status: "starting",
+      });
+
+      return reply.send({ ok: true, coordinator: updated });
+    },
+  );
+
+  /** POST /api/workflow/:owner/:repo/coordinator/stop — stop coordinator */
+  server.post<{ Params: { owner: string; repo: string } }>(
+    "/api/workflow/:owner/:repo/coordinator/stop",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+      const projectId = pk(request.params);
+
+      const coord = store.getCoordinator(owner, repo);
+
+      if (coord.status === "idle") {
+        return reply.send({ ok: true, coordinator: coord });
+      }
+
+      // Send stop to daemon
+      server.daemonRegistry?.sendToDaemon(projectId, {
+        type: "workflow:stop-coordinator",
+        timestamp: Date.now(),
+        payload: { projectId },
+      });
+
+      const updated = coordinatorStopped(coord);
+      store.setCoordinator(owner, repo, updated);
+
+      server.ws.broadcast("workflow", {
+        type: "workflow:coordinator-status-changed",
+        projectId,
+        status: "idle",
+      });
+
+      return reply.send({ ok: true, coordinator: updated });
+    },
+  );
+
+  /** GET /api/workflow/:owner/:repo/coordinator/status — get coordinator health */
+  server.get<{ Params: { owner: string; repo: string } }>(
+    "/api/workflow/:owner/:repo/coordinator/status",
+    async (request, reply) => {
+      const coord = store.getCoordinator(request.params.owner, request.params.repo);
+      return reply.send({ coordinator: coord });
+    },
+  );
+
+  /** POST /api/workflow/:owner/:repo/dispatch/:issueNumber — dispatch issue to coordinator */
+  server.post<{ Params: { owner: string; repo: string; issueNumber: string } }>(
+    "/api/workflow/:owner/:repo/dispatch/:issueNumber",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+      const issueNumber = parseInt(request.params.issueNumber, 10);
+      const projectId = pk(request.params);
+
+      if (isNaN(issueNumber)) {
+        return reply.status(400).send({ error: "bad_request", message: "Invalid issue number" });
+      }
+
+      // Validate issue exists and is in backlog
+      const issue = store.getIssue(owner, repo, issueNumber);
+      if (!issue) {
+        return reply.status(404).send({
+          error: "not_found",
+          message: `Issue #${issueNumber} not found. Run sync first.`,
+        });
+      }
+
+      if (issue.state !== "backlog") {
+        return reply.status(422).send({
+          error: "invalid_state",
+          message: `Issue #${issueNumber} is in '${issue.state}', must be 'backlog' to dispatch`,
+        });
+      }
+
+      // Check coordinator is active
+      const coord = store.getCoordinator(owner, repo);
+      if (coord.status !== "active") {
+        return reply.status(422).send({
+          error: "coordinator_not_active",
+          message: `Coordinator is '${coord.status}', must be 'active' to dispatch`,
+        });
+      }
+
+      // Transition issue to in-progress
+      try {
+        const updated = stateMachine.transition(issue, "in-progress", "Dispatched to coordinator");
+        store.updateIssue(owner, repo, updated);
+      } catch (err) {
+        if (err instanceof InvalidTransitionError) {
+          return reply.status(422).send({
+            error: "invalid_transition",
+            message: err.message,
+          });
+        }
+        throw err;
+      }
+
+      // Add dispatch record
+      const updatedCoord = addDispatch(coord, issueNumber);
+      store.setCoordinator(owner, repo, updatedCoord);
+
+      // Send dispatch to daemon
+      const sent = server.daemonRegistry?.sendToDaemon(projectId, {
+        type: "workflow:dispatch-issue",
+        timestamp: Date.now(),
+        payload: {
+          projectId,
+          issueNumber: issue.number,
+          title: issue.title,
+          labels: issue.labels,
+        },
+      });
+
+      if (!sent) {
+        return reply.status(503).send({
+          error: "send_failed",
+          message: "Failed to send dispatch to daemon",
+        });
+      }
+
+      // Broadcast dispatch started to clients
+      server.ws.broadcast("workflow", {
+        type: "workflow:dispatch-started",
+        projectId,
+        issueNumber,
+        title: issue.title,
+      });
+
+      return reply.send({ ok: true, issueNumber, status: "dispatched" });
+    },
+  );
+
+  /** GET /api/workflow/:owner/:repo/issues/:number/commits — get commits for an issue */
+  server.get<{ Params: { owner: string; repo: string; number: string } }>(
+    "/api/workflow/:owner/:repo/issues/:number/commits",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+      const issueNumber = parseInt(request.params.number, 10);
+
+      if (isNaN(issueNumber)) {
+        return reply.status(400).send({ error: "bad_request", message: "Invalid issue number" });
+      }
+
+      const commits = store.commitTracker.getCommitsForIssue(owner, repo, issueNumber);
+      return reply.send({ commits });
+    },
+  );
+
+  // ==========================================================================
+  // Daemon event listeners for coordinator messages
+  // ==========================================================================
+
+  if (server.daemonRegistry) {
+    server.daemonRegistry.on("workflow:coordinator-started" as never, (payload: { projectId: string; sessionId: string }) => {
+      const [owner, repo] = payload.projectId.split("/");
+      if (!owner || !repo) return;
+      const coord = store.getCoordinator(owner, repo);
+      const updated = coordinatorStarted(coord, payload.sessionId);
+      store.setCoordinator(owner, repo, updated);
+    });
+
+    server.daemonRegistry.on("workflow:coordinator-crashed" as never, (payload: { projectId: string; error: string }) => {
+      const [owner, repo] = payload.projectId.split("/");
+      if (!owner || !repo) return;
+      const coord = store.getCoordinator(owner, repo);
+      const updated = coordinatorCrashed(coord, payload.error);
+      store.setCoordinator(owner, repo, updated);
+    });
+
+    server.daemonRegistry.on("workflow:coordinator-health" as never, (payload: { projectId: string; sessionId: string }) => {
+      const [owner, repo] = payload.projectId.split("/");
+      if (!owner || !repo) return;
+      const coord = store.getCoordinator(owner, repo);
+      const updated = coordinatorHealthPing(coord);
+      store.setCoordinator(owner, repo, updated);
+    });
+
+    server.daemonRegistry.on("workflow:progress" as never, (payload: {
+      projectId: string;
+      issueNumber: number;
+      commits?: Array<{ sha: string; message: string; author?: string }>;
+    }) => {
+      const [owner, repo] = payload.projectId.split("/");
+      if (!owner || !repo) return;
+
+      // Track commits reported in progress events
+      if (payload.commits) {
+        for (const c of payload.commits) {
+          store.commitTracker.addCommit(owner, repo, c.sha, c.message, c.author ?? null);
+        }
+      }
+
+      // Update dispatch status to in-progress
+      const coord = store.getCoordinator(owner, repo);
+      const updated = updateDispatchStatus(coord, payload.issueNumber, "in-progress");
+      store.setCoordinator(owner, repo, updated);
+    });
+
+    server.daemonRegistry.on("workflow:issue-completed" as never, (payload: {
+      projectId: string;
+      issueNumber: number;
+      summary?: string;
+      commits?: Array<{ sha: string; message: string; author?: string }>;
+    }) => {
+      const [owner, repo] = payload.projectId.split("/");
+      if (!owner || !repo) return;
+
+      // Track final commits
+      if (payload.commits) {
+        for (const c of payload.commits) {
+          store.commitTracker.addCommit(owner, repo, c.sha, c.message, c.author ?? null);
+        }
+      }
+
+      // Transition issue to ready-for-review
+      const issue = store.getIssue(owner, repo, payload.issueNumber);
+      if (issue && issue.state === "in-progress") {
+        try {
+          const updated = stateMachine.transition(issue, "ready-for-review", payload.summary ?? "Completed by coordinator");
+          store.updateIssue(owner, repo, updated);
+        } catch {
+          // Transition may be invalid if issue was already moved — ignore
+        }
+      }
+
+      // Update dispatch record
+      const coord = store.getCoordinator(owner, repo);
+      const updatedCoord = updateDispatchStatus(coord, payload.issueNumber, "completed");
+      store.setCoordinator(owner, repo, updatedCoord);
+    });
+  }
 };
 
 export default workflowRoutes;

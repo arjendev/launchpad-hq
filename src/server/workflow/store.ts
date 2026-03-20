@@ -7,6 +7,9 @@
 
 import type { StateService } from "../state/types.js";
 import type { WorkflowIssue, FeedbackEntry } from "./state-machine.js";
+import type { CoordinatorProjectState, TrackedCommit } from "../../shared/protocol.js";
+import { defaultCoordinatorState } from "./coordinator-state.js";
+import { CommitTracker } from "./commit-tracker.js";
 
 // --- Persisted shape ---
 
@@ -16,6 +19,8 @@ export interface WorkflowProjectState {
   issues: WorkflowIssue[];
   lastSyncAt: string | null;
   updatedAt: string;
+  coordinator: CoordinatorProjectState;
+  commits: TrackedCommit[];
 }
 
 export interface WorkflowData {
@@ -37,12 +42,14 @@ export class WorkflowStore {
   private data: WorkflowData;
   private dirty = false;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
+  readonly commitTracker: CommitTracker;
 
   constructor(
     private readonly stateService: StateService | null,
     private readonly flushIntervalMs = 30_000,
   ) {
     this.data = defaultWorkflowData();
+    this.commitTracker = new CommitTracker();
 
     if (this.stateService && this.flushIntervalMs > 0) {
       this.flushTimer = setInterval(() => {
@@ -63,6 +70,8 @@ export class WorkflowStore {
         issues: [],
         lastSyncAt: null,
         updatedAt: new Date().toISOString(),
+        coordinator: defaultCoordinatorState(),
+        commits: [],
       };
       this.dirty = true;
     }
@@ -112,6 +121,21 @@ export class WorkflowStore {
     return issue;
   }
 
+  // --- Coordinator state ---
+
+  /** Get coordinator state for a project. */
+  getCoordinator(owner: string, repo: string): CoordinatorProjectState {
+    return this.getProject(owner, repo).coordinator;
+  }
+
+  /** Update coordinator state for a project. */
+  setCoordinator(owner: string, repo: string, coordinator: CoordinatorProjectState): void {
+    const project = this.getProject(owner, repo);
+    project.coordinator = coordinator;
+    project.updatedAt = new Date().toISOString();
+    this.dirty = true;
+  }
+
   /** Flush pending changes to the state service. */
   async flush(): Promise<void> {
     if (!this.dirty || !this.stateService) return;
@@ -124,10 +148,11 @@ export class WorkflowStore {
           const [owner, repo] = key.split("/");
           enrichment.projects[key] = { owner, repo };
         }
-        // Attach workflow metadata to enrichment entries
         (enrichment.projects[key] as unknown as Record<string, unknown>).workflowState = {
           issues: project.issues,
           lastSyncAt: project.lastSyncAt,
+          coordinator: project.coordinator,
+          commits: this.commitTracker.toJSON(project.owner, project.repo),
         };
       }
       enrichment.updatedAt = new Date().toISOString();
@@ -145,7 +170,12 @@ export class WorkflowStore {
       const enrichment = await this.stateService.getEnrichment();
       for (const [key, entry] of Object.entries(enrichment.projects)) {
         const workflowData = (entry as unknown as Record<string, unknown>).workflowState as
-          | { issues: WorkflowIssue[]; lastSyncAt: string | null }
+          | {
+              issues: WorkflowIssue[];
+              lastSyncAt: string | null;
+              coordinator?: CoordinatorProjectState;
+              commits?: TrackedCommit[];
+            }
           | undefined;
         if (workflowData) {
           const [owner, repo] = key.split("/");
@@ -155,7 +185,13 @@ export class WorkflowStore {
             issues: workflowData.issues ?? [],
             lastSyncAt: workflowData.lastSyncAt ?? null,
             updatedAt: new Date().toISOString(),
+            coordinator: workflowData.coordinator ?? defaultCoordinatorState(),
+            commits: workflowData.commits ?? [],
           };
+          // Restore commit tracker index
+          if (workflowData.commits?.length) {
+            this.commitTracker.loadCommits(owner, repo, workflowData.commits);
+          }
         }
       }
     } catch {
