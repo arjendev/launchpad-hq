@@ -214,9 +214,6 @@ export class CoordinatorSessionManager {
   // -----------------------------------------------------------------------
 
   private async createSession(): Promise<string> {
-    // Use the CopilotManager's handleMessage to create a session with
-    // coordinator-specific system message. We generate a requestId to
-    // correlate the response event.
     const requestId = `coordinator-${Date.now()}`;
 
     const sessionId = await this.copilotManager.createCoordinatorSession({
@@ -225,6 +222,14 @@ export class CoordinatorSessionManager {
         mode: 'replace',
         content: this.buildSystemMessage(),
       },
+    });
+
+    // Send an initial message so the SDK persists the session to disk.
+    // Without this, the session won't survive a client restart.
+    await this.copilotManager.sendToSession(sessionId,
+      'You are now active as the autonomous coordinator. Acknowledge readiness briefly.'
+    ).catch(() => {
+      logSdk('Coordinator initial ping failed (non-fatal)');
     });
 
     return sessionId;

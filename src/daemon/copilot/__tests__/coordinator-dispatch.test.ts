@@ -363,6 +363,7 @@ describe('IssueDispatcher', () => {
 
     await coordinator.start();
     sent.length = 0;
+    mockManager.sentPrompts.length = 0; // Clear initial ping from createSession
 
     dispatcher = new IssueDispatcher({
       sendToHq: (msg) => sent.push(msg),
