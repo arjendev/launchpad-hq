@@ -32,6 +32,7 @@ import type {
   PromptDeliveryMode,
   SessionConfigWire,
 } from '../../shared/protocol.js';
+import { ELICITATION_TIMEOUT_MS } from '../../shared/constants.js';
 import { createHqTools } from './hq-tools.js';
 import {
   DEFAULT_COPILOT_AGENT_ID,
@@ -135,6 +136,8 @@ export class CopilotManager {
   private customAgents: CustomAgentConfig[];
   private agentCatalog = new Map<string, CopilotAgentCatalogEntry>();
   private started = false;
+  /** Pending elicitation requests awaiting HQ response: elicitationId → { sessionId, timer } */
+  private pendingElicitations = new Map<string, { sessionId: string; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(options: CopilotManagerOptions) {
     this.sendToHq = (msg: DaemonToHqMessage) => {
@@ -235,6 +238,7 @@ export class CopilotManager {
     }
     this.activeSessions.clear();
     this.sessionUnsubscribers.clear();
+    this.clearPendingElicitations();
 
     this.lifecycleUnsub?.();
     this.lifecycleUnsub = null;
@@ -329,6 +333,14 @@ export class CopilotManager {
 
       case 'copilot-delete-session':
         await this.handleDeleteSession(msg.payload.sessionId);
+        break;
+
+      case 'workflow:elicitation-response':
+        this.handleElicitationResponse(
+          msg.payload.elicitationId,
+          msg.payload.sessionId,
+          msg.payload.response,
+        );
         break;
 
       default:
@@ -786,6 +798,117 @@ export class CopilotManager {
     });
   }
 
+  // -----------------------------------------------------------------------
+  // Elicitation relay
+  // -----------------------------------------------------------------------
+
+  /**
+   * Capture an elicitation.requested SDK event and relay structured data to HQ.
+   * Starts a timeout timer — if HQ doesn't respond, the elicitation expires.
+   */
+  private handleElicitationRequested(sessionId: string, event: SessionEvent): void {
+    const data = event.data as Record<string, unknown>;
+    const elicitationId = (data.requestId as string) ?? event.id;
+    const message = (data.message as string) ?? '';
+    const mode = (data.mode as 'form' | undefined) ?? undefined;
+    const requestedSchema = (data.requestedSchema as { type: 'object'; properties: Record<string, unknown>; required?: string[] }) ?? {
+      type: 'object' as const,
+      properties: {},
+    };
+
+    // Send structured elicitation message to HQ
+    this.sendToHq({
+      type: 'workflow:elicitation-requested',
+      timestamp: Date.now(),
+      payload: {
+        projectId: this.projectId,
+        sessionId,
+        elicitationId,
+        message,
+        ...(mode ? { mode } : {}),
+        requestedSchema,
+      },
+    });
+
+    // Start timeout timer
+    const timer = setTimeout(() => {
+      this.pendingElicitations.delete(elicitationId);
+      this.sendToHq({
+        type: 'workflow:elicitation-timeout',
+        timestamp: Date.now(),
+        payload: {
+          projectId: this.projectId,
+          sessionId,
+          elicitationId,
+        },
+      });
+      logSdk(`Elicitation ${elicitationId} timed out (session ${sessionId})`);
+    }, ELICITATION_TIMEOUT_MS);
+
+    this.pendingElicitations.set(elicitationId, { sessionId, timer });
+    logSdk(`Elicitation ${elicitationId} captured (session ${sessionId})`);
+  }
+
+  /**
+   * Handle an elicitation response from HQ.
+   * Sends a synthetic elicitation.completed event so the aggregator clears
+   * the waiting state, and forwards the response to the SDK session.
+   */
+  private handleElicitationResponse(
+    elicitationId: string,
+    sessionId: string,
+    response: Record<string, unknown>,
+  ): void {
+    const pending = this.pendingElicitations.get(elicitationId);
+    if (!pending) {
+      logSdk(`Elicitation response for unknown/expired request: ${elicitationId}`);
+      return;
+    }
+
+    // Clear timeout
+    clearTimeout(pending.timer);
+    this.pendingElicitations.delete(elicitationId);
+
+    const session = this.activeSessions.get(sessionId);
+    if (!session) {
+      logSdk(`Elicitation response for inactive session: ${sessionId}`);
+      return;
+    }
+
+    // Emit a synthetic elicitation.completed event so the aggregator
+    // clears the waiting state
+    this.sendToHq({
+      type: 'copilot-session-event',
+      timestamp: Date.now(),
+      payload: {
+        projectId: this.projectId,
+        sessionId,
+        event: syntheticEvent('elicitation.completed', { requestId: elicitationId }),
+      },
+    });
+
+    // Send the user's response back to the session as a user message.
+    // The SDK does not yet have a native respondToElicitation() RPC,
+    // so we inject the response as a follow-up prompt.
+    const responseText = Object.entries(response)
+      .map(([key, value]) => `${key}: ${String(value)}`)
+      .join('\n');
+
+    void session.send({ prompt: responseText }).catch((err) => {
+      this.sendSessionError(sessionId, `Failed to relay elicitation response: ${String(err)}`);
+    });
+
+    logSdk(`Elicitation ${elicitationId} resolved (session ${sessionId})`);
+  }
+
+  /** Clear all pending elicitation timers (used during shutdown) */
+  private clearPendingElicitations(): void {
+    for (const [, pending] of this.pendingElicitations) {
+      clearTimeout(pending.timer);
+    }
+    this.pendingElicitations.clear();
+  }
+
   private async getOrAttachSession(
     sessionId: string,
     config?: Partial<SessionConfigWire>,
@@ -901,6 +1024,11 @@ export class CopilotManager {
 
       if (this.shouldSuppressForwardedEvent(event)) {
         return;
+      }
+
+      // Capture elicitation requests and relay structured message to HQ
+      if (event.type === 'elicitation.requested') {
+        this.handleElicitationRequested(session.sessionId, event);
       }
 
       this.sendToHq({

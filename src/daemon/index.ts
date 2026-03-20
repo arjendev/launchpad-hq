@@ -144,14 +144,14 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
   }
 
   client.on('message', async (msg) => {
-    if (!msg.type.startsWith('copilot-') && !msg.type.startsWith('terminal-')) return;
+    if (!msg.type.startsWith('copilot-') && !msg.type.startsWith('terminal-') && !msg.type.startsWith('workflow:elicitation-')) return;
 
     // Try CLI session manager first (handles its own sessions + copilot-cli type)
     const handledByCli = await cliSessions.handleMessage(msg);
     if (handledByCli) return;
 
-    // Fall through to default CopilotManager (copilot-sdk type)
-    if (msg.type.startsWith('copilot-')) {
+    // Fall through to default CopilotManager (copilot-sdk type + elicitation responses)
+    if (msg.type.startsWith('copilot-') || msg.type === 'workflow:elicitation-response') {
       void copilot.handleMessage(msg);
     }
   });

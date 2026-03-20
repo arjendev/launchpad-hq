@@ -1835,4 +1835,278 @@ describe('CopilotManager', () => {
       }
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Elicitation relay (#72)
+  // -----------------------------------------------------------------------
+
+  describe('elicitation relay', () => {
+    it('captures elicitation.requested and sends workflow:elicitation-requested to HQ', async () => {
+      await manager.start();
+      sent = [];
+
+      await manager.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-elicit-1' },
+      });
+
+      const startEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.start',
+      );
+      const sessionId = startEvent!.payload.sessionId;
+      const session = mockClient.getSession(sessionId);
+      expect(session).toBeDefined();
+
+      sent = [];
+      session!.emitForTest('elicitation.requested', {
+        requestId: 'elicit-001',
+        message: 'What database should we use?',
+        mode: 'form',
+        requestedSchema: {
+          type: 'object',
+          properties: { database: { type: 'string', enum: ['postgres', 'mysql', 'sqlite'] } },
+          required: ['database'],
+        },
+      });
+
+      // Should have forwarded as both a copilot-session-event AND a workflow:elicitation-requested
+      const sessionEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'elicitation.requested',
+      );
+      expect(sessionEvent).toBeDefined();
+
+      const elicitationMsg = sent.find((m) => m.type === 'workflow:elicitation-requested');
+      expect(elicitationMsg).toBeDefined();
+      expect(elicitationMsg!.payload.elicitationId).toBe('elicit-001');
+      expect(elicitationMsg!.payload.message).toBe('What database should we use?');
+      expect(elicitationMsg!.payload.sessionId).toBe(sessionId);
+      expect(elicitationMsg!.payload.requestedSchema.properties).toHaveProperty('database');
+    });
+
+    it('handles workflow:elicitation-response by sending prompt to session', async () => {
+      await manager.start();
+
+      await manager.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-elicit-2' },
+      });
+
+      const startEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.start',
+      );
+      const sessionId = startEvent!.payload.sessionId;
+      const session = mockClient.getSession(sessionId);
+      expect(session).toBeDefined();
+
+      // Emit elicitation event to register a pending elicitation
+      session!.emitForTest('elicitation.requested', {
+        requestId: 'elicit-002',
+        message: 'Pick a framework',
+        requestedSchema: { type: 'object', properties: { framework: { type: 'string' } } },
+      });
+
+      sent = [];
+
+      // Simulate HQ sending back the response
+      await manager.handleMessage({
+        type: 'workflow:elicitation-response',
+        timestamp: Date.now(),
+        payload: {
+          projectId: 'test-project',
+          sessionId,
+          elicitationId: 'elicit-002',
+          response: { framework: 'React' },
+        },
+      } as HqToDaemonMessage);
+
+      // Should have sent elicitation.completed event
+      const completedEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'elicitation.completed',
+      );
+      expect(completedEvent).toBeDefined();
+      expect(completedEvent!.payload.event.data.requestId).toBe('elicit-002');
+
+      // Should have sent the response as a prompt to the session
+      expect(session!.lastSendOptions).not.toBeNull();
+      expect(session!.lastSendOptions!.prompt).toContain('framework');
+      expect(session!.lastSendOptions!.prompt).toContain('React');
+    });
+
+    it('ignores elicitation response for unknown elicitationId', async () => {
+      await manager.start();
+
+      await manager.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-elicit-3' },
+      });
+
+      const startEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.start',
+      );
+      const sessionId = startEvent!.payload.sessionId;
+      sent = [];
+
+      // Send a response for a non-existent elicitation
+      await manager.handleMessage({
+        type: 'workflow:elicitation-response',
+        timestamp: Date.now(),
+        payload: {
+          projectId: 'test-project',
+          sessionId,
+          elicitationId: 'nonexistent-elicit',
+          response: { answer: 'yes' },
+        },
+      } as HqToDaemonMessage);
+
+      // Should NOT send any elicitation.completed event
+      const completedEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'elicitation.completed',
+      );
+      expect(completedEvent).toBeUndefined();
+    });
+
+    it('times out pending elicitations and sends timeout message', async () => {
+      vi.useFakeTimers();
+
+      const timerManager = new CopilotManager({
+        sendToHq,
+        client: mockClient,
+        pollIntervalMs: 60_000,
+      });
+
+      try {
+        await timerManager.start();
+
+        await timerManager.handleMessage({
+          type: 'copilot-create-session',
+          timestamp: Date.now(),
+          payload: { requestId: 'req-elicit-4' },
+        });
+
+        const startEvent = sent.find(
+          (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.start',
+        );
+        const sessionId = startEvent!.payload.sessionId;
+        const session = mockClient.getSession(sessionId);
+
+        // Emit elicitation event
+        session!.emitForTest('elicitation.requested', {
+          requestId: 'elicit-timeout-001',
+          message: 'Confirm deployment?',
+          requestedSchema: { type: 'object', properties: { confirm: { type: 'boolean' } } },
+        });
+
+        sent = [];
+
+        // Fast-forward past the timeout (10 minutes, matching ELICITATION_TIMEOUT_MS)
+        vi.advanceTimersByTime(10 * 60_000 + 1);
+
+        const timeoutMsg = sent.find((m) => m.type === 'workflow:elicitation-timeout');
+        expect(timeoutMsg).toBeDefined();
+        expect(timeoutMsg!.payload.elicitationId).toBe('elicit-timeout-001');
+        expect(timeoutMsg!.payload.sessionId).toBe(sessionId);
+      } finally {
+        await timerManager.stop();
+        vi.useRealTimers();
+      }
+    });
+
+    it('clears pending elicitations on stop()', async () => {
+      vi.useFakeTimers();
+
+      const timerManager = new CopilotManager({
+        sendToHq,
+        client: mockClient,
+        pollIntervalMs: 60_000,
+      });
+
+      try {
+        await timerManager.start();
+
+        await timerManager.handleMessage({
+          type: 'copilot-create-session',
+          timestamp: Date.now(),
+          payload: { requestId: 'req-elicit-5' },
+        });
+
+        const startEvent = sent.find(
+          (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.start',
+        );
+        const sessionId = startEvent!.payload.sessionId;
+        const session = mockClient.getSession(sessionId);
+
+        session!.emitForTest('elicitation.requested', {
+          requestId: 'elicit-cleanup-001',
+          message: 'Pick a branch',
+          requestedSchema: { type: 'object', properties: { branch: { type: 'string' } } },
+        });
+
+        sent = [];
+
+        // Stop the manager — should clean up pending elicitations without firing timeout
+        await timerManager.stop();
+
+        // Advance time — timeout should NOT fire because it was cleared
+        vi.advanceTimersByTime(10 * 60_000 + 1);
+
+        const timeoutMsg = sent.find((m) => m.type === 'workflow:elicitation-timeout');
+        expect(timeoutMsg).toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('handles elicitation response for inactive session gracefully', async () => {
+      await manager.start();
+
+      await manager.handleMessage({
+        type: 'copilot-create-session',
+        timestamp: Date.now(),
+        payload: { requestId: 'req-elicit-6' },
+      });
+
+      const startEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'session.start',
+      );
+      const sessionId = startEvent!.payload.sessionId;
+      const session = mockClient.getSession(sessionId);
+
+      // Register a pending elicitation
+      session!.emitForTest('elicitation.requested', {
+        requestId: 'elicit-orphan-001',
+        message: 'Choose environment',
+        requestedSchema: { type: 'object', properties: { env: { type: 'string' } } },
+      });
+
+      // Disconnect the session (removes from activeSessions)
+      await manager.handleMessage({
+        type: 'copilot-disconnect-session',
+        timestamp: Date.now(),
+        payload: { sessionId },
+      } as HqToDaemonMessage);
+
+      sent = [];
+
+      // Send elicitation response — session is no longer active
+      await manager.handleMessage({
+        type: 'workflow:elicitation-response',
+        timestamp: Date.now(),
+        payload: {
+          projectId: 'test-project',
+          sessionId,
+          elicitationId: 'elicit-orphan-001',
+          response: { env: 'production' },
+        },
+      } as HqToDaemonMessage);
+
+      // Should NOT crash, and should NOT send elicitation.completed
+      const completedEvent = sent.find(
+        (m) => m.type === 'copilot-session-event' && m.payload.event.type === 'elicitation.completed',
+      );
+      expect(completedEvent).toBeUndefined();
+    });
+  });
 });

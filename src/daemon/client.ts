@@ -264,6 +264,10 @@ export class DaemonWebSocketClient extends EventEmitter<DaemonClientEvents> {
         // Handled via 'message' event by CopilotManager
         break;
 
+      case 'workflow:elicitation-response':
+        // Handled via 'message' event by CopilotManager
+        break;
+
       case 'preview-proxy-request':
       case 'preview-ws-open':
       case 'preview-ws-data':
