@@ -382,9 +382,17 @@ export function SessionList() {
   const projectId = selectedProject ? `${owner}/${repo}` : undefined;
 
   const { sessions, isLoading } = useAggregatedSessions(projectId);
+  const { coordinator } = useCoordinatorStatus(owner, repo);
   const { daemon } = useDaemonForProject(projectId);
   const createSession = useCreateSession();
   const isOnline = !!daemon;
+
+  const coordinatorSessionId = coordinator?.sessionId;
+
+  // Filter out the coordinator session from normal session list
+  const displaySessions = coordinatorSessionId
+    ? sessions.filter((s) => s.sessionId !== coordinatorSessionId)
+    : sessions;
 
   const trackedSessionIds = new Set(sessions.map((s) => s.sessionId));
 
@@ -525,7 +533,7 @@ export function SessionList() {
         <Stack align="center" justify="center" p="md" style={{ flex: 1 }}>
           <Loader size="sm" />
         </Stack>
-      ) : sessions.length === 0 ? (
+      ) : displaySessions.length === 0 ? (
         <Stack align="stretch" justify="flex-start" px="xs" py="xs" style={{ flex: 1 }}>
           {owner && repo && (
             <Box pb="xs">
@@ -543,7 +551,7 @@ export function SessionList() {
               <CoordinatorCard owner={owner} repo={repo} />
             </Box>
           )}
-          {sessions.map((session) => (
+          {displaySessions.map((session) => (
             <SessionItem
               key={session.sessionId}
               session={session}
