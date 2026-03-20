@@ -50,10 +50,11 @@ export function useWorkflowIssues(owner?: string, repo?: string) {
   useEffect(() => {
     if (wsUpdate && wsUpdate !== prevRef.current) {
       prevRef.current = wsUpdate;
-      // Refetch if the event is for this project (or refetch anyway for safety)
-      void qc.invalidateQueries({ queryKey: ["workflow-issues"] });
+      if (owner && repo && (wsUpdate.type === "workflow:issue-state-changed" || wsUpdate.type === "workflow:sync-completed")) {
+        void qc.invalidateQueries({ queryKey: ["workflow-issues", owner, repo] });
+      }
     }
-  }, [wsUpdate, qc]);
+  }, [wsUpdate, qc, owner, repo]);
 
   return {
     issues: query.data?.issues ?? [],
@@ -588,7 +589,10 @@ export function useAllWorkflowIssues(
   useEffect(() => {
     if (wsUpdate && wsUpdate !== prevRef.current) {
       prevRef.current = wsUpdate;
-      void qc.invalidateQueries({ queryKey: ["workflow-issues"] });
+      // Only refetch on state changes and sync completions, not every event
+      if (wsUpdate.type === "workflow:issue-state-changed" || wsUpdate.type === "workflow:sync-completed") {
+        void qc.invalidateQueries({ queryKey: ["workflow-issues"] });
+      }
     }
   }, [wsUpdate, qc]);
 

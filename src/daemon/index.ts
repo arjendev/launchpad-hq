@@ -7,6 +7,7 @@
 
 import type { DaemonInfo } from '../shared/protocol.js';
 import { CoordinatorSessionManager } from './copilot/coordinator.js';
+import { IssueDispatcher } from './copilot/dispatch.js';
 import { PROTOCOL_VERSION } from '../shared/constants.js';
 import { loadDaemonConfig, type DaemonConfig } from './config.js';
 import { DaemonWebSocketClient } from './client.js';
@@ -165,6 +166,24 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     if (msg.type === 'workflow:stop-coordinator') {
       void coordinator.stop().catch((err) => {
         console.error(`⚠ Coordinator stop failed: ${err}`);
+      });
+      return;
+    }
+    if (msg.type === 'workflow:dispatch-issue') {
+      const payload = msg.payload as { projectId: string; issueNumber: number; title: string; labels?: string[] };
+      const dispatcher = new IssueDispatcher({
+        sendToHq: (m) => client.send(m),
+        copilotManager: copilot,
+        coordinator,
+        projectId: config.projectId,
+      });
+      void dispatcher.dispatchIssue({
+        issueNumber: payload.issueNumber,
+        title: payload.title,
+        body: "",
+        labels: payload.labels ?? [],
+      }).catch((err) => {
+        console.error(`⚠ Issue dispatch failed for #${payload.issueNumber}: ${err}`);
       });
       return;
     }
