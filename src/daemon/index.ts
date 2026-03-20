@@ -157,8 +157,8 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
   client.on('message', async (msg) => {
     // Handle coordinator lifecycle messages
     if (msg.type === 'workflow:start-coordinator') {
-      const payload = msg.payload as { projectId: string; sessionId?: string };
-      void coordinator.start(payload.sessionId).catch((err) => {
+      const payload = msg.payload as { projectId: string; sessionId?: string; agentId?: string | null };
+      void coordinator.start(payload.sessionId, payload.agentId).catch((err) => {
         console.error(`⚠ Coordinator start failed: ${err}`);
       });
       return;

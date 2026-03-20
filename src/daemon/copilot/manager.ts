@@ -1182,12 +1182,24 @@ export class CopilotManager {
   async createCoordinatorSession(opts: {
     requestId: string;
     systemMessage: { mode: 'append' | 'replace'; content: string };
+    agentId?: string | null;
   }): Promise<string> {
     const sdkConfig: SharedSdkConfig = this.buildSharedSdkConfig({
       systemMessage: opts.systemMessage,
     });
     const session = await this.client.createSession(sdkConfig as SessionConfig);
     this.trackSession(session, true);
+
+    // Select preferred agent if specified
+    if (opts.agentId) {
+      const agent = this.resolveRequestedAgent(opts.agentId);
+      if (agent) {
+        try { await this.applyAgentSelection(session, agent); } catch (err) {
+          logSdk(`Agent selection failed for coordinator: ${err}`);
+        }
+      }
+    }
+
     logSdk(`Coordinator session created: ${session.sessionId}`);
     return session.sessionId;
   }
@@ -1199,12 +1211,24 @@ export class CopilotManager {
     requestId: string;
     sessionId: string;
     systemMessage: { mode: 'append' | 'replace'; content: string };
+    agentId?: string | null;
   }): Promise<void> {
     const sdkConfig = this.buildSharedSdkConfig({
       systemMessage: opts.systemMessage,
     });
     const session = await this.client.resumeSession(opts.sessionId, sdkConfig as ResumeSessionConfig);
     this.trackSession(session, true);
+
+    // Re-select preferred agent on resume
+    if (opts.agentId) {
+      const agent = this.resolveRequestedAgent(opts.agentId);
+      if (agent) {
+        try { await this.applyAgentSelection(session, agent); } catch (err) {
+          logSdk(`Agent selection failed for coordinator resume: ${err}`);
+        }
+      }
+    }
+
     logSdk(`Coordinator session resumed: ${session.sessionId}`);
   }
 

@@ -498,13 +498,22 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       const updated = coordinatorStarting(coord);
       store.setCoordinator(owner, repo, updated);
 
-      // Send start message to daemon (include sessionId for resume if available)
+      // Look up preferred agent
+      let agentId: string | null = null;
+      if (server.stateService) {
+        try {
+          agentId = await server.stateService.getProjectDefaultCopilotAgent(owner, repo) ?? null;
+        } catch { /* ignore */ }
+      }
+
+      // Send start message to daemon (include sessionId for resume + agentId)
       const sent = server.daemonRegistry.sendToDaemon(projectId, {
         type: "workflow:start-coordinator",
         timestamp: Date.now(),
         payload: {
           projectId,
           ...(coord.sessionId ? { sessionId: coord.sessionId } : {}),
+          ...(agentId ? { agentId } : {}),
         },
       });
 
@@ -878,33 +887,42 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       if (!owner || !repo) return;
 
       const coord = store.getCoordinator(owner, repo);
-      if (coord.status === "active" || coord.status === "starting") return; // already running
+      if (coord.status === "active" || coord.status === "starting") return;
 
       const updated = coordinatorStarting(coord);
       store.setCoordinator(owner, repo, updated);
 
-      // Send start message with sessionId for resume if available
-      const sent = server.daemonRegistry!.sendToDaemon(summary.daemonId, {
-        type: "workflow:start-coordinator",
-        timestamp: Date.now(),
-        payload: {
-          projectId: summary.daemonId,
-          ...(coord.sessionId ? { sessionId: coord.sessionId } : {}),
-        },
-      });
+      // Look up preferred agent (async, wrapped in void IIFE)
+      void (async () => {
+        let agentId: string | null = null;
+        if (server.stateService) {
+          try {
+            agentId = await server.stateService.getProjectDefaultCopilotAgent(owner, repo) ?? null;
+          } catch { /* state service may not be ready */ }
+        }
 
-      if (sent) {
-        server.log.info({ projectId: summary.daemonId, resume: !!coord.sessionId }, "Auto-starting coordinator for daemon");
-        server.ws.broadcast("workflow", {
-          type: "workflow:coordinator-status-changed",
-          projectId: summary.daemonId,
-          status: "starting",
+        const sent = server.daemonRegistry!.sendToDaemon(summary.daemonId, {
+          type: "workflow:start-coordinator",
+          timestamp: Date.now(),
+          payload: {
+            projectId: summary.daemonId,
+            ...(coord.sessionId ? { sessionId: coord.sessionId } : {}),
+            ...(agentId ? { agentId } : {}),
+          },
         });
-      } else {
-        // Revert if send failed
-        const reverted = coordinatorStopped(updated);
-        store.setCoordinator(owner, repo, reverted);
-      }
+
+        if (sent) {
+          server.log.info({ projectId: summary.daemonId, resume: !!coord.sessionId }, "Auto-starting coordinator for daemon");
+          server.ws.broadcast("workflow", {
+            type: "workflow:coordinator-status-changed",
+            projectId: summary.daemonId,
+            status: "starting",
+          });
+        } else {
+          const reverted = coordinatorStopped(updated);
+          store.setCoordinator(owner, repo, reverted);
+        }
+      })();
     });
 
     server.daemonRegistry.on("workflow:coordinator-started" as never, (payload: { projectId: string; sessionId: string }) => {
