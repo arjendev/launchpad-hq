@@ -52,11 +52,11 @@ describe("Coordinator State", () => {
       expect(updated.sessionId).toBe("session-123");
     });
 
-    it("transitions to stopped (idle)", () => {
+    it("transitions to stopped (idle) preserving sessionId", () => {
       const state = coordinatorStarted(defaultCoordinatorState(), "session-123");
       const updated = coordinatorStopped(state);
       expect(updated.status).toBe("idle");
-      expect(updated.sessionId).toBeNull();
+      expect(updated.sessionId).toBe("session-123");
       expect(updated.startedAt).toBeNull();
       expect(updated.error).toBeNull();
     });

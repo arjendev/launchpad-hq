@@ -185,7 +185,13 @@ export class WorkflowStore {
             issues: workflowData.issues ?? [],
             lastSyncAt: workflowData.lastSyncAt ?? null,
             updatedAt: new Date().toISOString(),
-            coordinator: workflowData.coordinator ?? defaultCoordinatorState(),
+            coordinator: {
+              ...(workflowData.coordinator ?? defaultCoordinatorState()),
+              // Reset status to idle on load — daemon isn't connected yet
+              // but preserve sessionId for resume
+              status: "idle",
+              error: null,
+            },
             commits: workflowData.commits ?? [],
           };
           // Restore commit tracker index

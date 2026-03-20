@@ -175,7 +175,7 @@ export class CoordinatorSessionManager {
 
     this.eventUnsub?.();
     this.eventUnsub = null;
-    this._sessionId = null;
+    // Preserve _sessionId for resume — don't null it
     this._startedAt = null;
     this.setState('stopped');
   }

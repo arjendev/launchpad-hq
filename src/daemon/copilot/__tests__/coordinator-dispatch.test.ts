@@ -140,15 +140,16 @@ describe('CoordinatorSessionManager', () => {
   });
 
   describe('stop()', () => {
-    it('transitions to stopped and clears sessionId', async () => {
+    it('transitions to stopped and preserves sessionId for resume', async () => {
       const { coordinator } = createCoordinator();
 
       await coordinator.start();
       expect(coordinator.state).toBe('active');
+      const sessionId = coordinator.sessionId;
 
       await coordinator.stop();
       expect(coordinator.state).toBe('stopped');
-      expect(coordinator.sessionId).toBeNull();
+      expect(coordinator.sessionId).toBe(sessionId);
     });
   });
 
@@ -414,7 +415,7 @@ describe('IssueDispatcher', () => {
       const result = await dispatcher.dispatchIssue(sampleIssue());
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('No active coordinator session');
+      expect(result.error).toContain('Coordinator is in state');
     });
 
     it('fails when coordinator is crashed', async () => {

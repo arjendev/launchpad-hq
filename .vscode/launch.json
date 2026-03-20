@@ -2,7 +2,24 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Server (Launch)",
+      "name": "Server (Watch)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx",
+      "args": [
+        "watch",
+        "--ignore", "node_modules",
+        "--ignore", "dist",
+        "--ignore", ".squad",
+        "--ignore", "src/client",
+        "${workspaceFolder}/src/server/index.ts"
+      ],
+      "env": { "LAUNCHPAD_SELF_DAEMON": "true" },
+      "skipFiles": ["<node_internals>/**"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Server (Debug)",
       "type": "node",
       "request": "launch",
       "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx",
@@ -35,7 +52,7 @@
   "compounds": [
     {
       "name": "Full Stack",
-      "configurations": ["Server (Launch)", "Client (Launch)"],
+      "configurations": ["Server (Watch)", "Client (Launch)"],
       "stopAll": true
     }
   ]

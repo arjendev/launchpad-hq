@@ -63,7 +63,7 @@ export function coordinatorStopped(state: CoordinatorProjectState): CoordinatorP
   return {
     ...state,
     status: "idle",
-    sessionId: null,
+    // Preserve sessionId for resume on next start
     startedAt: null,
     error: null,
   };
