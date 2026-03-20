@@ -18,6 +18,7 @@ class MockCopilotManager {
   createError: Error | null = null;
   resumeError: Error | null = null;
   sendError: Error | null = null;
+  isReady = true;
   private nextId = 0;
 
   async createCoordinatorSession(opts: {

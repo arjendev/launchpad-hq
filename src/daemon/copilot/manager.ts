@@ -170,6 +170,11 @@ export class CopilotManager {
       });
   }
 
+  /** Whether the SDK client is started and ready for session operations. */
+  get isReady(): boolean {
+    return this.started;
+  }
+
   /** Start the SDK client and begin polling sessions.
    *  Idempotent — safe to call on reconnect without leaking listeners. */
   async start(): Promise<void> {

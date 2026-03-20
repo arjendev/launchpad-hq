@@ -61,8 +61,9 @@ For each issue dispatched to you:
 4. Report progress via report_progress tool
 5. When done, use report_progress with status "completed"
 6. If blocked, use report_blocker to signal the operator
+7. When important decisions need to be made, request_human_review to ask the operator for input
 
-Work autonomously. Only request human review when genuinely needed.`;
+Always keep the operator informed of your progress and any blockers you encounter.`;
 
 // ---------------------------------------------------------------------------
 // CoordinatorSessionManager
@@ -136,10 +137,28 @@ export class CoordinatorSessionManager {
     this.stopped = false;
     this.setState('starting');
 
+    // Wait for CopilotManager to be ready (may still be starting)
+    for (let i = 0; i < 20 && !this.copilotManager.isReady; i++) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+    if (!this.copilotManager.isReady) {
+      this.handleCrash('CopilotManager not ready after 10s');
+      return;
+    }
+
     try {
-      const sessionId = resumeSessionId
-        ? await this.resumeSession(resumeSessionId)
-        : await this.createSession();
+      let sessionId: string;
+      if (resumeSessionId) {
+        try {
+          sessionId = await this.resumeSession(resumeSessionId);
+        } catch (err) {
+          // Resume failed (session not found on disk) — create fresh
+          logSdk(`Resume failed for ${resumeSessionId}, creating new session: ${err}`);
+          sessionId = await this.createSession();
+        }
+      } else {
+        sessionId = await this.createSession();
+      }
 
       this._sessionId = sessionId;
       this._startedAt = Date.now();
