@@ -78,11 +78,6 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
       });
     }
     state.update({ daemonOnline: true, initialized: true });
-
-    // Auto-start coordinator for autonomous issue work
-    void coordinator.start().catch((err) => {
-      console.error(`⚠ Coordinator auto-start failed: ${err}`);
-    });
   });
 
   client.on('auth-rejected', (reason) => {

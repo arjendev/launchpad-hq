@@ -870,6 +870,41 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
   // ==========================================================================
 
   if (server.daemonRegistry) {
+    // Auto-start coordinator when a daemon connects (HQ-driven, with resume)
+    server.daemonRegistry.on("daemon:connected", (summary: { daemonId: string }) => {
+      const [owner, repo] = summary.daemonId.split("/");
+      if (!owner || !repo) return;
+
+      const coord = store.getCoordinator(owner, repo);
+      if (coord.status === "active" || coord.status === "starting") return; // already running
+
+      const updated = coordinatorStarting(coord);
+      store.setCoordinator(owner, repo, updated);
+
+      // Send start message with sessionId for resume if available
+      const sent = server.daemonRegistry!.sendToDaemon(summary.daemonId, {
+        type: "workflow:start-coordinator",
+        timestamp: Date.now(),
+        payload: {
+          projectId: summary.daemonId,
+          ...(coord.sessionId ? { sessionId: coord.sessionId } : {}),
+        },
+      });
+
+      if (sent) {
+        server.log.info({ projectId: summary.daemonId, resume: !!coord.sessionId }, "Auto-starting coordinator for daemon");
+        server.ws.broadcast("workflow", {
+          type: "workflow:coordinator-status-changed",
+          projectId: summary.daemonId,
+          status: "starting",
+        });
+      } else {
+        // Revert if send failed
+        const reverted = coordinatorStopped(updated);
+        store.setCoordinator(owner, repo, reverted);
+      }
+    });
+
     server.daemonRegistry.on("workflow:coordinator-started" as never, (payload: { projectId: string; sessionId: string }) => {
       const [owner, repo] = payload.projectId.split("/");
       if (!owner || !repo) return;
