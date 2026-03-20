@@ -58,6 +58,10 @@ vi.mock("../../workflow/github-sync.js", () => {
     async syncLabelToGitHub() {}
     async postTransitionComment() {}
     async postFeedbackComment() {}
+    async closeIssue() {}
+    async createIssue() { return { number: 99, title: "New issue" }; }
+    async getIssueComments() { return [{ author: "alice", body: "A comment", createdAt: "2025-01-01T00:00:00Z" }]; }
+    async editIssue() {}
   }
 
   return { GitHubSyncService: MockGitHubSyncService };
@@ -224,7 +228,7 @@ describe("Workflow API", () => {
       const res = await server.inject({
         method: "PUT",
         url: "/api/workflow/test-owner/test-repo/issues/1/state",
-        payload: { state: "done" },
+        payload: { state: "ready-for-review" },
       });
 
       expect(res.statusCode).toBe(422);
@@ -304,6 +308,72 @@ describe("Workflow API", () => {
       });
 
       expect(res.statusCode).toBe(404);
+    });
+  });
+
+  describe("PUT /api/workflow/:owner/:repo/issues/:number/state — rejected", () => {
+    beforeEach(async () => {
+      await server.inject({
+        method: "POST",
+        url: "/api/workflow/test-owner/test-repo/sync",
+      });
+    });
+
+    it("transitions issue to rejected", async () => {
+      const res = await server.inject({
+        method: "PUT",
+        url: "/api/workflow/test-owner/test-repo/issues/1/state",
+        payload: { state: "rejected", reason: "Won't implement" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().issue.state).toBe("rejected");
+    });
+
+    it("transitions issue to done from backlog", async () => {
+      const res = await server.inject({
+        method: "PUT",
+        url: "/api/workflow/test-owner/test-repo/issues/1/state",
+        payload: { state: "done" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().issue.state).toBe("done");
+    });
+
+    it("includes rejected in valid states error message", async () => {
+      const res = await server.inject({
+        method: "PUT",
+        url: "/api/workflow/test-owner/test-repo/issues/1/state",
+        payload: { state: "invalid-state" },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().message).toContain("rejected");
+    });
+  });
+
+  describe("GET /api/workflow/:owner/:repo/issues/:number/comments", () => {
+    it("returns comments for an issue", async () => {
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/workflow/test-owner/test-repo/issues/1/comments",
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.comments).toHaveLength(1);
+      expect(body.comments[0].author).toBe("alice");
+      expect(body.comments[0].body).toBe("A comment");
+    });
+
+    it("rejects invalid issue number", async () => {
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/workflow/test-owner/test-repo/issues/abc/comments",
+      });
+
+      expect(res.statusCode).toBe(400);
     });
   });
 });

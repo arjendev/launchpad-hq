@@ -42,6 +42,10 @@ vi.mock("../../workflow/github-sync.js", () => {
     async syncLabelToGitHub() {}
     async postTransitionComment() {}
     async postFeedbackComment() {}
+    async closeIssue() {}
+    async createIssue() { return { number: 99, title: "New issue" }; }
+    async getIssueComments() { return []; }
+    async editIssue() {}
   }
   return { GitHubSyncService: MockGitHubSyncService };
 });

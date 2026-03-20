@@ -48,13 +48,22 @@ describe("isValidState", () => {
 describe("isValidTransition", () => {
   const validTransitions: [WorkflowState, WorkflowState][] = [
     ["backlog", "in-progress"],
+    ["backlog", "done"],
+    ["backlog", "rejected"],
     ["in-progress", "needs-input-blocking"],
     ["in-progress", "needs-input-async"],
     ["in-progress", "ready-for-review"],
+    ["in-progress", "done"],
+    ["in-progress", "rejected"],
     ["needs-input-blocking", "in-progress"],
+    ["needs-input-blocking", "done"],
+    ["needs-input-blocking", "rejected"],
     ["needs-input-async", "in-progress"],
+    ["needs-input-async", "done"],
+    ["needs-input-async", "rejected"],
     ["ready-for-review", "done"],
     ["ready-for-review", "in-progress"],
+    ["ready-for-review", "rejected"],
   ];
 
   for (const [from, to] of validTransitions) {
@@ -64,13 +73,14 @@ describe("isValidTransition", () => {
   }
 
   const invalidTransitions: [WorkflowState, WorkflowState][] = [
-    ["backlog", "done"],
     ["backlog", "ready-for-review"],
     ["in-progress", "backlog"],
-    ["in-progress", "done"],
     ["done", "backlog"],
     ["done", "in-progress"],
-    ["needs-input-blocking", "done"],
+    ["done", "rejected"],
+    ["rejected", "backlog"],
+    ["rejected", "in-progress"],
+    ["rejected", "done"],
     ["needs-input-async", "ready-for-review"],
     ["ready-for-review", "backlog"],
   ];
@@ -84,7 +94,10 @@ describe("isValidTransition", () => {
 
 describe("getValidTransitions", () => {
   it("returns transitions for backlog", () => {
-    expect(getValidTransitions("backlog")).toEqual(["in-progress"]);
+    const transitions = getValidTransitions("backlog");
+    expect(transitions).toContain("in-progress");
+    expect(transitions).toContain("done");
+    expect(transitions).toContain("rejected");
   });
 
   it("returns transitions for in-progress", () => {
@@ -92,10 +105,16 @@ describe("getValidTransitions", () => {
     expect(transitions).toContain("needs-input-blocking");
     expect(transitions).toContain("needs-input-async");
     expect(transitions).toContain("ready-for-review");
+    expect(transitions).toContain("done");
+    expect(transitions).toContain("rejected");
   });
 
   it("returns empty array for done", () => {
     expect(getValidTransitions("done")).toEqual([]);
+  });
+
+  it("returns empty array for rejected", () => {
+    expect(getValidTransitions("rejected")).toEqual([]);
   });
 });
 
@@ -105,6 +124,7 @@ describe("stateToLabel / labelToState", () => {
     expect(stateToLabel("in-progress")).toBe("hq:in-progress");
     expect(stateToLabel("ready-for-review")).toBe("hq:review");
     expect(stateToLabel("done")).toBe("hq:done");
+    expect(stateToLabel("rejected")).toBe("hq:rejected");
   });
 
   it("maps labels to states", () => {
@@ -112,6 +132,7 @@ describe("stateToLabel / labelToState", () => {
     expect(labelToState("hq:in-progress")).toBe("in-progress");
     expect(labelToState("hq:review")).toBe("ready-for-review");
     expect(labelToState("hq:done")).toBe("done");
+    expect(labelToState("hq:rejected")).toBe("rejected");
   });
 
   it("returns undefined for unknown labels", () => {
@@ -151,23 +172,23 @@ describe("WorkflowStateMachine", () => {
   });
 
   it("throws InvalidTransitionError on invalid transition", () => {
-    const issue = makeIssue({ state: "backlog" });
-    expect(() => sm.transition(issue, "done")).toThrow(InvalidTransitionError);
+    const issue = makeIssue({ state: "done" });
+    expect(() => sm.transition(issue, "backlog")).toThrow(InvalidTransitionError);
   });
 
   it("InvalidTransitionError has correct properties", () => {
-    const issue = makeIssue({ state: "backlog", number: 42 });
+    const issue = makeIssue({ state: "done", number: 42 });
     try {
-      sm.transition(issue, "done");
+      sm.transition(issue, "backlog");
       expect.unreachable("Should have thrown");
     } catch (err) {
       expect(err).toBeInstanceOf(InvalidTransitionError);
       const error = err as InvalidTransitionError;
-      expect(error.from).toBe("backlog");
-      expect(error.to).toBe("done");
+      expect(error.from).toBe("done");
+      expect(error.to).toBe("backlog");
       expect(error.issueNumber).toBe(42);
-      expect(error.message).toContain("backlog");
       expect(error.message).toContain("done");
+      expect(error.message).toContain("backlog");
     }
   });
 
@@ -229,5 +250,43 @@ describe("WorkflowStateMachine", () => {
 
     expect(issue.state).toBe(original.state);
     expect(issue.stateChangedAt).toBe(original.stateChangedAt);
+  });
+
+  it("transitions any active state to rejected", () => {
+    const activeStates: WorkflowState[] = [
+      "backlog", "in-progress", "needs-input-blocking", "needs-input-async", "ready-for-review",
+    ];
+    for (const state of activeStates) {
+      const issue = makeIssue({ state });
+      const updated = sm.transition(issue, "rejected");
+      expect(updated.state).toBe("rejected");
+    }
+  });
+
+  it("rejected is terminal — cannot transition out", () => {
+    const issue = makeIssue({ state: "rejected" });
+    expect(() => sm.transition(issue, "backlog")).toThrow(InvalidTransitionError);
+    expect(() => sm.transition(issue, "in-progress")).toThrow(InvalidTransitionError);
+    expect(() => sm.transition(issue, "done")).toThrow(InvalidTransitionError);
+  });
+
+  it("transitions any active state to done", () => {
+    const activeStates: WorkflowState[] = [
+      "backlog", "in-progress", "needs-input-blocking", "needs-input-async", "ready-for-review",
+    ];
+    for (const state of activeStates) {
+      const issue = makeIssue({ state });
+      const updated = sm.transition(issue, "done");
+      expect(updated.state).toBe("done");
+    }
+  });
+
+  it("supports lifecycle with rejection: backlog → in-progress → rejected", () => {
+    let issue = makeIssue({ state: "backlog" });
+    issue = sm.transition(issue, "in-progress");
+    issue = sm.transition(issue, "rejected");
+
+    expect(issue.state).toBe("rejected");
+    expect(events).toHaveLength(2);
   });
 });

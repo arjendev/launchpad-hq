@@ -13,7 +13,8 @@ export type WorkflowState =
   | "needs-input-blocking"
   | "needs-input-async"
   | "ready-for-review"
-  | "done";
+  | "done"
+  | "rejected";
 
 export interface WorkflowIssue {
   owner: string;
@@ -70,15 +71,16 @@ export type WorkflowEvent = WorkflowStateChangedEvent | WorkflowSyncCompletedEve
 // --- Transition table ---
 
 const VALID_TRANSITIONS: ReadonlyMap<WorkflowState, ReadonlySet<WorkflowState>> = new Map([
-  ["backlog", new Set<WorkflowState>(["in-progress"])],
+  ["backlog", new Set<WorkflowState>(["in-progress", "done", "rejected"])],
   [
     "in-progress",
-    new Set<WorkflowState>(["needs-input-blocking", "needs-input-async", "ready-for-review"]),
+    new Set<WorkflowState>(["needs-input-blocking", "needs-input-async", "ready-for-review", "done", "rejected"]),
   ],
-  ["needs-input-blocking", new Set<WorkflowState>(["in-progress"])],
-  ["needs-input-async", new Set<WorkflowState>(["in-progress"])],
-  ["ready-for-review", new Set<WorkflowState>(["done", "in-progress"])],
+  ["needs-input-blocking", new Set<WorkflowState>(["in-progress", "done", "rejected"])],
+  ["needs-input-async", new Set<WorkflowState>(["in-progress", "done", "rejected"])],
+  ["ready-for-review", new Set<WorkflowState>(["done", "in-progress", "rejected"])],
   ["done", new Set<WorkflowState>()],
+  ["rejected", new Set<WorkflowState>()],
 ]);
 
 export const ALL_WORKFLOW_STATES: readonly WorkflowState[] = [
@@ -88,6 +90,7 @@ export const ALL_WORKFLOW_STATES: readonly WorkflowState[] = [
   "needs-input-async",
   "ready-for-review",
   "done",
+  "rejected",
 ];
 
 // --- Validation ---
@@ -193,6 +196,7 @@ const STATE_TO_LABEL: Record<WorkflowState, string> = {
   "needs-input-async": "hq:in-progress",
   "ready-for-review": "hq:review",
   "done": "hq:done",
+  "rejected": "hq:rejected",
 };
 
 export function stateToLabel(state: WorkflowState): string {
@@ -204,6 +208,7 @@ const LABEL_TO_STATE: Record<string, WorkflowState> = {
   "hq:in-progress": "in-progress",
   "hq:review": "ready-for-review",
   "hq:done": "done",
+  "hq:rejected": "rejected",
 };
 
 export function labelToState(label: string): WorkflowState | undefined {

@@ -45,6 +45,7 @@ const COMMENT_STATES: ReadonlySet<WorkflowState> = new Set([
   "needs-input-blocking",
   "needs-input-async",
   "done",
+  "rejected",
 ]);
 
 // --- Service ---
@@ -150,6 +151,9 @@ export class GitHubSyncService {
       case "done":
         body = `✅ **HQ: Completed**\n\nThis issue has been marked as done in HQ.`;
         break;
+      case "rejected":
+        body = `🚫 **HQ: Rejected**\n\nThis issue has been rejected (won't implement).${reason ? `\n\n> ${reason}` : ""}`;
+        break;
       default:
         return;
     }
@@ -166,6 +170,94 @@ export class GitHubSyncService {
   ): Promise<void> {
     const body = `💬 **HQ Feedback** from ${feedback.author}:\n\n${feedback.message}`;
     await this.ghCli(["issue", "comment", String(issueNumber), "--repo", `${owner}/${repo}`, "--body", body]);
+  }
+
+  /** Close a GitHub issue. Used for done and rejected terminal states. */
+  async closeIssue(
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    reason: "completed" | "not_planned" = "completed",
+  ): Promise<void> {
+    const args = [
+      "issue", "close", String(issueNumber),
+      "--repo", `${owner}/${repo}`,
+    ];
+    if (reason === "not_planned") {
+      args.push("--reason", "not planned");
+    }
+    await this.ghCli(args);
+  }
+
+  /** Create a new GitHub issue, returns the issue number. */
+  async createIssue(
+    owner: string,
+    repo: string,
+    title: string,
+    body?: string,
+    labels?: string[],
+  ): Promise<{ number: number; title: string }> {
+    const args = [
+      "issue", "create",
+      "--repo", `${owner}/${repo}`,
+      "--title", title,
+    ];
+    if (body) {
+      args.push("--body", body);
+    }
+    const allLabels = [...(labels ?? []), "hq:backlog"];
+    args.push("--label", allLabels.join(","));
+    const { stdout } = await this.ghCli(args);
+    // gh issue create outputs the URL; extract the issue number from it
+    const match = stdout.trim().match(/\/issues\/(\d+)$/);
+    if (!match) {
+      throw new Error(`Could not parse issue number from gh output: ${stdout.trim()}`);
+    }
+    return { number: parseInt(match[1], 10), title };
+  }
+
+  /** Get comments for a GitHub issue. */
+  async getIssueComments(
+    owner: string,
+    repo: string,
+    issueNumber: number,
+  ): Promise<Array<{ author: string; body: string; createdAt: string }>> {
+    const { stdout } = await this.ghCli([
+      "issue", "view", String(issueNumber),
+      "--repo", `${owner}/${repo}`,
+      "--json", "comments",
+      "--jq", ".comments",
+    ]);
+    const raw = JSON.parse(stdout || "[]") as Array<{
+      author: { login: string };
+      body: string;
+      createdAt: string;
+    }>;
+    return raw.map((c) => ({
+      author: c.author.login,
+      body: c.body,
+      createdAt: c.createdAt,
+    }));
+  }
+
+  /** Edit a GitHub issue's title and/or body. */
+  async editIssue(
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    updates: { title?: string; body?: string },
+  ): Promise<void> {
+    const args = [
+      "issue", "edit", String(issueNumber),
+      "--repo", `${owner}/${repo}`,
+    ];
+    if (updates.title) {
+      args.push("--title", updates.title);
+    }
+    if (updates.body !== undefined) {
+      args.push("--body", updates.body);
+    }
+    await this.ghCli(args);
   }
 
   // --- Private helpers ---

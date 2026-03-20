@@ -206,7 +206,7 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       if (!targetState || !isValidState(targetState)) {
         return reply.status(400).send({
           error: "bad_request",
-          message: `Invalid state: '${targetState}'. Valid states: backlog, in-progress, needs-input-blocking, needs-input-async, ready-for-review, done`,
+          message: `Invalid state: '${targetState}'. Valid states: backlog, in-progress, needs-input-blocking, needs-input-async, ready-for-review, done, rejected`,
         });
       }
 
@@ -232,6 +232,16 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
           syncService.postTransitionComment(owner, repo, issueNumber, issue.state, targetState, reason).catch((err) => {
             console.warn(`GitHub comment failed for ${pk(request.params)}#${issueNumber}:`, err);
           });
+          // Close the issue on GitHub for terminal states
+          if (targetState === "done") {
+            syncService.closeIssue(owner, repo, issueNumber, "completed").catch((err) => {
+              console.warn(`GitHub close failed for ${pk(request.params)}#${issueNumber}:`, err);
+            });
+          } else if (targetState === "rejected") {
+            syncService.closeIssue(owner, repo, issueNumber, "not_planned").catch((err) => {
+              console.warn(`GitHub close failed for ${pk(request.params)}#${issueNumber}:`, err);
+            });
+          }
         } catch {
           // Token not available — skip GitHub sync
         }
@@ -299,6 +309,129 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       }
 
       return reply.send({ ok: true, feedback, issue: updated });
+    },
+  );
+
+  /** POST /api/workflow/:owner/:repo/issues — create a new issue */
+  server.post<{
+    Params: { owner: string; repo: string };
+    Body: { title: string; body?: string; labels?: string[] };
+  }>(
+    "/api/workflow/:owner/:repo/issues",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+      const { title, body: issueBody, labels } = request.body ?? {};
+
+      if (!title || typeof title !== "string" || title.trim().length === 0) {
+        return reply.status(400).send({ error: "bad_request", message: "Missing 'title' field" });
+      }
+
+      try {
+        const token = getGhToken();
+        const syncService = new GitHubSyncService(token);
+
+        // Create the issue on GitHub
+        const created = await syncService.createIssue(owner, repo, title.trim(), issueBody?.trim(), labels);
+
+        // Sync to pick up the new issue
+        const existing = new Map<number, WorkflowIssue>();
+        for (const issue of store.getIssues(owner, repo)) {
+          existing.set(issue.number, issue);
+        }
+        const result = await syncService.syncIssues(owner, repo, existing);
+        store.setIssues(owner, repo, result.issues);
+        stateMachine.emitSyncCompleted(owner, repo, result.issues.length);
+
+        // Return the newly created issue
+        const newIssue = store.getIssue(owner, repo, created.number);
+        return reply.send({ issue: newIssue ?? { number: created.number, title: created.title, state: "backlog" } });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(502).send({
+          error: "create_failed",
+          message: `Failed to create issue: ${message}`,
+        });
+      }
+    },
+  );
+
+  /** GET /api/workflow/:owner/:repo/issues/:number/comments — get issue comments */
+  server.get<{
+    Params: { owner: string; repo: string; number: string };
+  }>(
+    "/api/workflow/:owner/:repo/issues/:number/comments",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+      const issueNumber = parseInt(request.params.number, 10);
+
+      if (isNaN(issueNumber)) {
+        return reply.status(400).send({ error: "bad_request", message: "Invalid issue number" });
+      }
+
+      try {
+        const token = getGhToken();
+        const syncService = new GitHubSyncService(token);
+        const comments = await syncService.getIssueComments(owner, repo, issueNumber);
+        return reply.send({ comments });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(502).send({
+          error: "fetch_failed",
+          message: `Failed to fetch comments: ${message}`,
+        });
+      }
+    },
+  );
+
+  /** PUT /api/workflow/:owner/:repo/issues/:number — update issue title/body */
+  server.put<{
+    Params: { owner: string; repo: string; number: string };
+    Body: { title?: string; body?: string };
+  }>(
+    "/api/workflow/:owner/:repo/issues/:number",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+      const issueNumber = parseInt(request.params.number, 10);
+      const { title, body: issueBody } = request.body ?? {};
+
+      if (isNaN(issueNumber)) {
+        return reply.status(400).send({ error: "bad_request", message: "Invalid issue number" });
+      }
+
+      if (!title && issueBody === undefined) {
+        return reply.status(400).send({ error: "bad_request", message: "Provide at least 'title' or 'body'" });
+      }
+
+      try {
+        const token = getGhToken();
+        const syncService = new GitHubSyncService(token);
+
+        await syncService.editIssue(owner, repo, issueNumber, {
+          title: title?.trim(),
+          body: issueBody?.trim(),
+        });
+
+        // Re-sync to pick up updated title/body
+        const existing = new Map<number, WorkflowIssue>();
+        for (const issue of store.getIssues(owner, repo)) {
+          existing.set(issue.number, issue);
+        }
+        const result = await syncService.syncIssues(owner, repo, existing);
+        store.setIssues(owner, repo, result.issues);
+
+        const updatedIssue = store.getIssue(owner, repo, issueNumber);
+        if (!updatedIssue) {
+          return reply.status(404).send({ error: "not_found", message: `Issue #${issueNumber} not found after update` });
+        }
+
+        return reply.send({ issue: updatedIssue });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(502).send({
+          error: "update_failed",
+          message: `Failed to update issue: ${message}`,
+        });
+      }
     },
   );
 
