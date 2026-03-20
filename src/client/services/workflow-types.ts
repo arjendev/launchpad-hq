@@ -76,6 +76,31 @@ export interface WorkflowTransitionResponse {
   issue: WorkflowIssue;
 }
 
+// ── Elicitation types ───────────────────────────────────
+
+export type ElicitationStatus = "pending" | "answered" | "timeout";
+
+export interface WorkflowElicitation {
+  id: string;
+  question: string;
+  options: string[] | null;
+  issueNumber: number;
+  timestamp: string;
+  status: ElicitationStatus;
+}
+
+export interface ElicitationListResponse {
+  elicitations: WorkflowElicitation[];
+}
+
+export interface ElicitationRespondRequest {
+  response: string;
+}
+
+export interface ElicitationRespondResponse {
+  elicitation: WorkflowElicitation;
+}
+
 // ── WebSocket event types ───────────────────────────────
 
 export interface WorkflowIssueStateChangedEvent {
@@ -94,6 +119,26 @@ export interface WorkflowSyncCompletedEvent {
   synced: number;
 }
 
+export interface WorkflowElicitationEvent {
+  type: "workflow:elicitation";
+  elicitation: WorkflowElicitation;
+}
+
+export interface WorkflowElicitationAnsweredEvent {
+  type: "workflow:elicitation-answered";
+  elicitationId: string;
+  issueNumber: number;
+}
+
+export interface WorkflowElicitationTimeoutEvent {
+  type: "workflow:elicitation-timeout";
+  elicitationId: string;
+  issueNumber: number;
+}
+
 export type WorkflowEvent =
   | WorkflowIssueStateChangedEvent
-  | WorkflowSyncCompletedEvent;
+  | WorkflowSyncCompletedEvent
+  | WorkflowElicitationEvent
+  | WorkflowElicitationAnsweredEvent
+  | WorkflowElicitationTimeoutEvent;

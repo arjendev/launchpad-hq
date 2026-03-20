@@ -10,7 +10,7 @@ import {
   Badge,
   Button,
   Group,
-  Loader,
+  Indicator,
   Menu,
   Paper,
   ScrollArea,
@@ -23,7 +23,7 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
-import { useWorkflowIssues, useSyncIssues, useTransitionIssue } from "../services/workflow-hooks.js";
+import { useWorkflowIssues, useSyncIssues, useTransitionIssue, useElicitations } from "../services/workflow-hooks.js";
 import {
   WORKFLOW_STATE_CONFIG,
   WORKFLOW_STATE_SORT,
@@ -31,6 +31,7 @@ import {
   type WorkflowIssue,
   type WorkflowState,
 } from "../services/workflow-types.js";
+import { ElicitationCard, scrollToElicitation } from "./ElicitationCard.js";
 
 // ── Helpers ─────────────────────────────────────────────
 
@@ -77,8 +78,14 @@ function sortIssues(
 
 function StatusBadge({ state }: { state: WorkflowState }) {
   const config = WORKFLOW_STATE_CONFIG[state];
+  const isNeedsInput = state === "needs-input-blocking" || state === "needs-input-async";
   return (
-    <Badge size="xs" variant="light" color={config.color}>
+    <Badge
+      size="xs"
+      variant="light"
+      color={config.color}
+      className={isNeedsInput ? "lp-needs-input-badge" : undefined}
+    >
       {config.emoji} {config.label}
     </Badge>
   );
@@ -90,10 +97,12 @@ function RowActions({
   issue,
   owner,
   repo,
+  elicitationId,
 }: {
   issue: WorkflowIssue;
   owner: string;
   repo: string;
+  elicitationId?: string;
 }) {
   const transition = useTransitionIssue();
   const isPending = transition.isPending;
@@ -135,18 +144,34 @@ function RowActions({
 
   if (issue.state === "needs-input-blocking" || issue.state === "needs-input-async") {
     return (
-      <Tooltip label="Mark as responded">
-        <ActionIcon
-          size="xs"
-          variant="light"
-          color="yellow"
-          onClick={() => handleTransition("in-progress")}
-          loading={isPending}
-          aria-label="Respond"
-        >
-          💬
-        </ActionIcon>
-      </Tooltip>
+      <Group gap={4} wrap="nowrap">
+        {elicitationId ? (
+          <Tooltip label="Respond to question">
+            <Button
+              size="compact-xs"
+              variant="filled"
+              color="yellow"
+              onClick={() => scrollToElicitation(elicitationId)}
+              aria-label="Respond"
+            >
+              💬 Respond
+            </Button>
+          </Tooltip>
+        ) : (
+          <Tooltip label="Mark as responded">
+            <ActionIcon
+              size="xs"
+              variant="light"
+              color="yellow"
+              onClick={() => handleTransition("in-progress")}
+              loading={isPending}
+              aria-label="Respond"
+            >
+              💬
+            </ActionIcon>
+          </Tooltip>
+        )}
+      </Group>
     );
   }
 
@@ -221,11 +246,28 @@ export function WorkflowIssueList() {
 
   const { issues, isLoading, isError, error } = useWorkflowIssues(owner, repo);
   const sync = useSyncIssues(owner, repo);
+  const { elicitations, pendingCount, timeoutMs } = useElicitations(owner, repo);
 
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<SortField>("status");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  // Map issueNumber → elicitation id for pending elicitations
+  const elicitationByIssue = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const e of elicitations) {
+      if (e.status === "pending") {
+        map.set(e.issueNumber, e.id);
+      }
+    }
+    return map;
+  }, [elicitations]);
+
+  const pendingElicitations = useMemo(
+    () => elicitations.filter((e) => e.status === "pending"),
+    [elicitations],
+  );
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -288,6 +330,13 @@ export function WorkflowIssueList() {
           <Badge size="sm" variant="light" color="blue">
             {issues.length} tracked
           </Badge>
+          {pendingCount > 0 && (
+            <Indicator inline processing color="yellow" size={10}>
+              <Badge size="sm" variant="filled" color="yellow">
+                {pendingCount} needs input
+              </Badge>
+            </Indicator>
+          )}
         </Group>
         <Button
           size="compact-xs"
@@ -299,6 +348,21 @@ export function WorkflowIssueList() {
           {sync.isPending ? "Syncing…" : "⟳ Sync"}
         </Button>
       </Group>
+
+      {/* Pending Elicitation Cards */}
+      {pendingElicitations.length > 0 && owner && repo && (
+        <Stack gap="sm">
+          {pendingElicitations.map((e) => (
+            <ElicitationCard
+              key={e.id}
+              elicitation={e}
+              owner={owner}
+              repo={repo}
+              timeoutMs={timeoutMs}
+            />
+          ))}
+        </Stack>
+      )}
 
       {/* Filters */}
       <Group gap="xs">
@@ -395,7 +459,7 @@ export function WorkflowIssueList() {
                     <Text size="xs" c="dimmed">{formatAge(issue.updatedAt)}</Text>
                   </Table.Td>
                   <Table.Td>
-                    <RowActions issue={issue} owner={owner!} repo={repo!} />
+                    <RowActions issue={issue} owner={owner!} repo={repo!} elicitationId={elicitationByIssue.get(issue.number)} />
                   </Table.Td>
                 </Table.Tr>
               ))}
