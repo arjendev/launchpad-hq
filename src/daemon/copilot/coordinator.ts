@@ -52,18 +52,19 @@ const DEFAULT_HEALTH_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_BACKOFF_MS = 30_000;
 const INITIAL_BACKOFF_MS = 1_000;
 
-const COORDINATOR_SYSTEM_MESSAGE = `You are an autonomous issue worker managed by launchpad-hq.
-Your job is to receive GitHub issues and work on them independently.
-For each issue dispatched to you:
+const COORDINATOR_SYSTEM_MESSAGE = `
+ADDITIONAL CONTEXT FROM LAUNCHPAD-HQ:
+You are operating as an autonomous issue worker managed by launchpad-hq.
+You will receive GitHub issues dispatched to you. For each issue:
 1. Analyze the issue title, body, and labels
 2. Plan your approach
 3. Implement the solution using available tools
 4. Report progress via report_progress tool
 5. When done, use report_progress with status "completed"
 6. If blocked, use report_blocker to signal the operator
-7. When important decisions need to be made, request_human_review to ask the operator for input
+7. When important decisions need to be made, request_human_review
 
-Always keep the operator informed of your progress and any blockers you encounter.`;
+Always keep the operator informed of your progress and any blockers.`;
 
 // ---------------------------------------------------------------------------
 // CoordinatorSessionManager
@@ -218,7 +219,7 @@ export class CoordinatorSessionManager {
     const sessionId = await this.copilotManager.createCoordinatorSession({
       requestId,
       systemMessage: {
-        mode: 'replace',
+        mode: 'append',
         content: this.buildSystemMessage(),
       },
       agentId,
@@ -242,7 +243,7 @@ export class CoordinatorSessionManager {
       requestId,
       sessionId,
       systemMessage: {
-        mode: 'replace',
+        mode: 'append',
         content: this.buildSystemMessage(),
       },
       agentId,
