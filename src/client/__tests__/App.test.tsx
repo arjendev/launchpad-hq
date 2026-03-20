@@ -3,7 +3,6 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { render } from "../../test-utils/client.js";
 import { ProjectList } from "../components/ProjectList";
-import { BacklogList } from "../components/BacklogList";
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -92,14 +91,5 @@ describe("ProjectList", () => {
     await waitFor(() => {
       expect(screen.getByText("Add Project")).toBeInTheDocument();
     });
-  });
-});
-
-describe("BacklogList", () => {
-  it("renders empty state when no project is selected", () => {
-    render(<BacklogList />);
-    expect(
-      screen.getByText("Select a project to view backlog"),
-    ).toBeInTheDocument();
   });
 });

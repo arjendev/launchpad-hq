@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
-import { AppShell, Flex, ScrollArea, SegmentedControl, Stack, Text, Title, Group, ActionIcon, Tooltip } from "@mantine/core";
+import { AppShell, Flex, ScrollArea, Stack, Text, Title, Group, ActionIcon, Tooltip } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { IconSettings2 } from "@tabler/icons-react";
 import { useNavigate } from "@tanstack/react-router";
 import { ProjectList } from "../components/ProjectList.js";
 import { SessionList } from "../components/SessionList.js";
-import { BacklogList } from "../components/BacklogList.js";
 import { WorkflowIssueList } from "../components/WorkflowIssueList.js";
 import { InboxPanel } from "../components/InboxPanel.js";
 import { ActivityFeed } from "../components/ActivityFeed.js";
@@ -21,7 +20,6 @@ import { useDaemonForProject, useInboxCount, useSettings } from "../services/hoo
 export function DashboardLayout() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [mobileTab, setMobileTab] = useState<MobileTab>("projects");
-  const [centerTab, setCenterTab] = useState<"backlog" | "workflow">("backlog");
   const { selectedProject } = useSelectedProject();
   const { selectedSession, selectSession, terminalOpen, closeTerminal } = useSelectedSession();
   const navigate = useNavigate();
@@ -102,27 +100,10 @@ export function DashboardLayout() {
             >
               {!selectedProject ? (
                 <Flex style={{ flex: 1, minHeight: 0 }}>
-                  {/* No project selected — show workflow aggregate or prompt */}
+                  {/* No project selected — show workflow aggregate */}
                   <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-                    <Group px="sm" pt="xs" pb={4} style={{ borderBottom: "1px solid var(--lp-border)" }}>
-                      <SegmentedControl
-                        size="xs"
-                        value={centerTab}
-                        onChange={(v) => setCenterTab(v as "backlog" | "workflow")}
-                        data={[
-                          { label: "📋 Backlog", value: "backlog" },
-                          { label: "🔄 Workflow", value: "workflow" },
-                        ]}
-                      />
-                    </Group>
                     <ScrollArea style={{ flex: 1, minHeight: 0 }}>
-                      {centerTab === "backlog" ? (
-                        <Stack align="center" justify="center" style={{ flex: 1, padding: 40 }}>
-                          <Text size="lg" c="dimmed">Select a project to view backlog</Text>
-                        </Stack>
-                      ) : (
-                        <WorkflowIssueList />
-                      )}
+                      <WorkflowIssueList />
                     </ScrollArea>
                   </div>
 
@@ -142,19 +123,6 @@ export function DashboardLayout() {
                 </Flex>
               ) : (
                 <>
-                  {/* Tab switcher: Backlog vs Workflow */}
-                  <Group px="sm" pt="xs" pb={4} style={{ borderBottom: "1px solid var(--lp-border)" }}>
-                    <SegmentedControl
-                      size="xs"
-                      value={centerTab}
-                      onChange={(v) => setCenterTab(v as "backlog" | "workflow")}
-                      data={[
-                        { label: "📋 Backlog", value: "backlog" },
-                        { label: "🔄 Workflow", value: "workflow" },
-                      ]}
-                    />
-                  </Group>
-
                   <Flex style={{ flex: 1, minHeight: 0 }}>
                     <div
                       style={{
@@ -170,7 +138,7 @@ export function DashboardLayout() {
                     </div>
                     <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
                       <ScrollArea style={{ flex: 1, minHeight: 0 }}>
-                        {centerTab === "backlog" ? <BacklogList /> : <WorkflowIssueList />}
+                        <WorkflowIssueList />
                       </ScrollArea>
                     </div>
 
@@ -300,20 +268,9 @@ export function DashboardLayout() {
                       </Stack>
                     ) : (
                       <Stack gap={0}>
-                        <Group px="sm" pt="xs" pb={4}>
-                          <SegmentedControl
-                            size="xs"
-                            value={centerTab}
-                            onChange={(v) => setCenterTab(v as "backlog" | "workflow")}
-                            data={[
-                              { label: "📋 Backlog", value: "backlog" },
-                              { label: "🔄 Workflow", value: "workflow" },
-                            ]}
-                          />
-                        </Group>
                         <InboxPanel />
                         <div style={{ borderTop: "1px solid var(--lp-border)" }}>
-                          {centerTab === "backlog" ? <BacklogList /> : <WorkflowIssueList />}
+                          <WorkflowIssueList />
                         </div>
                       </Stack>
                     )}

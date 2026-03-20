@@ -174,7 +174,7 @@ export class GitHubSyncService {
     const { stdout } = await this.ghCli([
       "issue", "list",
       "--repo", `${owner}/${repo}`,
-      "--state", "all",
+      "--state", "open",
       "--limit", "200",
       "--json", "number,title,state,assignees,labels,createdAt,updatedAt",
     ]);
