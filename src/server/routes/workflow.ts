@@ -27,6 +27,8 @@ import {
   addDispatch,
   updateDispatchStatus,
 } from "../workflow/coordinator-state.js";
+import { ActivityStore, type ActivityEventType, type ActivityQuery } from "../workflow/activity-store.js";
+import { computeProjectStatus, type ProjectStatusBadge } from "../workflow/status-badge.js";
 import type { CoordinatorProjectState, TrackedCommit } from "../../shared/protocol.js";
 
 /** Build project key from route params */
@@ -39,6 +41,7 @@ declare module "fastify" {
     workflowStore: WorkflowStore;
     workflowStateMachine: WorkflowStateMachine;
     elicitationStore: ElicitationStore;
+    activityStore: ActivityStore;
   }
 }
 
@@ -57,18 +60,32 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
   // Elicitation store (in-memory only — not persisted)
   const elicitationStore = new ElicitationStore();
 
+  // Activity feed store (in-memory ring buffer)
+  const activityStore = new ActivityStore();
+
   // Decorate server
   server.decorate("workflowStore", store);
   server.decorate("workflowStateMachine", stateMachine);
   server.decorate("elicitationStore", elicitationStore);
+  server.decorate("activityStore", activityStore);
 
   // Broadcast workflow events to WebSocket clients
   stateMachine.on((event: WorkflowEvent) => {
     server.ws.broadcast("workflow", event);
   });
 
+  // Broadcast activity events to WebSocket clients in real time
+  activityStore.onEvent((event) => {
+    server.ws.broadcast("workflow", {
+      type: "workflow:activity",
+      event,
+    });
+  });
+
   // Elicitation timeout handler: notify clients and transition issue back
   elicitationStore.onTimeout((elicitation) => {
+    const [owner, repo] = elicitation.projectId.split("/");
+
     server.ws.broadcast("workflow", {
       type: "workflow:elicitation-timeout",
       projectId: elicitation.projectId,
@@ -77,9 +94,20 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       issueNumber: elicitation.issueNumber,
     });
 
+    // Emit activity event
+    if (owner && repo) {
+      activityStore.emit({
+        type: "elicitation-timeout",
+        projectOwner: owner,
+        projectRepo: repo,
+        issueNumber: elicitation.issueNumber,
+        message: `Elicitation timed out${elicitation.issueNumber ? ` for issue #${elicitation.issueNumber}` : ""}`,
+        severity: "warning",
+      });
+    }
+
     // Transition issue back to in-progress if it was in needs-input-blocking
     if (elicitation.issueNumber) {
-      const [owner, repo] = elicitation.projectId.split("/");
       if (owner && repo) {
         const issue = store.getIssue(owner, repo, elicitation.issueNumber);
         if (issue && issue.state === "needs-input-blocking") {
@@ -453,6 +481,16 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
         title: issue.title,
       });
 
+      // Emit activity event
+      activityStore.emit({
+        type: "issue-dispatched",
+        projectOwner: owner,
+        projectRepo: repo,
+        issueNumber,
+        message: `Issue #${issueNumber} "${issue.title}" dispatched to coordinator`,
+        severity: "info",
+      });
+
       return reply.send({ ok: true, issueNumber, status: "dispatched" });
     },
   );
@@ -561,7 +599,99 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
         issueNumber: elicitation.issueNumber,
       });
 
+      // Emit activity event
+      activityStore.emit({
+        type: "elicitation-answered",
+        projectOwner: owner,
+        projectRepo: repo,
+        issueNumber: elicitation.issueNumber,
+        message: `Elicitation answered${elicitation.issueNumber ? ` for issue #${elicitation.issueNumber}` : ""}`,
+        severity: "info",
+      });
+
       return reply.send({ ok: true, elicitation: updated });
+    },
+  );
+
+  // ==========================================================================
+  // Activity Feed Endpoints (Phase 4 — #72)
+  // ==========================================================================
+
+  /** Parse common activity query params */
+  function parseActivityQuery(query: Record<string, unknown>): ActivityQuery {
+    const result: ActivityQuery = {};
+    if (typeof query.since === "string" && query.since) {
+      result.since = query.since;
+    }
+    if (typeof query.limit === "string" && query.limit) {
+      const n = parseInt(query.limit, 10);
+      if (!isNaN(n) && n > 0) result.limit = n;
+    }
+    if (typeof query.types === "string" && query.types) {
+      result.types = query.types.split(",").filter(Boolean) as ActivityEventType[];
+    }
+    return result;
+  }
+
+  /** GET /api/workflow/activity — global activity feed (all projects) */
+  server.get<{
+    Querystring: { since?: string; limit?: string; types?: string };
+  }>(
+    "/api/workflow/activity",
+    async (request, reply) => {
+      const query = parseActivityQuery(request.query);
+      const result = activityStore.getGlobal(query);
+      return reply.send(result);
+    },
+  );
+
+  /** GET /api/workflow/:owner/:repo/activity — project-specific activity feed */
+  server.get<{
+    Params: { owner: string; repo: string };
+    Querystring: { since?: string; limit?: string; types?: string };
+  }>(
+    "/api/workflow/:owner/:repo/activity",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+      const query = parseActivityQuery(request.query);
+      const result = activityStore.getByProject(owner, repo, query);
+      return reply.send(result);
+    },
+  );
+
+  // ==========================================================================
+  // Status Badge Endpoints (Phase 4 — #72)
+  // ==========================================================================
+
+  /** GET /api/workflow/:owner/:repo/status — computed project status badge */
+  server.get<{ Params: { owner: string; repo: string } }>(
+    "/api/workflow/:owner/:repo/status",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+      const coordinator = store.getCoordinator(owner, repo);
+      const issues = store.getIssues(owner, repo);
+      const badge = computeProjectStatus(owner, repo, coordinator, issues, elicitationStore);
+      return reply.send(badge);
+    },
+  );
+
+  /** GET /api/workflow/status — all projects' status badges */
+  server.get(
+    "/api/workflow/status",
+    async (_request, reply) => {
+      const data = store.getData();
+      const badges: ProjectStatusBadge[] = [];
+      for (const [, project] of Object.entries(data.projects)) {
+        const badge = computeProjectStatus(
+          project.owner,
+          project.repo,
+          project.coordinator,
+          project.issues,
+          elicitationStore,
+        );
+        badges.push(badge);
+      }
+      return reply.send({ projects: badges });
     },
   );
 
@@ -576,6 +706,14 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       const coord = store.getCoordinator(owner, repo);
       const updated = coordinatorStarted(coord, payload.sessionId);
       store.setCoordinator(owner, repo, updated);
+
+      activityStore.emit({
+        type: "coordinator-started",
+        projectOwner: owner,
+        projectRepo: repo,
+        message: `Coordinator started (session ${payload.sessionId.slice(0, 8)}…)`,
+        severity: "info",
+      });
     });
 
     server.daemonRegistry.on("workflow:coordinator-crashed" as never, (payload: { projectId: string; error: string }) => {
@@ -584,6 +722,14 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       const coord = store.getCoordinator(owner, repo);
       const updated = coordinatorCrashed(coord, payload.error);
       store.setCoordinator(owner, repo, updated);
+
+      activityStore.emit({
+        type: "coordinator-crashed",
+        projectOwner: owner,
+        projectRepo: repo,
+        message: `Coordinator crashed: ${payload.error}`,
+        severity: "urgent",
+      });
     });
 
     server.daemonRegistry.on("workflow:coordinator-health" as never, (payload: { projectId: string; sessionId: string }) => {
@@ -613,6 +759,15 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       const coord = store.getCoordinator(owner, repo);
       const updated = updateDispatchStatus(coord, payload.issueNumber, "in-progress");
       store.setCoordinator(owner, repo, updated);
+
+      activityStore.emit({
+        type: "progress",
+        projectOwner: owner,
+        projectRepo: repo,
+        issueNumber: payload.issueNumber,
+        message: `Progress on issue #${payload.issueNumber}${payload.commits?.length ? ` (${payload.commits.length} commit(s))` : ""}`,
+        severity: "info",
+      });
     });
 
     server.daemonRegistry.on("workflow:issue-completed" as never, (payload: {
@@ -646,6 +801,15 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       const coord = store.getCoordinator(owner, repo);
       const updatedCoord = updateDispatchStatus(coord, payload.issueNumber, "completed");
       store.setCoordinator(owner, repo, updatedCoord);
+
+      activityStore.emit({
+        type: "issue-completed",
+        projectOwner: owner,
+        projectRepo: repo,
+        issueNumber: payload.issueNumber,
+        message: `Issue #${payload.issueNumber} completed${payload.summary ? `: ${payload.summary}` : ""}`,
+        severity: "info",
+      });
     });
 
     // --- Elicitation relay ---
@@ -683,6 +847,15 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
           }
         }
       }
+
+      activityStore.emit({
+        type: "elicitation-requested",
+        projectOwner: owner,
+        projectRepo: repo,
+        issueNumber: payload.issueNumber,
+        message: `Elicitation requested${payload.issueNumber ? ` for issue #${payload.issueNumber}` : ""}: ${payload.message.slice(0, 100)}`,
+        severity: "warning",
+      });
     });
   }
 };

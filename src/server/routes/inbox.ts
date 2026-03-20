@@ -1,3 +1,7 @@
+/**
+ * @deprecated This inbox module is superseded by the Activity Feed (Phase 4 — #72).
+ * Scheduled for removal in a future release. Use /api/workflow/activity endpoints instead.
+ */
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import type { InboxMessage } from "../state/types.js";
 

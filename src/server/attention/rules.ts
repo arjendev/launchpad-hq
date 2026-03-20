@@ -1,3 +1,8 @@
+/**
+ * @deprecated The attention rule engine is superseded by the Activity Feed and Status Badges (Phase 4 — #72).
+ * Scheduled for removal in a future release. Use /api/workflow/activity and /api/workflow/status endpoints instead.
+ */
+
 // ────────────────────────────────────────────────────────
 // Attention rule engine — evaluates project data against rules
 // ────────────────────────────────────────────────────────
