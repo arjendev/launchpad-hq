@@ -412,3 +412,13 @@ Test suite: 1022 tests passing. No regressions.
 - **62 new tests** (17 coordinator-state + 22 commit-tracker + 23 dispatch-api including integration flow test).
 - **Key design choice**: Tests interact through HTTP inject + EventEmitter events, never reaching into encapsulated Fastify plugin state directly. The `activateCoordinator()` helper simulates daemon messages via registry event emission.
 - **Coordination with TARS**: TARS already committed protocol types and daemon handler forwarding in prior commit (3f51936). My work extends the server-side persistence, API endpoints, and commit tracking on top of that.
+
+### 2026-03-20: Rejected State + Issue CRUD APIs
+- **`rejected` terminal state**: Added to `WorkflowState` union, `ALL_WORKFLOW_STATES`, transition table (reachable from all active states, terminal like `done`). Label mapping: `hq:rejected`. Closes issue on GitHub with `--reason "not planned"`.
+- **`done` from any active state**: Previously only reachable from `ready-for-review`. Now `backlog`, `in-progress`, `needs-input-blocking`, `needs-input-async` can all transition directly to `done`.
+- **Issue close on terminal transitions**: Both `done` and `rejected` now call `syncService.closeIssue()` with appropriate reason (`completed` vs `not_planned`).
+- **POST /api/workflow/:owner/:repo/issues**: Creates issue via `gh issue create`, auto-adds `hq:backlog` label, triggers sync, returns the new `WorkflowIssue`.
+- **GET /api/workflow/:owner/:repo/issues/:number/comments**: Fetches comments via `gh issue view --json comments`, returns `{ comments: [{ author, body, createdAt }] }`.
+- **PUT /api/workflow/:owner/:repo/issues/:number**: Edits title/body via `gh issue edit`, re-syncs, returns updated `WorkflowIssue`.
+- **GitHubSyncService extended**: New methods `closeIssue()`, `createIssue()`, `getIssueComments()`, `editIssue()`. Added `rejected` to `COMMENT_STATES` with 🚫 emoji comment.
+- **Tests updated**: State machine tests cover all new valid/invalid transitions, terminal rejected state, done-from-anywhere. API tests cover rejected transition, done-from-backlog, error message includes `rejected`, comments endpoint. All mocks updated across 4 test files.
