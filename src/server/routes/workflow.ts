@@ -141,7 +141,11 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
   server.get<{ Params: { owner: string; repo: string } }>(
     "/api/workflow/:owner/:repo/issues",
     async (request, reply) => {
-      const issues = store.getIssues(request.params.owner, request.params.repo);
+      const { owner, repo } = request.params;
+      const issues = store.getIssues(owner, repo).map((issue) => ({
+        ...issue,
+        project: `${issue.owner}/${issue.repo}`,
+      }));
       return reply.send({ issues });
     },
   );
