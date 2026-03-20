@@ -80,6 +80,7 @@ export class CoordinatorSessionManager {
 
   private _state: CoordinatorStatus = 'stopped';
   private _sessionId: string | null = null;
+  private _agentId: string | null = null;
   private _startedAt: number | null = null;
   private _dispatched = 0;
   private _completed = 0;
@@ -136,6 +137,8 @@ export class CoordinatorSessionManager {
     }
 
     this.stopped = false;
+    // Remember agentId for crash recovery restarts
+    if (agentId !== undefined) this._agentId = agentId ?? null;
     this.setState('starting');
 
     // Wait for CopilotManager to be ready (may still be starting)
@@ -322,7 +325,7 @@ export class CoordinatorSessionManager {
     logSdk(`Coordinator restart scheduled in ${delay}ms`);
     this.restartTimer = setTimeout(() => {
       this._restartCount += 1;
-      void this.start();
+      void this.start(this._sessionId ?? undefined, this._agentId);
     }, delay);
   }
 
