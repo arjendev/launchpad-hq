@@ -18,6 +18,7 @@ import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { AddProjectWizard } from "./AddProjectWizard.js";
 import { DaemonSetupInstructions } from "./DaemonSetupInstructions.js";
 import type { DashboardProject } from "../services/types.js";
+import { useWorkflowIssues } from "../services/workflow-hooks.js";
 
 function statusColor(project: DashboardProject): string {
   if (project.isArchived) return "gray";
@@ -41,6 +42,44 @@ function workStateLabel(state: string): string | null {
     default:
       return null;
   }
+}
+
+/** Compact workflow status badge — summarizes tracked issues for a project. */
+function WorkflowBadge({ owner, repo }: { owner: string; repo: string }) {
+  const { issues } = useWorkflowIssues(owner, repo);
+  if (issues.length === 0) return null;
+
+  const needsAttention = issues.some(
+    (i) =>
+      i.state === "needs-input-blocking" ||
+      i.state === "needs-input-async" ||
+      i.state === "ready-for-review",
+  );
+  const inProgress = issues.filter((i) => i.state === "in-progress").length;
+  const allDone = issues.every((i) => i.state === "done");
+
+  if (needsAttention) {
+    return (
+      <Badge size="xs" variant="filled" color="yellow">
+        🟡 action needed
+      </Badge>
+    );
+  }
+  if (allDone) {
+    return (
+      <Badge size="xs" variant="light" color="green">
+        🟢 all done
+      </Badge>
+    );
+  }
+  if (inProgress > 0) {
+    return (
+      <Badge size="xs" variant="light" color="blue">
+        🔵 {inProgress} active
+      </Badge>
+    );
+  }
+  return null;
 }
 
 function ProjectItem({
@@ -121,6 +160,7 @@ function ProjectItem({
                 {workStateLabel(project.workState)}
               </Badge>
             )}
+            <WorkflowBadge owner={project.owner} repo={project.repo} />
           </Group>
         </Box>
 
