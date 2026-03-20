@@ -6,6 +6,7 @@
  */
 
 import type { DaemonInfo } from '../shared/protocol.js';
+import { CoordinatorSessionManager } from './copilot/coordinator.js';
 import { PROTOCOL_VERSION } from '../shared/constants.js';
 import { loadDaemonConfig, type DaemonConfig } from './config.js';
 import { DaemonWebSocketClient } from './client.js';
@@ -77,6 +78,11 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
       });
     }
     state.update({ daemonOnline: true, initialized: true });
+
+    // Auto-start coordinator for autonomous issue work
+    void coordinator.start().catch((err) => {
+      console.error(`⚠ Coordinator auto-start failed: ${err}`);
+    });
   });
 
   client.on('auth-rejected', (reason) => {
@@ -137,6 +143,15 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     cwd: process.cwd(),
   });
 
+  // --- Coordinator (autonomous issue worker) ---
+
+  const coordinator = new CoordinatorSessionManager({
+    sendToHq: (msg) => client.send(msg),
+    copilotManager: copilot,
+    projectId: config.projectId,
+    projectName: config.projectName,
+  });
+
   addCapability(daemonInfo, 'copilot-sdk');
   addCapability(daemonInfo, 'copilot-cli');
   if (discoveredAgents.customAgents.length > 0) {
@@ -144,6 +159,21 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
   }
 
   client.on('message', async (msg) => {
+    // Handle coordinator lifecycle messages
+    if (msg.type === 'workflow:start-coordinator') {
+      const payload = msg.payload as { projectId: string; sessionId?: string };
+      void coordinator.start(payload.sessionId).catch((err) => {
+        console.error(`⚠ Coordinator start failed: ${err}`);
+      });
+      return;
+    }
+    if (msg.type === 'workflow:stop-coordinator') {
+      void coordinator.stop().catch((err) => {
+        console.error(`⚠ Coordinator stop failed: ${err}`);
+      });
+      return;
+    }
+
     if (!msg.type.startsWith('copilot-') && !msg.type.startsWith('terminal-') && !msg.type.startsWith('workflow:elicitation-')) return;
 
     // Try CLI session manager first (handles its own sessions + copilot-cli type)
@@ -258,6 +288,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
       previewHandler.cleanup();
     }
     void copilot.stop().catch(() => {});
+    void coordinator.stop().catch(() => {});
     void cliSessions.stop().catch(() => {});
     terminalCleanup();
     state.setOnline(false);
