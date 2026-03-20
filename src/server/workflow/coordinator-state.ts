@@ -82,6 +82,12 @@ export function addDispatch(
   state: CoordinatorProjectState,
   issueNumber: number,
 ): CoordinatorProjectState {
+  // Dedup: if issue already has a pending/in-progress dispatch, don't add another
+  const existing = state.dispatches.find(
+    (d) => d.issueNumber === issueNumber && (d.status === "pending" || d.status === "in-progress" || d.status === "dispatched"),
+  );
+  if (existing) return state;
+
   const record: DispatchRecord = {
     issueNumber,
     status: "pending",

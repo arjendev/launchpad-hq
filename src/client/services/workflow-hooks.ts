@@ -315,15 +315,21 @@ export function useCoordinatorStatus(owner?: string, repo?: string) {
     refetchInterval: 30_000,
   });
 
-  // Refetch on WebSocket workflow events (coordinator status changes)
+  // Refetch on coordinator-specific WebSocket events only
   const { data: wsUpdate } = useSubscription<WorkflowEvent>("workflow");
   const prevRef = useRef<WorkflowEvent | null>(null);
   useEffect(() => {
     if (wsUpdate && wsUpdate !== prevRef.current) {
       prevRef.current = wsUpdate;
-      void qc.invalidateQueries({ queryKey: ["coordinator-status"] });
+      // Only refetch on coordinator status changes, not every workflow event
+      const t = (wsUpdate as { type: string }).type;
+      if (t === "workflow:coordinator-status-changed" || t === "workflow:dispatch-started") {
+        if (owner && repo) {
+          void qc.invalidateQueries({ queryKey: ["coordinator-status", owner, repo] });
+        }
+      }
     }
-  }, [wsUpdate, qc]);
+  }, [wsUpdate, qc, owner, repo]);
 
   return {
     coordinator: query.data?.coordinator ?? null,
