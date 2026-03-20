@@ -184,6 +184,166 @@ describe("handleMessage", () => {
   });
 });
 
+// --- Pong / heartbeat tests ---
+
+describe("Pong and heartbeat", () => {
+  let manager: ConnectionManager;
+
+  beforeEach(() => {
+    manager = new ConnectionManager();
+  });
+
+  it("new clients start with alive = true", () => {
+    const ws = createMockSocket();
+    const id = manager.add(ws as never);
+    const client = manager.get(id);
+
+    expect(client).toBeDefined();
+    expect(client!.alive).toBe(true);
+  });
+
+  it("all() iterates over every tracked client", () => {
+    const ws1 = createMockSocket();
+    const ws2 = createMockSocket();
+    const ws3 = createMockSocket();
+
+    manager.add(ws1 as never);
+    manager.add(ws2 as never);
+    manager.add(ws3 as never);
+
+    const allClients = [...manager.all()];
+    expect(allClients).toHaveLength(3);
+    expect(allClients.every((c) => c.alive === true)).toBe(true);
+  });
+
+  it("alive flag can be toggled to simulate heartbeat cycle", () => {
+    const ws = createMockSocket();
+    const id = manager.add(ws as never);
+    const client = manager.get(id)!;
+
+    // Simulate heartbeat: mark not alive
+    client.alive = false;
+    expect(client.alive).toBe(false);
+
+    // Simulate pong received: mark alive again
+    client.alive = true;
+    expect(client.alive).toBe(true);
+  });
+
+  it("heartbeat pattern: dead client gets removed", () => {
+    const ws = createMockSocket();
+    const id = manager.add(ws as never);
+    const client = manager.get(id)!;
+
+    // Simulate a heartbeat cycle where client didn't respond with pong
+    client.alive = false;
+
+    // Heartbeat check: client is not alive → terminate and remove
+    for (const c of manager.all()) {
+      if (!c.alive) {
+        c.socket.terminate();
+        manager.remove(c.id);
+      }
+    }
+
+    expect(manager.size).toBe(0);
+    expect(manager.get(id)).toBeUndefined();
+  });
+
+  it("heartbeat pattern: alive client stays, gets pinged, alive reset", () => {
+    const ws = createMockSocket();
+    const id = manager.add(ws as never);
+    const client = manager.get(id)!;
+
+    // Client is alive (responded to last pong)
+    expect(client.alive).toBe(true);
+
+    // Heartbeat resets alive and sends ping
+    client.alive = false;
+    client.socket.ping();
+
+    expect(client.alive).toBe(false);
+    expect(manager.size).toBe(1); // still connected
+
+    // Client responds with pong → alive is set back to true
+    client.alive = true;
+    expect(client.alive).toBe(true);
+  });
+
+  it("multiple clients: only dead ones are removed", () => {
+    const ws1 = createMockSocket();
+    const ws2 = createMockSocket();
+    const ws3 = createMockSocket();
+
+    const id1 = manager.add(ws1 as never);
+    const id2 = manager.add(ws2 as never);
+    const id3 = manager.add(ws3 as never);
+
+    // Simulate: client 1 and 3 responded (alive), client 2 didn't
+    manager.get(id1)!.alive = true;
+    manager.get(id2)!.alive = false;
+    manager.get(id3)!.alive = true;
+
+    // Run heartbeat check
+    const toRemove: string[] = [];
+    for (const c of manager.all()) {
+      if (!c.alive) {
+        c.socket.terminate();
+        toRemove.push(c.id);
+      } else {
+        c.alive = false;
+        c.socket.ping();
+      }
+    }
+    for (const removeId of toRemove) {
+      manager.remove(removeId);
+    }
+
+    expect(manager.size).toBe(2);
+    expect(manager.get(id1)).toBeDefined();
+    expect(manager.get(id2)).toBeUndefined();
+    expect(manager.get(id3)).toBeDefined();
+  });
+
+  it("ping handler responds with pong message format", () => {
+    const ws = createMockSocket();
+    const log = createMockLog() as never;
+    const clientId = manager.add(ws as never);
+
+    handleMessage(clientId, JSON.stringify({ type: "ping" }), manager, log);
+
+    expect(ws.sent).toHaveLength(1);
+    const response = JSON.parse(ws.sent[0]);
+    expect(response).toStrictEqual({ type: "pong" });
+    expect(Object.keys(response)).toEqual(["type"]);
+  });
+
+  it("pong response has no extra fields", () => {
+    const ws = createMockSocket();
+    const log = createMockLog() as never;
+    const clientId = manager.add(ws as never);
+
+    handleMessage(clientId, JSON.stringify({ type: "ping" }), manager, log);
+
+    const response = JSON.parse(ws.sent[0]);
+    // Pong should be a minimal message with only the 'type' field
+    expect(response).toEqual({ type: "pong" });
+    expect(Object.keys(response)).toHaveLength(1);
+  });
+
+  it("ping with extra fields still produces pong", () => {
+    const ws = createMockSocket();
+    const log = createMockLog() as never;
+    const clientId = manager.add(ws as never);
+
+    // Clients might send extra fields — handler should still respond with pong
+    handleMessage(clientId, JSON.stringify({ type: "ping", timestamp: 12345 }), manager, log);
+
+    expect(ws.sent).toHaveLength(1);
+    expect(JSON.parse(ws.sent[0])).toEqual({ type: "pong" });
+  });
+});
+
 // --- Channel constants ---
 
 describe("VALID_CHANNELS", () => {

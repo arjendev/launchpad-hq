@@ -379,6 +379,94 @@ describe("WebSocketManager", () => {
     });
   });
 
+  describe("pong handling", () => {
+    it("pong message does not trigger channel handlers", () => {
+      const mgr = new WebSocketManager({ url: "ws://test/ws" });
+      mgr.connect();
+      getLatestMock().simulateOpen();
+
+      const channelHandler = vi.fn();
+      mgr.subscribe("daemon", channelHandler);
+
+      // Server sends a pong — should NOT go to channel handlers
+      getLatestMock().simulateMessage({ type: "pong" });
+
+      expect(channelHandler).not.toHaveBeenCalled();
+
+      mgr.dispose();
+    });
+
+    it("pong message triggers global message listeners", () => {
+      const mgr = new WebSocketManager({ url: "ws://test/ws" });
+      mgr.connect();
+      getLatestMock().simulateOpen();
+
+      const globalListener = vi.fn();
+      mgr.onMessage(globalListener);
+
+      getLatestMock().simulateMessage({ type: "pong" });
+
+      expect(globalListener).toHaveBeenCalledTimes(1);
+      expect(globalListener).toHaveBeenCalledWith({ type: "pong" });
+
+      mgr.dispose();
+    });
+
+    it("multiple pong responses are each delivered to listeners", () => {
+      const mgr = new WebSocketManager({ url: "ws://test/ws" });
+      mgr.connect();
+      getLatestMock().simulateOpen();
+
+      const globalListener = vi.fn();
+      mgr.onMessage(globalListener);
+
+      getLatestMock().simulateMessage({ type: "pong" });
+      getLatestMock().simulateMessage({ type: "pong" });
+      getLatestMock().simulateMessage({ type: "pong" });
+
+      expect(globalListener).toHaveBeenCalledTimes(3);
+
+      mgr.dispose();
+    });
+
+    it("ping-pong round trip: client sends ping, server responds with pong", () => {
+      const mgr = new WebSocketManager({ url: "ws://test/ws", pingInterval: 5000 });
+      mgr.connect();
+      getLatestMock().simulateOpen();
+      getLatestMock().sent = [];
+
+      const pongReceived = vi.fn();
+      mgr.onMessage((msg) => {
+        if (msg.type === "pong") pongReceived();
+      });
+
+      // Advance time to trigger a ping
+      vi.advanceTimersByTime(5000);
+      const pings = getLatestMock().sent.map((s) => JSON.parse(s));
+      expect(pings).toContainEqual({ type: "ping" });
+
+      // Simulate server responding with pong
+      getLatestMock().simulateMessage({ type: "pong" });
+      expect(pongReceived).toHaveBeenCalledTimes(1);
+
+      mgr.dispose();
+    });
+
+    it("pong received after dispose does not throw", () => {
+      const mgr = new WebSocketManager({ url: "ws://test/ws" });
+      mgr.connect();
+      const mock = getLatestMock();
+      mock.simulateOpen();
+
+      mgr.dispose();
+
+      // Simulate a late pong arriving after dispose — should not throw
+      expect(() => {
+        mock.simulateMessage({ type: "pong" });
+      }).not.toThrow();
+    });
+  });
+
   describe("global message listeners", () => {
     it("notifies listeners of all message types", () => {
       const mgr = new WebSocketManager({ url: "ws://test/ws" });

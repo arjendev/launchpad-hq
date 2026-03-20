@@ -6,6 +6,7 @@ import { useDisconnectSession, useResumeSession } from "../services/hooks.js";
 
 interface SessionContextValue {
   selectedSession: AggregatedSession | null;
+  pendingSessionId: string | null;
   selectSession: (
     session: AggregatedSession | null,
     options?: { resume?: boolean },
@@ -17,6 +18,8 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
+const SESSION_STORAGE_KEY = "lp-selected-session-id";
+
 function shouldDisconnectOnDeselect(session: AggregatedSession | null): boolean {
   return session?.sessionType === "copilot-cli";
 }
@@ -24,6 +27,9 @@ function shouldDisconnectOnDeselect(session: AggregatedSession | null): boolean 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [selectedSession, setSelectedSession] = useState<AggregatedSession | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [pendingSessionId] = useState<string | null>(() => {
+    try { return sessionStorage.getItem(SESSION_STORAGE_KEY); } catch { return null; }
+  });
   const { selectedProject } = useSelectedProject();
   const disconnectSession = useDisconnectSession();
   const resumeSession = useResumeSession();
@@ -66,6 +72,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
 
       setSelectedSession(session);
+      // Persist to sessionStorage for restore after page refresh
+      try {
+        if (session) {
+          sessionStorage.setItem(SESSION_STORAGE_KEY, session.sessionId);
+        } else {
+          sessionStorage.removeItem(SESSION_STORAGE_KEY);
+        }
+      } catch { /* storage unavailable */ }
       // Selecting a session closes the standalone terminal
       if (session) setTerminalOpen(false);
 
@@ -93,7 +107,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <SessionContext.Provider value={{ selectedSession, selectSession, terminalOpen, openTerminal, closeTerminal }}>
+    <SessionContext.Provider value={{ selectedSession, pendingSessionId, selectSession, terminalOpen, openTerminal, closeTerminal }}>
       {children}
     </SessionContext.Provider>
   );

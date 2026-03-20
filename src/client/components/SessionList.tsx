@@ -11,7 +11,7 @@ import {
   Tooltip,
   UnstyledButton,
 } from "@mantine/core";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { useSelectedSession } from "../contexts/SessionContext.js";
 import {
@@ -373,7 +373,7 @@ function ResumeSessionModal({
 
 export function SessionList() {
   const { selectedProject } = useSelectedProject();
-  const { selectedSession, selectSession, openTerminal } = useSelectedSession();
+  const { selectedSession, pendingSessionId, selectSession, openTerminal } = useSelectedSession();
   const [resumeModalOpen, setResumeModalOpen] = useState(false);
   const [sessionMode, setSessionMode] = useState<"copilot-sdk" | "copilot-cli">("copilot-sdk");
 
@@ -388,6 +388,17 @@ export function SessionList() {
   const isOnline = !!daemon;
 
   const coordinatorSessionId = coordinator?.sessionId;
+
+  // Auto-restore session selection after page refresh
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current || !pendingSessionId || selectedSession || isLoading) return;
+    const match = sessions.find((s) => s.sessionId === pendingSessionId);
+    if (match) {
+      restoredRef.current = true;
+      selectSession(match, { resume: false });
+    }
+  }, [sessions, pendingSessionId, selectedSession, isLoading, selectSession]);
 
   // Filter out the coordinator session from normal session list
   const displaySessions = coordinatorSessionId

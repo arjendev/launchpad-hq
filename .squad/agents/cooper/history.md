@@ -42,3 +42,18 @@ Cooper completed comprehensive research on HQ-level context injection. Filed Iss
 - **Phased approach:** Phase 1 (MCP pass-through + instruction layering, 3-4 days) → Phase 2 (HQ proxy tools, 1 week) → Phase 3 (skill sharing, 1-2 weeks).
 - **Open questions resolved:** Answered Arjen's questions on MCP transports, tool queueing, skill persistence, and competitive landscape. Recommended proceeding with Phase 1 as follow-up work.
 - **No code changes in research phase.** Issue #73 filed with full technical spec and phased roadmap.
+
+### Session — Deep Research: Devcontainer Lifecycle Management (requested by Arjen)
+
+- **Task:** Research spike on how launchpad-hq can fully manage the underlying devcontainer lifecycle.
+- **Scope:** 6 research areas — devcontainer CLI/APIs, non-devcontainer codebases, VS Code server options, cross-platform Docker, cloud container services, architecture options.
+- **Key findings:**
+  - `devcontainer` CLI provides full lifecycle (up/down/exec/stop) with JSON output — ideal for programmatic use.
+  - `dockerode` (Node.js Docker SDK) provides low-level health monitoring, events, stats, and remote Docker host support.
+  - DevPod (loft.sh) is the most strategically relevant tool — client-only, provider-agnostic, uses devcontainer.json, open source.
+  - openvscode-server is the best option for embedding VS Code in HQ's web UI (MIT, Docker-ready, tracks VS Code releases).
+  - Docker-only is pragmatic for Phase 1; Podman/nerdctl have gaps in devcontainer support.
+  - fly.io is the most cost-effective cloud backend for dev environments (stop-to-zero, fast resume).
+- **Recommendation:** Phased approach — Phase 1: Local Docker via devcontainer CLI + dockerode. Phase 2: Remote Docker + openvscode-server. Phase 3: DevPod integration or custom provider abstraction.
+- **6 architecture options presented:** (A) Local Docker Only, (B) +Remote Docker, (C) DevPod Integration, (D) K8s-based, (E) Hybrid local+cloud, (F) Custom abstraction.
+- **No code changes in research phase.** Issue #74 filed with full research findings and phased roadmap.
