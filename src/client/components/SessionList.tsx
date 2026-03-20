@@ -99,7 +99,7 @@ const coordinatorDotColor: Record<CoordinatorStatus, string> = {
 
 function CoordinatorCard({ owner, repo }: { owner: string; repo: string }) {
   const { coordinator, isLoading } = useCoordinatorStatus(owner, repo);
-  const { selectSession } = useSelectedSession();
+  const { selectedSession, selectSession } = useSelectedSession();
   const startCoordinator = useStartCoordinator();
   const stopCoordinator = useStopCoordinator();
 
@@ -121,9 +121,24 @@ function CoordinatorCard({ owner, repo }: { owner: string; repo: string }) {
     }
   };
 
+  const coordinatorSessionId = coordinator?.sessionId;
+  const isAttached = !!(coordinatorSessionId && selectedSession?.sessionId === coordinatorSessionId);
+
   const handleClick = () => {
-    // If coordinator has an active session, we could select it
-    // For now, coordinator doesn't expose a sessionId, so this is a no-op placeholder
+    if (!coordinatorSessionId) return;
+    if (isAttached) {
+      selectSession(null);
+    } else {
+      const syntheticSession: AggregatedSession = {
+        sessionId: coordinatorSessionId,
+        sessionType: "copilot-sdk",
+        status: status === "active" ? "active" : status === "starting" ? "active" : "idle",
+        startedAt: coordinator?.startedAt ? new Date(coordinator.startedAt).getTime() : Date.now(),
+        updatedAt: Date.now(),
+        activity: DEFAULT_SESSION_ACTIVITY,
+      };
+      selectSession(syntheticSession);
+    }
   };
 
   const uptime = coordinator?.startedAt ? timeAgo(new Date(coordinator.startedAt).getTime()) : null;
@@ -144,8 +159,11 @@ function CoordinatorCard({ owner, repo }: { owner: string; repo: string }) {
       py={6}
       style={{
         borderRadius: "var(--mantine-radius-sm)",
-        border: "1px solid var(--mantine-color-default-border)",
-        cursor: "default",
+        border: isAttached
+          ? "1px solid var(--mantine-color-violet-6)"
+          : "1px solid var(--mantine-color-default-border)",
+        backgroundColor: isAttached ? "var(--mantine-color-violet-light)" : undefined,
+        cursor: coordinatorSessionId ? "pointer" : "default",
       }}
       w="100%"
     >
@@ -185,18 +203,32 @@ function CoordinatorCard({ owner, repo }: { owner: string; repo: string }) {
               {status === "idle" ? "⏸ Idle" : null}
               {status === "crashed" ? "💥 Crashed" : null}
             </Text>
-            <Tooltip label={isRunning ? "Stop coordinator" : "Start coordinator"}>
-              <Button
-                variant="subtle"
-                size="compact-xs"
-                color={isRunning ? "red" : "green"}
-                onClick={handleStartStop}
-                loading={startCoordinator.isPending || stopCoordinator.isPending}
-                style={{ flexShrink: 0 }}
-              >
-                {isRunning ? "⏹ Stop" : "▶ Start"}
-              </Button>
-            </Tooltip>
+            <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+              {coordinatorSessionId && (
+                <Tooltip label={isAttached ? "Detach" : "Attach"}>
+                  <Button
+                    variant="subtle"
+                    size="compact-xs"
+                    color={isAttached ? "violet" : "gray"}
+                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleClick(); }}
+                  >
+                    {isAttached ? "⏏ Detach" : "👁 Attach"}
+                  </Button>
+                </Tooltip>
+              )}
+              <Tooltip label={isRunning ? "Stop coordinator" : "Start coordinator"}>
+                <Button
+                  variant="subtle"
+                  size="compact-xs"
+                  color={isRunning ? "red" : "green"}
+                  onClick={handleStartStop}
+                  loading={startCoordinator.isPending || stopCoordinator.isPending}
+                  style={{ flexShrink: 0 }}
+                >
+                  {isRunning ? "⏹" : "▶"}
+                </Button>
+              </Tooltip>
+            </Group>
           </Group>
         </Stack>
       </Group>
@@ -425,13 +457,6 @@ export function SessionList() {
 
       <Text size="xs" fw={600} p="xs" pb={4}>Sessions</Text>
 
-      {/* Coordinator card — always visible when a project is selected */}
-      {owner && repo && (
-        <Box px="xs" pb={4}>
-          <CoordinatorCard owner={owner} repo={repo} />
-        </Box>
-      )}
-
       {/* Session type toggle + action buttons */}
       <Stack gap={4} px="xs" pt="xs">
         <SegmentedControl
@@ -502,11 +527,22 @@ export function SessionList() {
         </Stack>
       ) : sessions.length === 0 ? (
         <Stack align="center" justify="center" p="md" style={{ flex: 1 }}>
+          {owner && repo && (
+            <Box w="100%" pb="xs">
+              <CoordinatorCard owner={owner} repo={repo} />
+            </Box>
+          )}
           <Text size="xs" c="dimmed" ta="center">No active sessions</Text>
           <Text size="xs" c="dimmed" ta="center">Create or resume one to get started</Text>
         </Stack>
       ) : (
         <Stack gap={2} px="xs" py="xs" style={{ flex: 1, overflowY: "auto" }}>
+          {/* Coordinator card — always first in session list */}
+          {owner && repo && (
+            <Box pb={2}>
+              <CoordinatorCard owner={owner} repo={repo} />
+            </Box>
+          )}
           {sessions.map((session) => (
             <SessionItem
               key={session.sessionId}

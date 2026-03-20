@@ -155,6 +155,7 @@ export type CoordinatorStatus = "idle" | "starting" | "active" | "crashed";
 
 export interface CoordinatorState {
   status: CoordinatorStatus;
+  sessionId?: string | null;
   startedAt?: string;
   lastHealthPing?: string;
   activeDispatches: Array<{
