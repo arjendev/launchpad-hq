@@ -526,13 +526,13 @@ export function SessionList() {
           <Loader size="sm" />
         </Stack>
       ) : sessions.length === 0 ? (
-        <Stack align="center" justify="center" p="md" style={{ flex: 1 }}>
+        <Stack align="stretch" justify="flex-start" px="xs" py="xs" style={{ flex: 1 }}>
           {owner && repo && (
-            <Box w="100%" pb="xs">
+            <Box pb="xs">
               <CoordinatorCard owner={owner} repo={repo} />
             </Box>
           )}
-          <Text size="xs" c="dimmed" ta="center">No active sessions</Text>
+          <Text size="xs" c="dimmed" ta="center" pt="md">No active sessions</Text>
           <Text size="xs" c="dimmed" ta="center">Create or resume one to get started</Text>
         </Stack>
       ) : (
