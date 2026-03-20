@@ -371,13 +371,46 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       try {
         const token = getGhToken();
         const syncService = new GitHubSyncService(token);
-        const comments = await syncService.getIssueComments(owner, repo, issueNumber);
-        return reply.send({ comments });
+        const result = await syncService.getIssueComments(owner, repo, issueNumber);
+        return reply.send(result);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return reply.status(502).send({
           error: "fetch_failed",
           message: `Failed to fetch comments: ${message}`,
+        });
+      }
+    },
+  );
+
+  /** POST /api/workflow/:owner/:repo/issues/:number/comments — add a comment */
+  server.post<{
+    Params: { owner: string; repo: string; number: string };
+    Body: { body: string };
+  }>(
+    "/api/workflow/:owner/:repo/issues/:number/comments",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+      const issueNumber = parseInt(request.params.number, 10);
+      const { body: commentBody } = request.body ?? {};
+
+      if (isNaN(issueNumber)) {
+        return reply.status(400).send({ error: "bad_request", message: "Invalid issue number" });
+      }
+      if (!commentBody?.trim()) {
+        return reply.status(400).send({ error: "bad_request", message: "Comment body is required" });
+      }
+
+      try {
+        const token = getGhToken();
+        const syncService = new GitHubSyncService(token);
+        await syncService.addComment(owner, repo, issueNumber, commentBody.trim());
+        return reply.send({ ok: true });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(502).send({
+          error: "comment_failed",
+          message: `Failed to post comment: ${message}`,
         });
       }
     },

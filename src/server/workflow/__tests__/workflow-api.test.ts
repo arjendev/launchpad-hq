@@ -60,7 +60,7 @@ vi.mock("../../workflow/github-sync.js", () => {
     async postFeedbackComment() {}
     async closeIssue() {}
     async createIssue() { return { number: 99, title: "New issue" }; }
-    async getIssueComments() { return [{ author: "alice", body: "A comment", createdAt: "2025-01-01T00:00:00Z" }]; }
+    async getIssueComments() { return { issueBody: "Issue description", comments: [{ author: "alice", body: "A comment", createdAt: "2025-01-01T00:00:00Z" }] }; }
     async editIssue() {}
   }
 
@@ -362,6 +362,7 @@ describe("Workflow API", () => {
 
       expect(res.statusCode).toBe(200);
       const body = res.json();
+      expect(body.issueBody).toBe("Issue description");
       expect(body.comments).toHaveLength(1);
       expect(body.comments[0].author).toBe("alice");
       expect(body.comments[0].body).toBe("A comment");

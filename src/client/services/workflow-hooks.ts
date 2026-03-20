@@ -455,6 +455,7 @@ export interface IssueComment {
 }
 
 interface IssueCommentsResponse {
+  issueBody: string;
   comments: IssueComment[];
 }
 
@@ -472,6 +473,38 @@ export function useIssueComments(owner?: string, repo?: string, issueNumber?: nu
       ),
     enabled,
     staleTime: 30_000,
+  });
+}
+
+/**
+ * Post a comment on an issue.
+ */
+export function useAddComment() {
+  const qc = useQueryClient();
+
+  return useMutation<
+    { ok: boolean },
+    Error,
+    { owner: string; repo: string; issueNumber: number; body: string }
+  >({
+    mutationFn: async ({ owner, repo, issueNumber, body }) => {
+      const res = await authFetch(
+        `/api/workflow/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${issueNumber}/comments`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body }),
+        },
+      );
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(errBody?.message ?? `Comment failed (${res.status})`);
+      }
+      return res.json() as Promise<{ ok: boolean }>;
+    },
+    onSuccess: (_data, { owner, repo, issueNumber }) => {
+      void qc.invalidateQueries({ queryKey: ["issue-comments", owner, repo, issueNumber] });
+    },
   });
 }
 

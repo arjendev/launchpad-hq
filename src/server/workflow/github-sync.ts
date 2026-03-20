@@ -104,6 +104,20 @@ export class GitHubSyncService {
       };
     });
 
+    // Mark previously-tracked issues that are no longer open as done
+    const openNumbers = new Set(ghIssues.map((gh) => gh.number));
+    for (const [num, tracked] of existing) {
+      if (!openNumbers.has(num) && tracked.state !== "done" && tracked.state !== "rejected") {
+        issues.push({
+          ...tracked,
+          state: "done",
+          githubState: "closed",
+          stateChangedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
+
     return { issues, added, updated, errors };
   }
 
@@ -206,8 +220,21 @@ export class GitHubSyncService {
       args.push("--body", body);
     }
     const allLabels = [...(labels ?? []), "hq:backlog"];
+    // Try with labels first; if label doesn't exist, retry without
     args.push("--label", allLabels.join(","));
-    const { stdout } = await this.ghCli(args);
+    let stdout: string;
+    try {
+      ({ stdout } = await this.ghCli(args));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("not found")) {
+        // Label doesn't exist — create without it, add label later
+        const argsNoLabel = args.filter((a, i) => a !== "--label" && args[i - 1] !== "--label");
+        ({ stdout } = await this.ghCli(argsNoLabel));
+      } else {
+        throw err;
+      }
+    }
     // gh issue create outputs the URL; extract the issue number from it
     const match = stdout.trim().match(/\/issues\/(\d+)$/);
     if (!match) {
@@ -221,23 +248,38 @@ export class GitHubSyncService {
     owner: string,
     repo: string,
     issueNumber: number,
-  ): Promise<Array<{ author: string; body: string; createdAt: string }>> {
+  ): Promise<{ issueBody: string; comments: Array<{ author: string; body: string; createdAt: string }> }> {
     const { stdout } = await this.ghCli([
       "issue", "view", String(issueNumber),
       "--repo", `${owner}/${repo}`,
-      "--json", "comments",
-      "--jq", ".comments",
+      "--json", "body,comments",
     ]);
-    const raw = JSON.parse(stdout || "[]") as Array<{
-      author: { login: string };
+    const raw = JSON.parse(stdout || "{}") as {
       body: string;
-      createdAt: string;
-    }>;
-    return raw.map((c) => ({
-      author: c.author.login,
-      body: c.body,
-      createdAt: c.createdAt,
-    }));
+      comments: Array<{
+        author: { login: string };
+        body: string;
+        createdAt: string;
+      }>;
+    };
+    return {
+      issueBody: raw.body ?? "",
+      comments: (raw.comments ?? []).map((c) => ({
+        author: c.author.login,
+        body: c.body,
+        createdAt: c.createdAt,
+      })),
+    };
+  }
+
+  /** Post a comment to a GitHub issue. */
+  async addComment(
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    body: string,
+  ): Promise<void> {
+    await this.ghCli(["issue", "comment", String(issueNumber), "--repo", `${owner}/${repo}`, "--body", body]);
   }
 
   /** Edit a GitHub issue's title and/or body. */

@@ -22,6 +22,7 @@ import {
   useUpdateIssue,
   useTransitionIssue,
   useDispatchIssue,
+  useAddComment,
 } from "../services/workflow-hooks.js";
 import { WORKFLOW_STATE_CONFIG, type WorkflowIssue } from "../services/workflow-types.js";
 
@@ -47,10 +48,12 @@ function formatRelativeTime(dateStr: string): string {
 export function EditIssueModal({ opened, onClose, issue, owner, repo }: EditIssueModalProps) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [newComment, setNewComment] = useState("");
 
   const updateIssue = useUpdateIssue();
   const transition = useTransitionIssue();
   const dispatch = useDispatchIssue();
+  const addComment = useAddComment();
   const { data: commentsData, isLoading: commentsLoading } = useIssueComments(
     opened ? owner : undefined,
     opened ? repo : undefined,
@@ -61,13 +64,21 @@ export function EditIssueModal({ opened, onClose, issue, owner, repo }: EditIssu
   useEffect(() => {
     if (issue) {
       setTitle(issue.title);
-      setBody("");
+      setNewComment("");
     }
   }, [issue]);
 
+  // Load body from API when comments data arrives
+  useEffect(() => {
+    if (commentsData?.issueBody != null) {
+      setBody(commentsData.issueBody);
+    }
+  }, [commentsData?.issueBody]);
+
   if (!issue) return null;
 
-  const hasChanges = title !== issue.title || body.trim() !== "";
+  const originalBody = commentsData?.issueBody ?? "";
+  const hasChanges = title !== issue.title || body !== originalBody;
   const isActiveState = issue.state !== "done" && issue.state !== "rejected";
   const stateConfig = WORKFLOW_STATE_CONFIG[issue.state];
 
@@ -78,7 +89,7 @@ export function EditIssueModal({ opened, onClose, issue, owner, repo }: EditIssu
       issueNumber: issue.number,
     };
     if (title !== issue.title) payload.title = title;
-    if (body.trim()) payload.body = body.trim();
+    if (body !== originalBody) payload.body = body;
     updateIssue.mutate(payload, { onSuccess: () => onClose() });
   };
 
@@ -97,7 +108,15 @@ export function EditIssueModal({ opened, onClose, issue, owner, repo }: EditIssu
   };
 
   const comments = commentsData?.comments ?? [];
-  const isPending = updateIssue.isPending || transition.isPending || dispatch.isPending;
+  const isPending = updateIssue.isPending || transition.isPending || dispatch.isPending || addComment.isPending;
+
+  const handleAddComment = () => {
+    if (!newComment.trim()) return;
+    addComment.mutate(
+      { owner, repo, issueNumber: issue.number, body: newComment.trim() },
+      { onSuccess: () => setNewComment("") },
+    );
+  };
 
   return (
     <Modal
@@ -160,6 +179,28 @@ export function EditIssueModal({ opened, onClose, issue, owner, repo }: EditIssu
             </Stack>
           </ScrollArea>
         )}
+
+        {/* Add comment */}
+        <Group gap="xs" align="flex-end">
+          <Textarea
+            placeholder="Add a comment…"
+            minRows={2}
+            maxRows={4}
+            autosize
+            value={newComment}
+            onChange={(e) => setNewComment(e.currentTarget.value)}
+            style={{ flex: 1 }}
+          />
+          <Button
+            size="sm"
+            variant="light"
+            onClick={handleAddComment}
+            loading={addComment.isPending}
+            disabled={!newComment.trim() || isPending}
+          >
+            Comment
+          </Button>
+        </Group>
 
         {/* Action buttons */}
         <Divider />
