@@ -401,3 +401,14 @@ Test suite: 1022 tests passing. No regressions.
 - First publish is manual (Arjen): `npm publish --access public`. Then configure trusted publisher on npmjs.com.
 - Provenance attestations automatic from trusted publishers; no `--provenance` flag needed.
 - Windows tarball workaround remains as fallback but no longer primary recommendation.
+
+### 2026-03-20: Phase 2 Autonomous Dispatch — HQ Server Side (#72)
+- **CoordinatorState module** (`src/server/workflow/coordinator-state.ts`): Pure functions for coordinator lifecycle (starting→active→crashed→stopped) and dispatch tracking (add, update status, get active). Immutable state pattern — each function takes current state, returns new state. Designed for easy persistence and testing.
+- **CommitTracker** (`src/server/workflow/commit-tracker.ts`): Regex-based issue reference parser (`#N`, `fixes #N`, `closes #N`, `resolves #N`). In-memory dual index: project→commits and project+issue→SHA set. Deduplicates by SHA. Serializable for persistence.
+- **WorkflowStore extended**: Added `coordinator: CoordinatorProjectState` and `commits: TrackedCommit[]` to project state. CommitTracker instance lives on store. Load/flush/close all round-trip coordinator + commit data through the existing enrichment persistence layer.
+- **6 new API endpoints**: coordinator start/stop/status, issue dispatch (validates backlog state + active coordinator), commits-by-issue. Dispatch sends `workflow:dispatch-issue` to daemon via registry.
+- **Daemon event listeners**: Wired 5 daemon→HQ events on the daemonRegistry EventEmitter (coordinator-started, crashed, health, progress, issue-completed). Progress events track commits. Issue-completed transitions to ready-for-review and marks dispatch completed.
+- **Client WS broadcasts**: 4 event types on "workflow" channel (coordinator-status-changed, dispatch-started, progress, issue-completed).
+- **62 new tests** (17 coordinator-state + 22 commit-tracker + 23 dispatch-api including integration flow test).
+- **Key design choice**: Tests interact through HTTP inject + EventEmitter events, never reaching into encapsulated Fastify plugin state directly. The `activateCoordinator()` helper simulates daemon messages via registry event emission.
+- **Coordination with TARS**: TARS already committed protocol types and daemon handler forwarding in prior commit (3f51936). My work extends the server-side persistence, API endpoints, and commit tracking on top of that.
