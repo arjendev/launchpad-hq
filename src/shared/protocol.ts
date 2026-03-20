@@ -403,6 +403,53 @@ export interface AttentionItemMessage extends BaseMessage<'attention-item'> {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Workflow / Coordinator types (Phase 2 — Autonomous Dispatch #72)
+// ---------------------------------------------------------------------------
+
+/** Status of the coordinator process managed by a daemon */
+export type CoordinatorStatus = 'idle' | 'starting' | 'active' | 'crashed' | 'stopped';
+
+/** Status of an individual dispatch */
+export type DispatchStatus = 'pending' | 'in-progress' | 'dispatched' | 'completed' | 'failed';
+
+/** A record of a single issue dispatch to the coordinator */
+export interface DispatchRecord {
+  issueNumber: number;
+  status: DispatchStatus;
+  dispatchedAt: string;
+  completedAt?: string;
+  error?: string;
+}
+
+/** Persisted coordinator state for a project */
+export interface CoordinatorProjectState {
+  status: CoordinatorStatus;
+  sessionId: string | null;
+  lastSeenAt: string | null;
+  startedAt: string | null;
+  error: string | null;
+  dispatches: DispatchRecord[];
+}
+
+/** A commit associated with an issue */
+export interface TrackedCommit {
+  sha: string;
+  message: string;
+  issueNumbers: number[];
+  author: string | null;
+  timestamp: string;
+}
+
+/** Issue data sent to the coordinator for dispatch */
+export interface WorkflowIssuePayload {
+  issueNumber: number;
+  title: string;
+  body: string;
+  labels: string[];
+  feedback?: string;
+}
+
 /** Tool names available to Copilot sessions for HQ communication */
 export type CopilotHqToolName = 'report_progress' | 'request_human_review' | 'report_blocker';
 
@@ -444,6 +491,101 @@ export interface CopilotUserInputRequestMessage extends BaseMessage<'copilot-use
   };
 }
 
+// ---------------------------------------------------------------------------
+// Workflow coordinator messages (Daemon → HQ)
+// ---------------------------------------------------------------------------
+
+/** Daemon → HQ: coordinator session started successfully */
+export interface WorkflowCoordinatorStartedMessage extends BaseMessage<'workflow:coordinator-started'> {
+  payload: {
+    projectId: string;
+    sessionId: string;
+    resumed: boolean;
+  };
+}
+
+/** Daemon → HQ: coordinator session crashed or errored */
+export interface WorkflowCoordinatorCrashedMessage extends BaseMessage<'workflow:coordinator-crashed'> {
+  payload: {
+    projectId: string;
+    sessionId: string | null;
+    error: string;
+    willRetry: boolean;
+    retryAttempt: number;
+  };
+}
+
+/** Daemon → HQ: coordinator health ping */
+export interface WorkflowCoordinatorHealthMessage extends BaseMessage<'workflow:coordinator-health'> {
+  payload: {
+    projectId: string;
+    sessionId: string;
+    state: CoordinatorStatus;
+    uptimeMs: number;
+    dispatched: number;
+    completed: number;
+  };
+}
+
+/** Daemon → HQ: progress update for an issue being worked on */
+export interface WorkflowProgressMessage extends BaseMessage<'workflow:progress'> {
+  payload: {
+    projectId: string;
+    sessionId: string;
+    issueNumber: number;
+    event: SessionEvent;
+  };
+}
+
+/** Daemon → HQ: issue implementation completed */
+export interface WorkflowIssueCompletedMessage extends BaseMessage<'workflow:issue-completed'> {
+  payload: {
+    projectId: string;
+    sessionId: string;
+    issueNumber: number;
+    summary: string;
+  };
+}
+
+/** Daemon → HQ: issue dispatch has started */
+export interface WorkflowDispatchStartedMessage extends BaseMessage<'workflow:dispatch-started'> {
+  payload: {
+    projectId: string;
+    sessionId: string;
+    issueNumber: number;
+    title: string;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Workflow coordinator messages (HQ → Daemon)
+// ---------------------------------------------------------------------------
+
+/** HQ → Daemon: start or resume a coordinator session */
+export interface WorkflowStartCoordinatorMessage extends BaseMessage<'workflow:start-coordinator'> {
+  payload: {
+    projectId: string;
+    sessionId?: string;
+  };
+}
+
+/** HQ → Daemon: stop coordinator gracefully */
+export interface WorkflowStopCoordinatorMessage extends BaseMessage<'workflow:stop-coordinator'> {
+  payload: {
+    projectId: string;
+  };
+}
+
+/** HQ → Daemon: dispatch an issue to the coordinator */
+export interface WorkflowDispatchIssueMessage extends BaseMessage<'workflow:dispatch-issue'> {
+  payload: {
+    projectId: string;
+    issueNumber: number;
+    title: string;
+    labels: string[];
+  };
+}
+
 export type DaemonToHqMessage =
   | RegisterMessage
   | HeartbeatMessage
@@ -468,7 +610,13 @@ export type DaemonToHqMessage =
   | PreviewConfigMessage
   | PreviewProxyResponseMessage
   | PreviewWsDataMessage
-  | PreviewWsCloseMessage;
+  | PreviewWsCloseMessage
+  | WorkflowCoordinatorStartedMessage
+  | WorkflowCoordinatorCrashedMessage
+  | WorkflowCoordinatorHealthMessage
+  | WorkflowDispatchStartedMessage
+  | WorkflowProgressMessage
+  | WorkflowIssueCompletedMessage;
 
 // ---------------------------------------------------------------------------
 // HQ → Daemon messages
@@ -672,7 +820,10 @@ export type HqToDaemonMessage =
   | PreviewProxyRequestMessage
   | PreviewWsOpenMessage
   | PreviewWsDataMessage
-  | PreviewWsCloseMessage;
+  | PreviewWsCloseMessage
+  | WorkflowStartCoordinatorMessage
+  | WorkflowStopCoordinatorMessage
+  | WorkflowDispatchIssueMessage;
 
 // ---------------------------------------------------------------------------
 // Combined union — every message that can travel over the wire

@@ -314,6 +314,69 @@ export class DaemonWsHandler {
         this.registry.emit("preview:ws-close" as never, msg.payload);
         break;
 
+      // --- Workflow coordinator messages ---
+
+      case "workflow:coordinator-started":
+        this.registry.emit("workflow:coordinator-started" as never, msg.payload);
+        this.broadcast("workflow", {
+          type: "workflow:coordinator-status-changed",
+          projectId: msg.payload.projectId,
+          status: "active",
+          sessionId: msg.payload.sessionId,
+        });
+        this.log.info({ projectId: msg.payload.projectId, sessionId: msg.payload.sessionId }, "Coordinator started");
+        break;
+
+      case "workflow:coordinator-crashed":
+        this.registry.emit("workflow:coordinator-crashed" as never, msg.payload);
+        this.broadcast("workflow", {
+          type: "workflow:coordinator-status-changed",
+          projectId: msg.payload.projectId,
+          status: "crashed",
+          error: msg.payload.error,
+        });
+        this.log.error({ projectId: msg.payload.projectId, error: msg.payload.error }, "Coordinator crashed");
+        break;
+
+      case "workflow:coordinator-health":
+        this.registry.emit("workflow:coordinator-health" as never, msg.payload);
+        break;
+
+      case "workflow:progress":
+        this.registry.emit("workflow:progress" as never, msg.payload);
+        this.broadcast("workflow", {
+          type: "workflow:progress",
+          projectId: msg.payload.projectId,
+          sessionId: msg.payload.sessionId,
+          issueNumber: msg.payload.issueNumber,
+          eventType: msg.payload.event.type,
+        });
+        break;
+
+      case "workflow:dispatch-started":
+        this.registry.emit("workflow:dispatch-started" as never, msg.payload);
+        this.broadcast("workflow", {
+          type: "workflow:dispatch-started",
+          projectId: msg.payload.projectId,
+          sessionId: msg.payload.sessionId,
+          issueNumber: msg.payload.issueNumber,
+          title: msg.payload.title,
+        });
+        this.log.info({ projectId: msg.payload.projectId, issueNumber: msg.payload.issueNumber }, "Issue dispatched");
+        break;
+
+      case "workflow:issue-completed":
+        this.registry.emit("workflow:issue-completed" as never, msg.payload);
+        this.broadcast("workflow", {
+          type: "workflow:issue-completed",
+          projectId: msg.payload.projectId,
+          sessionId: msg.payload.sessionId,
+          issueNumber: msg.payload.issueNumber,
+          summary: msg.payload.summary,
+        });
+        this.log.info({ projectId: msg.payload.projectId, issueNumber: msg.payload.issueNumber }, "Issue completed");
+        break;
+
       case "auth-response":
         // Should not arrive after auth; ignore
         break;

@@ -1053,4 +1053,52 @@ export class CopilotManager {
       onPermissionRequest: approveAll,
     };
   }
+
+  // -----------------------------------------------------------------------
+  // Coordinator session helpers (used by CoordinatorSessionManager)
+  // -----------------------------------------------------------------------
+
+  /**
+   * Create a new SDK session for the coordinator.
+   * Returns the sessionId of the created session.
+   */
+  async createCoordinatorSession(opts: {
+    requestId: string;
+    systemMessage: { mode: 'append' | 'replace'; content: string };
+  }): Promise<string> {
+    const sdkConfig: SharedSdkConfig = this.buildSharedSdkConfig({
+      systemMessage: opts.systemMessage,
+    });
+    const session = await this.client.createSession(sdkConfig as SessionConfig);
+    this.trackSession(session, true);
+    logSdk(`Coordinator session created: ${session.sessionId}`);
+    return session.sessionId;
+  }
+
+  /**
+   * Resume an existing SDK session for the coordinator.
+   */
+  async resumeCoordinatorSession(opts: {
+    requestId: string;
+    sessionId: string;
+    systemMessage: { mode: 'append' | 'replace'; content: string };
+  }): Promise<void> {
+    const sdkConfig = this.buildSharedSdkConfig({
+      systemMessage: opts.systemMessage,
+    });
+    const session = await this.client.resumeSession(opts.sessionId, sdkConfig as ResumeSessionConfig);
+    this.trackSession(session, true);
+    logSdk(`Coordinator session resumed: ${session.sessionId}`);
+  }
+
+  /**
+   * Send a prompt to an active session. Returns true if the session was found.
+   * Used by the dispatch module to inject issue instructions.
+   */
+  async sendToSession(sessionId: string, prompt: string): Promise<boolean> {
+    const session = this.activeSessions.get(sessionId);
+    if (!session) return false;
+    await session.send({ prompt });
+    return true;
+  }
 }
