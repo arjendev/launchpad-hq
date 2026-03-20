@@ -206,7 +206,7 @@ export function EditIssueModal({ opened, onClose, issue, owner, repo }: EditIssu
         <Divider />
         <Group justify="space-between">
           <Group gap="xs">
-            {issue.state === "backlog" && (
+            {(issue.state === "backlog" || issue.state === "in-progress") && (
               <Button
                 size="sm"
                 color="blue"

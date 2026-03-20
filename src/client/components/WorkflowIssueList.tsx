@@ -341,27 +341,30 @@ function RowActions({
   // In-progress — offer transition menu
   if (issue.state === "in-progress") {
     return (
-      <Menu shadow="sm" width={180} position="bottom-end">
-        <Menu.Target>
-          <ActionIcon size="xs" variant="subtle" color="gray" aria-label="More actions" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-            ⋯
-          </ActionIcon>
-        </Menu.Target>
-        <Menu.Dropdown>
-          <Menu.Item onClick={() => handleTransition("ready-for-review")}>
-            Submit for review
-          </Menu.Item>
-          <Menu.Item onClick={() => handleTransition("backlog")}>
-            Move to backlog
-          </Menu.Item>
-          <Menu.Item onClick={() => handleTransition("done")}>
-            Mark done
-          </Menu.Item>
-          <Menu.Item color="red" onClick={() => handleTransition("rejected")}>
-            Reject
-          </Menu.Item>
-        </Menu.Dropdown>
-      </Menu>
+      <Group gap={4} wrap="nowrap">
+        <DispatchButton issue={issue} owner={owner} repo={repo} />
+        <Menu shadow="sm" width={180} position="bottom-end">
+          <Menu.Target>
+            <ActionIcon size="xs" variant="subtle" color="gray" aria-label="More actions" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+              ⋯
+            </ActionIcon>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item onClick={() => handleTransition("ready-for-review")}>
+              Submit for review
+            </Menu.Item>
+            <Menu.Item onClick={() => handleTransition("backlog")}>
+              Move to backlog
+            </Menu.Item>
+            <Menu.Item onClick={() => handleTransition("done")}>
+              Mark done
+            </Menu.Item>
+            <Menu.Item color="red" onClick={() => handleTransition("rejected")}>
+              Reject
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+      </Group>
     );
   }
 

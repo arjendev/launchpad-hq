@@ -590,10 +590,10 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
         });
       }
 
-      if (issue.state !== "backlog") {
+      if (issue.state !== "backlog" && issue.state !== "in-progress") {
         return reply.status(422).send({
           error: "invalid_state",
-          message: `Issue #${issueNumber} is in '${issue.state}', must be 'backlog' to dispatch`,
+          message: `Issue #${issueNumber} is in '${issue.state}', must be 'backlog' or 'in-progress' to dispatch`,
         });
       }
 
@@ -606,10 +606,12 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
         });
       }
 
-      // Transition issue to in-progress
+      // Transition issue to in-progress (skip if already in-progress)
       try {
-        const updated = stateMachine.transition(issue, "in-progress", "Dispatched to coordinator");
-        store.updateIssue(owner, repo, updated);
+        if (issue.state !== "in-progress") {
+          const updated = stateMachine.transition(issue, "in-progress", "Dispatched to coordinator");
+          store.updateIssue(owner, repo, updated);
+        }
       } catch (err) {
         if (err instanceof InvalidTransitionError) {
           return reply.status(422).send({

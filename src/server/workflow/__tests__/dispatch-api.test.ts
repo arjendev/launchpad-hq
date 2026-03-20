@@ -313,21 +313,20 @@ describe("Dispatch API", () => {
       );
     });
 
-    it("rejects dispatch for non-backlog issue", async () => {
+    it("allows re-dispatch for in-progress issue", async () => {
       // First dispatch moves to in-progress
       await server.inject({
         method: "POST",
         url: "/api/workflow/test-owner/test-repo/dispatch/1",
       });
 
-      // Second dispatch fails
+      // Second dispatch succeeds (re-dispatch)
       const res = await server.inject({
         method: "POST",
         url: "/api/workflow/test-owner/test-repo/dispatch/1",
       });
 
-      expect(res.statusCode).toBe(422);
-      expect(res.json().error).toBe("invalid_state");
+      expect(res.statusCode).toBe(200);
     });
 
     it("rejects dispatch when coordinator is not active", async () => {
