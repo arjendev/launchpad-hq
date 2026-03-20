@@ -17,6 +17,7 @@ import {
 } from "../workflow/state-machine.js";
 import { GitHubSyncService } from "../workflow/github-sync.js";
 import { WorkflowStore } from "../workflow/store.js";
+import { ElicitationStore } from "../workflow/elicitation-store.js";
 import {
   coordinatorStarting,
   coordinatorStarted,
@@ -37,6 +38,7 @@ declare module "fastify" {
   interface FastifyInstance {
     workflowStore: WorkflowStore;
     workflowStateMachine: WorkflowStateMachine;
+    elicitationStore: ElicitationStore;
   }
 }
 
@@ -52,17 +54,49 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
   // Load persisted state
   await store.load();
 
+  // Elicitation store (in-memory only — not persisted)
+  const elicitationStore = new ElicitationStore();
+
   // Decorate server
   server.decorate("workflowStore", store);
   server.decorate("workflowStateMachine", stateMachine);
+  server.decorate("elicitationStore", elicitationStore);
 
   // Broadcast workflow events to WebSocket clients
   stateMachine.on((event: WorkflowEvent) => {
     server.ws.broadcast("workflow", event);
   });
 
+  // Elicitation timeout handler: notify clients and transition issue back
+  elicitationStore.onTimeout((elicitation) => {
+    server.ws.broadcast("workflow", {
+      type: "workflow:elicitation-timeout",
+      projectId: elicitation.projectId,
+      elicitationId: elicitation.id,
+      sessionId: elicitation.sessionId,
+      issueNumber: elicitation.issueNumber,
+    });
+
+    // Transition issue back to in-progress if it was in needs-input-blocking
+    if (elicitation.issueNumber) {
+      const [owner, repo] = elicitation.projectId.split("/");
+      if (owner && repo) {
+        const issue = store.getIssue(owner, repo, elicitation.issueNumber);
+        if (issue && issue.state === "needs-input-blocking") {
+          try {
+            const updated = stateMachine.transition(issue, "in-progress", "Elicitation timed out");
+            store.updateIssue(owner, repo, updated);
+          } catch {
+            // Transition may be invalid — ignore
+          }
+        }
+      }
+    }
+  });
+
   // Flush on shutdown
   server.addHook("onClose", async () => {
+    elicitationStore.close();
     await store.close();
   });
 
@@ -440,6 +474,98 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
   );
 
   // ==========================================================================
+  // Elicitation Relay Endpoints (Phase 3 — #72)
+  // ==========================================================================
+
+  /** GET /api/workflow/:owner/:repo/elicitations — list pending elicitations */
+  server.get<{ Params: { owner: string; repo: string } }>(
+    "/api/workflow/:owner/:repo/elicitations",
+    async (request, reply) => {
+      const projectId = pk(request.params);
+      const pending = elicitationStore.getByProject(projectId);
+      return reply.send({ elicitations: pending });
+    },
+  );
+
+  /** POST /api/workflow/:owner/:repo/elicitation/:id/respond — user answers an elicitation */
+  server.post<{
+    Params: { owner: string; repo: string; id: string };
+    Body: { response: Record<string, unknown> };
+  }>(
+    "/api/workflow/:owner/:repo/elicitation/:id/respond",
+    async (request, reply) => {
+      const { owner, repo, id } = request.params;
+      const projectId = pk(request.params);
+      const { response } = request.body ?? {};
+
+      if (!response || typeof response !== "object") {
+        return reply.status(400).send({ error: "bad_request", message: "Missing 'response' object" });
+      }
+
+      const elicitation = elicitationStore.get(id);
+      if (!elicitation) {
+        return reply.status(404).send({
+          error: "not_found",
+          message: `Elicitation '${id}' not found`,
+        });
+      }
+
+      if (elicitation.projectId !== projectId) {
+        return reply.status(404).send({
+          error: "not_found",
+          message: `Elicitation '${id}' not found for project ${projectId}`,
+        });
+      }
+
+      if (elicitation.status !== "pending") {
+        return reply.status(422).send({
+          error: "already_resolved",
+          message: `Elicitation '${id}' is already ${elicitation.status}`,
+        });
+      }
+
+      // Mark as answered
+      const updated = elicitationStore.answer(id, response);
+
+      // Send response to daemon
+      server.daemonRegistry?.sendToDaemon(projectId, {
+        type: "workflow:elicitation-response",
+        timestamp: Date.now(),
+        payload: {
+          projectId,
+          sessionId: elicitation.sessionId,
+          elicitationId: id,
+          response,
+        },
+      });
+
+      // Transition issue back to in-progress if it was blocking
+      if (elicitation.issueNumber) {
+        const issue = store.getIssue(owner, repo, elicitation.issueNumber);
+        if (issue && issue.state === "needs-input-blocking") {
+          try {
+            const transitioned = stateMachine.transition(issue, "in-progress", "Elicitation answered");
+            store.updateIssue(owner, repo, transitioned);
+          } catch {
+            // Transition may be invalid — ignore
+          }
+        }
+      }
+
+      // Broadcast answered event to clients
+      server.ws.broadcast("workflow", {
+        type: "workflow:elicitation-answered",
+        projectId,
+        elicitationId: id,
+        sessionId: elicitation.sessionId,
+        issueNumber: elicitation.issueNumber,
+      });
+
+      return reply.send({ ok: true, elicitation: updated });
+    },
+  );
+
+  // ==========================================================================
   // Daemon event listeners for coordinator messages
   // ==========================================================================
 
@@ -520,6 +646,43 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       const coord = store.getCoordinator(owner, repo);
       const updatedCoord = updateDispatchStatus(coord, payload.issueNumber, "completed");
       store.setCoordinator(owner, repo, updatedCoord);
+    });
+
+    // --- Elicitation relay ---
+
+    server.daemonRegistry.on("workflow:elicitation-requested" as never, (payload: {
+      projectId: string;
+      sessionId: string;
+      elicitationId: string;
+      issueNumber?: number;
+      message: string;
+      requestedSchema?: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
+    }) => {
+      const [owner, repo] = payload.projectId.split("/");
+      if (!owner || !repo) return;
+
+      // Store the pending elicitation
+      elicitationStore.add({
+        id: payload.elicitationId,
+        sessionId: payload.sessionId,
+        projectId: payload.projectId,
+        message: payload.message,
+        requestedSchema: payload.requestedSchema ?? { type: 'object', properties: {} },
+        issueNumber: payload.issueNumber,
+      });
+
+      // Transition associated issue to needs-input-blocking
+      if (payload.issueNumber) {
+        const issue = store.getIssue(owner, repo, payload.issueNumber);
+        if (issue && issue.state === "in-progress") {
+          try {
+            const updated = stateMachine.transition(issue, "needs-input-blocking", "Elicitation requested");
+            store.updateIssue(owner, repo, updated);
+          } catch {
+            // Transition may be invalid — ignore
+          }
+        }
+      }
     });
   }
 };

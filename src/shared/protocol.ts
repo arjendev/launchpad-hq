@@ -492,6 +492,49 @@ export interface CopilotUserInputRequestMessage extends BaseMessage<'copilot-use
 }
 
 // ---------------------------------------------------------------------------
+// Elicitation relay messages (Phase 3 — Elicitation Relay #72)
+// ---------------------------------------------------------------------------
+
+/** JSON Schema describing the form fields for an elicitation request */
+export interface ElicitationSchema {
+  type: 'object';
+  properties: Record<string, unknown>;
+  required?: string[];
+}
+
+/** Daemon → HQ: SDK session requests user input via elicitation */
+export interface WorkflowElicitationRequestedMessage extends BaseMessage<'workflow:elicitation-requested'> {
+  payload: {
+    projectId: string;
+    sessionId: string;
+    elicitationId: string;
+    message: string;
+    mode?: 'form';
+    requestedSchema: ElicitationSchema;
+    issueNumber?: number;
+  };
+}
+
+/** HQ → Daemon: user responded to an elicitation request */
+export interface WorkflowElicitationResponseMessage extends BaseMessage<'workflow:elicitation-response'> {
+  payload: {
+    projectId: string;
+    sessionId: string;
+    elicitationId: string;
+    response: Record<string, unknown>;
+  };
+}
+
+/** Daemon → HQ: elicitation timed out without a response */
+export interface WorkflowElicitationTimeoutMessage extends BaseMessage<'workflow:elicitation-timeout'> {
+  payload: {
+    projectId: string;
+    sessionId: string;
+    elicitationId: string;
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Workflow coordinator messages (Daemon → HQ)
 // ---------------------------------------------------------------------------
 
@@ -616,7 +659,9 @@ export type DaemonToHqMessage =
   | WorkflowCoordinatorHealthMessage
   | WorkflowDispatchStartedMessage
   | WorkflowProgressMessage
-  | WorkflowIssueCompletedMessage;
+  | WorkflowIssueCompletedMessage
+  | WorkflowElicitationRequestedMessage
+  | WorkflowElicitationTimeoutMessage;
 
 // ---------------------------------------------------------------------------
 // HQ → Daemon messages
@@ -823,7 +868,8 @@ export type HqToDaemonMessage =
   | PreviewWsCloseMessage
   | WorkflowStartCoordinatorMessage
   | WorkflowStopCoordinatorMessage
-  | WorkflowDispatchIssueMessage;
+  | WorkflowDispatchIssueMessage
+  | WorkflowElicitationResponseMessage;
 
 // ---------------------------------------------------------------------------
 // Combined union — every message that can travel over the wire

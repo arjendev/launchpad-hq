@@ -377,6 +377,23 @@ export class DaemonWsHandler {
         this.log.info({ projectId: msg.payload.projectId, issueNumber: msg.payload.issueNumber }, "Issue completed");
         break;
 
+      case "workflow:elicitation-requested":
+        this.registry.emit("workflow:elicitation-requested" as never, msg.payload);
+        this.broadcast("workflow", {
+          type: "workflow:elicitation",
+          projectId: msg.payload.projectId,
+          sessionId: msg.payload.sessionId,
+          elicitationId: msg.payload.elicitationId,
+          issueNumber: msg.payload.issueNumber,
+          message: msg.payload.message,
+          requestedSchema: msg.payload.requestedSchema,
+        });
+        this.log.info(
+          { projectId: msg.payload.projectId, elicitationId: msg.payload.elicitationId },
+          "Elicitation requested",
+        );
+        break;
+
       case "auth-response":
         // Should not arrive after auth; ignore
         break;

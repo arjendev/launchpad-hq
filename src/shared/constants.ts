@@ -37,3 +37,9 @@ export const WS_CLOSE_AUTH_TIMEOUT = 4002;
 
 /** Maximum time (ms) for a daemon to complete the auth handshake */
 export const AUTH_HANDSHAKE_TIMEOUT_MS = 15_000;
+
+/** Default timeout (ms) for an elicitation to be answered before auto-timeout (10 minutes) */
+export const ELICITATION_TIMEOUT_MS = 10 * 60 * 1_000;
+
+/** Time (ms) after which answered/timed-out elicitations are cleaned up (1 hour) */
+export const ELICITATION_CLEANUP_MS = 60 * 60 * 1_000;
