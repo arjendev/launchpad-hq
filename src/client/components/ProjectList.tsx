@@ -18,7 +18,7 @@ import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { AddProjectWizard } from "./AddProjectWizard.js";
 import { DaemonSetupInstructions } from "./DaemonSetupInstructions.js";
 import type { DashboardProject } from "../services/types.js";
-import { useWorkflowIssues } from "../services/workflow-hooks.js";
+import { useWorkflowIssues, useCoordinatorStatus } from "../services/workflow-hooks.js";
 
 function statusColor(project: DashboardProject): string {
   if (project.isArchived) return "gray";
@@ -44,9 +44,40 @@ function workStateLabel(state: string): string | null {
   }
 }
 
-/** Compact workflow status badge — summarizes tracked issues for a project. */
+/** Compact workflow status badge — summarizes tracked issues and coordinator health. */
 function WorkflowBadge({ owner, repo }: { owner: string; repo: string }) {
   const { issues } = useWorkflowIssues(owner, repo);
+  const { coordinator } = useCoordinatorStatus(owner, repo);
+
+  if (issues.length === 0 && !coordinator) return null;
+
+  // Show coordinator status if active/starting
+  if (coordinator && (coordinator.status === "active" || coordinator.status === "starting")) {
+    const activeDispatches = coordinator.activeDispatches?.filter(
+      (d) => d.status === "running" || d.status === "pending",
+    ).length ?? 0;
+    if (activeDispatches > 0) {
+      return (
+        <Badge
+          size="xs"
+          variant="filled"
+          color="blue"
+          style={{ transition: "all 0.3s ease" }}
+        >
+          🔵 {activeDispatches} dispatched
+        </Badge>
+      );
+    }
+  }
+
+  if (coordinator?.status === "crashed") {
+    return (
+      <Badge size="xs" variant="filled" color="red" style={{ transition: "all 0.3s ease" }}>
+        🔴 crashed
+      </Badge>
+    );
+  }
+
   if (issues.length === 0) return null;
 
   const needsAttention = issues.some(
@@ -60,21 +91,21 @@ function WorkflowBadge({ owner, repo }: { owner: string; repo: string }) {
 
   if (needsAttention) {
     return (
-      <Badge size="xs" variant="filled" color="yellow">
+      <Badge size="xs" variant="filled" color="yellow" style={{ transition: "all 0.3s ease" }}>
         🟡 action needed
       </Badge>
     );
   }
   if (allDone) {
     return (
-      <Badge size="xs" variant="light" color="green">
+      <Badge size="xs" variant="light" color="green" style={{ transition: "all 0.3s ease" }}>
         🟢 all done
       </Badge>
     );
   }
   if (inProgress > 0) {
     return (
-      <Badge size="xs" variant="light" color="blue">
+      <Badge size="xs" variant="light" color="blue" style={{ transition: "all 0.3s ease" }}>
         🔵 {inProgress} active
       </Badge>
     );
@@ -303,6 +334,30 @@ export function ProjectList() {
         <Text size="sm" c="dimmed" ta="center" py="xl">
           No projects added yet
         </Text>
+      )}
+
+      {/* "All Projects" aggregate selector */}
+      {data && data.projects.length > 1 && (
+        <UnstyledButton
+          component="div"
+          onClick={() => selectProject(null)}
+          p="xs"
+          style={{
+            borderRadius: "var(--mantine-radius-sm)",
+            backgroundColor: !selectedProject
+              ? "var(--mantine-color-blue-light)"
+              : undefined,
+            cursor: "pointer",
+          }}
+          w="100%"
+        >
+          <Group gap={6} wrap="nowrap">
+            <Text size="sm" fw={500}>📊 All Projects</Text>
+            <Badge size="xs" variant="light" color="gray">
+              {data.projects.length}
+            </Badge>
+          </Group>
+        </UnstyledButton>
       )}
 
       {data?.projects.map((project) => {

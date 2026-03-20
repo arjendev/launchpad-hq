@@ -2,7 +2,8 @@
  * WorkflowIssueList — compact, filterable, sortable workflow issue table.
  *
  * Shows tracked issues with HQ-enriched workflow states, colored status badges,
- * row actions for state transitions, and a sync button to pull from GitHub.
+ * row actions for state transitions, dispatch button, enhanced review actions,
+ * and multi-project aggregate support.
  */
 import { useMemo, useState } from "react";
 import {
@@ -12,6 +13,7 @@ import {
   Group,
   Indicator,
   Menu,
+  Modal,
   Paper,
   ScrollArea,
   Select,
@@ -19,11 +21,20 @@ import {
   Stack,
   Table,
   Text,
+  Textarea,
   TextInput,
   Tooltip,
 } from "@mantine/core";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
-import { useWorkflowIssues, useSyncIssues, useTransitionIssue, useElicitations } from "../services/workflow-hooks.js";
+import { useDashboard } from "../services/hooks.js";
+import {
+  useWorkflowIssues,
+  useAllWorkflowIssues,
+  useSyncIssues,
+  useTransitionIssue,
+  useDispatchIssue,
+  useElicitations,
+} from "../services/workflow-hooks.js";
 import {
   WORKFLOW_STATE_CONFIG,
   WORKFLOW_STATE_SORT,
@@ -91,6 +102,93 @@ function StatusBadge({ state }: { state: WorkflowState }) {
   );
 }
 
+// ── Dispatch Button ─────────────────────────────────────
+
+function DispatchButton({
+  issue,
+  owner,
+  repo,
+}: {
+  issue: WorkflowIssue;
+  owner: string;
+  repo: string;
+}) {
+  const dispatch = useDispatchIssue();
+
+  return (
+    <Tooltip label="Dispatch to coordinator">
+      <Button
+        size="compact-xs"
+        variant="light"
+        color="blue"
+        loading={dispatch.isPending}
+        onClick={() => dispatch.mutate({ owner, repo, issueNumber: issue.number })}
+        style={{
+          transition: "all 0.2s ease",
+        }}
+        aria-label="Dispatch issue"
+      >
+        ▶ Dispatch
+      </Button>
+    </Tooltip>
+  );
+}
+
+// ── Feedback Modal ──────────────────────────────────────
+
+function FeedbackModal({
+  opened,
+  onClose,
+  onSubmit,
+  isPending,
+}: {
+  opened: boolean;
+  onClose: () => void;
+  onSubmit: (feedback: string) => void;
+  isPending: boolean;
+}) {
+  const [feedback, setFeedback] = useState("");
+
+  const handleSubmit = () => {
+    if (feedback.trim()) {
+      onSubmit(feedback.trim());
+      setFeedback("");
+    }
+  };
+
+  return (
+    <Modal opened={opened} onClose={onClose} title="Request Changes" size="md">
+      <Stack gap="sm">
+        <Text size="sm" c="dimmed">
+          Provide feedback on what needs to change. The issue will transition back to in-progress.
+        </Text>
+        <Textarea
+          placeholder="Describe the changes needed…"
+          minRows={3}
+          maxRows={6}
+          value={feedback}
+          onChange={(e) => setFeedback(e.currentTarget.value)}
+          autosize
+        />
+        <Group justify="flex-end" gap="xs">
+          <Button size="xs" variant="subtle" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="xs"
+            color="red"
+            onClick={handleSubmit}
+            loading={isPending}
+            disabled={!feedback.trim()}
+          >
+            Send Feedback
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
 // ── Row Actions ─────────────────────────────────────────
 
 function RowActions({
@@ -106,6 +204,7 @@ function RowActions({
 }) {
   const transition = useTransitionIssue();
   const isPending = transition.isPending;
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const handleTransition = (newState: WorkflowState) => {
     transition.mutate({ owner, repo, issueNumber: issue.number, newState });
@@ -113,32 +212,43 @@ function RowActions({
 
   if (issue.state === "ready-for-review") {
     return (
-      <Group gap={4} wrap="nowrap">
-        <Tooltip label="Approve — mark as done">
-          <ActionIcon
-            size="xs"
-            variant="light"
-            color="green"
-            onClick={() => handleTransition("done")}
-            loading={isPending}
-            aria-label="Approve"
-          >
-            ✓
-          </ActionIcon>
-        </Tooltip>
-        <Tooltip label="Request changes">
-          <ActionIcon
-            size="xs"
-            variant="light"
-            color="red"
-            onClick={() => handleTransition("in-progress")}
-            loading={isPending}
-            aria-label="Request changes"
-          >
-            ✗
-          </ActionIcon>
-        </Tooltip>
-      </Group>
+      <>
+        <Group gap={4} wrap="nowrap">
+          <Tooltip label="Approve — mark as done and close on GitHub">
+            <Button
+              size="compact-xs"
+              variant="light"
+              color="green"
+              onClick={() => handleTransition("done")}
+              loading={isPending}
+              aria-label="Approve"
+            >
+              ✓ Approve
+            </Button>
+          </Tooltip>
+          <Tooltip label="Request changes — send feedback">
+            <ActionIcon
+              size="xs"
+              variant="light"
+              color="red"
+              onClick={() => setFeedbackOpen(true)}
+              loading={isPending}
+              aria-label="Request changes"
+            >
+              ✗
+            </ActionIcon>
+          </Tooltip>
+        </Group>
+        <FeedbackModal
+          opened={feedbackOpen}
+          onClose={() => setFeedbackOpen(false)}
+          onSubmit={() => {
+            handleTransition("in-progress");
+            setFeedbackOpen(false);
+          }}
+          isPending={isPending}
+        />
+      </>
     );
   }
 
@@ -175,8 +285,32 @@ function RowActions({
     );
   }
 
-  // For backlog / in-progress / done — offer a transition menu
-  if (issue.state === "backlog" || issue.state === "in-progress") {
+  // Backlog — show dispatch button + menu
+  if (issue.state === "backlog") {
+    return (
+      <Group gap={4} wrap="nowrap">
+        <DispatchButton issue={issue} owner={owner} repo={repo} />
+        <Menu shadow="sm" width={180} position="bottom-end">
+          <Menu.Target>
+            <ActionIcon size="xs" variant="subtle" color="gray" aria-label="More actions">
+              ⋯
+            </ActionIcon>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item onClick={() => handleTransition("in-progress")}>
+              Start working
+            </Menu.Item>
+            <Menu.Item onClick={() => handleTransition("done")}>
+              Mark done
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+      </Group>
+    );
+  }
+
+  // In-progress — offer transition menu
+  if (issue.state === "in-progress") {
     return (
       <Menu shadow="sm" width={180} position="bottom-end">
         <Menu.Target>
@@ -185,21 +319,12 @@ function RowActions({
           </ActionIcon>
         </Menu.Target>
         <Menu.Dropdown>
-          {issue.state === "backlog" && (
-            <Menu.Item onClick={() => handleTransition("in-progress")}>
-              Start working
-            </Menu.Item>
-          )}
-          {issue.state === "in-progress" && (
-            <>
-              <Menu.Item onClick={() => handleTransition("ready-for-review")}>
-                Submit for review
-              </Menu.Item>
-              <Menu.Item onClick={() => handleTransition("backlog")}>
-                Move to backlog
-              </Menu.Item>
-            </>
-          )}
+          <Menu.Item onClick={() => handleTransition("ready-for-review")}>
+            Submit for review
+          </Menu.Item>
+          <Menu.Item onClick={() => handleTransition("backlog")}>
+            Move to backlog
+          </Menu.Item>
           <Menu.Item onClick={() => handleTransition("done")}>
             Mark done
           </Menu.Item>
@@ -237,37 +362,29 @@ const STATUS_FILTER_OPTIONS = [
   })),
 ];
 
-// ── Main component ──────────────────────────────────────
+// ── Issue Table (shared between scoped and aggregate) ───
 
-export function WorkflowIssueList() {
-  const { selectedProject } = useSelectedProject();
-  const owner = selectedProject?.owner;
-  const repo = selectedProject?.repo;
-
-  const { issues, isLoading, isError, error } = useWorkflowIssues(owner, repo);
-  const sync = useSyncIssues(owner, repo);
-  const { elicitations, pendingCount, timeoutMs } = useElicitations(owner, repo);
-
-  const [filter, setFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+function IssueTable({
+  issues,
+  owner,
+  repo,
+  showProjectColumn,
+  filter,
+  statusFilter,
+  projectFilter,
+  elicitationByIssue,
+}: {
+  issues: WorkflowIssue[];
+  owner?: string;
+  repo?: string;
+  showProjectColumn: boolean;
+  filter: string;
+  statusFilter: string;
+  projectFilter: string;
+  elicitationByIssue: Map<number, string>;
+}) {
   const [sortField, setSortField] = useState<SortField>("status");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-
-  // Map issueNumber → elicitation id for pending elicitations
-  const elicitationByIssue = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const e of elicitations) {
-      if (e.status === "pending") {
-        map.set(e.issueNumber, e.id);
-      }
-    }
-    return map;
-  }, [elicitations]);
-
-  const pendingElicitations = useMemo(
-    () => elicitations.filter((e) => e.status === "pending"),
-    [elicitations],
-  );
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -286,6 +403,9 @@ export function WorkflowIssueList() {
     if (statusFilter !== "all") {
       result = result.filter((i) => i.state === statusFilter);
     }
+    if (projectFilter && projectFilter !== "all") {
+      result = result.filter((i) => i.project === projectFilter);
+    }
     if (filter.trim()) {
       const q = filter.toLowerCase();
       result = result.filter(
@@ -296,13 +416,144 @@ export function WorkflowIssueList() {
       );
     }
     return sortIssues(result, sortField, sortDir);
-  }, [issues, statusFilter, filter, sortField, sortDir]);
+  }, [issues, statusFilter, projectFilter, filter, sortField, sortDir]);
 
-  if (!selectedProject) {
+  if (filtered.length === 0) {
+    return (
+      <Paper withBorder p="lg" radius="sm">
+        <Stack align="center" gap="xs">
+          <Text size="sm" c="dimmed">
+            {issues.length === 0
+              ? "No issues tracked. Click Sync to pull from GitHub."
+              : "No issues match the current filters."}
+          </Text>
+        </Stack>
+      </Paper>
+    );
+  }
+
+  return (
+    <ScrollArea style={{ flex: 1 }} offsetScrollbars>
+      <Table
+        striped
+        highlightOnHover
+        withTableBorder
+        withColumnBorders={false}
+        verticalSpacing={4}
+        horizontalSpacing="xs"
+        style={{ fontSize: "var(--mantine-font-size-xs)" }}
+      >
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th
+              style={{ cursor: "pointer", userSelect: "none", width: 120 }}
+              onClick={() => toggleSort("status")}
+            >
+              Status{sortIndicator("status")}
+            </Table.Th>
+            <Table.Th
+              style={{ cursor: "pointer", userSelect: "none", width: 50 }}
+              onClick={() => toggleSort("number")}
+            >
+              #{sortIndicator("number")}
+            </Table.Th>
+            <Table.Th>Title</Table.Th>
+            {showProjectColumn && (
+              <Table.Th style={{ width: 100 }}>Project</Table.Th>
+            )}
+            <Table.Th
+              style={{ cursor: "pointer", userSelect: "none", width: 50 }}
+              onClick={() => toggleSort("age")}
+            >
+              Age{sortIndicator("age")}
+            </Table.Th>
+            <Table.Th style={{ width: 110 }}>Actions</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {filtered.map((issue) => {
+            const [issueOwner, issueRepo] = issue.project.split("/");
+            const effectiveOwner = owner ?? issueOwner ?? "";
+            const effectiveRepo = repo ?? issueRepo ?? "";
+            return (
+              <Table.Tr
+                key={`${issue.project}-${issue.number}`}
+                style={{
+                  transition: "background-color 0.3s ease",
+                }}
+              >
+                <Table.Td>
+                  <StatusBadge state={issue.state} />
+                </Table.Td>
+                <Table.Td>
+                  <Text
+                    size="xs"
+                    component="a"
+                    href={issue.ghUrl}
+                    target="_blank"
+                    rel="noopener"
+                    c="blue"
+                    style={{ textDecoration: "none" }}
+                  >
+                    #{issue.number}
+                  </Text>
+                </Table.Td>
+                <Table.Td>
+                  <Text size="xs" lineClamp={1}>{issue.title}</Text>
+                </Table.Td>
+                {showProjectColumn && (
+                  <Table.Td>
+                    <Text size="xs" c="dimmed" lineClamp={1}>{issue.project}</Text>
+                  </Table.Td>
+                )}
+                <Table.Td>
+                  <Text size="xs" c="dimmed">{formatAge(issue.updatedAt)}</Text>
+                </Table.Td>
+                <Table.Td>
+                  <RowActions
+                    issue={issue}
+                    owner={effectiveOwner}
+                    repo={effectiveRepo}
+                    elicitationId={elicitationByIssue.get(issue.number)}
+                  />
+                </Table.Td>
+              </Table.Tr>
+            );
+          })}
+        </Table.Tbody>
+      </Table>
+    </ScrollArea>
+  );
+}
+
+// ── Aggregate (All projects) view ───────────────────────
+
+function AggregateWorkflowView() {
+  const { data: dashboard } = useDashboard();
+  const projects = useMemo(
+    () => (dashboard?.projects ?? []).map((p) => ({ owner: p.owner, repo: p.repo })),
+    [dashboard],
+  );
+
+  const { issues, isLoading, isError, error } = useAllWorkflowIssues(projects);
+
+  const [filter, setFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [projectFilter, setProjectFilter] = useState<string>("all");
+
+  const projectFilterOptions = useMemo(() => {
+    const set = new Set(issues.map((i) => i.project));
+    return [
+      { value: "all", label: "All projects" },
+      ...[...set].sort().map((p) => ({ value: p, label: p })),
+    ];
+  }, [issues]);
+
+  if (projects.length === 0) {
     return (
       <Stack align="center" justify="center" gap="xs" p="xl" style={{ flex: 1 }}>
         <Text size="sm" c="dimmed">
-          Select a project to view workflow issues
+          No projects added yet. Add a project to get started.
         </Text>
       </Stack>
     );
@@ -313,9 +564,106 @@ export function WorkflowIssueList() {
   if (isError) {
     return (
       <Stack align="center" justify="center" gap="xs" p="xl" style={{ flex: 1 }}>
-        <Text size="sm" c="red">
-          Failed to load workflow issues
-        </Text>
+        <Text size="sm" c="red">Failed to load workflow issues</Text>
+        <Text size="xs" c="dimmed">{error?.message ?? "Unknown error"}</Text>
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack gap="xs" p="sm" style={{ height: "100%" }}>
+      <Group justify="space-between" wrap="nowrap">
+        <Group gap="xs">
+          <Text size="sm" fw={700}>🔄 All Workflows</Text>
+          <Badge size="sm" variant="light" color="blue">
+            {issues.length} tracked
+          </Badge>
+        </Group>
+      </Group>
+
+      <Group gap="xs">
+        <TextInput
+          placeholder="Filter issues…"
+          size="xs"
+          value={filter}
+          onChange={(e) => setFilter(e.currentTarget.value)}
+          style={{ flex: 1, minWidth: 120 }}
+        />
+        <Select
+          size="xs"
+          data={STATUS_FILTER_OPTIONS}
+          value={statusFilter}
+          onChange={(v) => setStatusFilter(v ?? "all")}
+          style={{ width: 150 }}
+          allowDeselect={false}
+        />
+        <Select
+          size="xs"
+          data={projectFilterOptions}
+          value={projectFilter}
+          onChange={(v) => setProjectFilter(v ?? "all")}
+          style={{ width: 160 }}
+          allowDeselect={false}
+        />
+      </Group>
+
+      <IssueTable
+        issues={issues}
+        showProjectColumn
+        filter={filter}
+        statusFilter={statusFilter}
+        projectFilter={projectFilter}
+        elicitationByIssue={new Map()}
+      />
+    </Stack>
+  );
+}
+
+// ── Main component ──────────────────────────────────────
+
+export function WorkflowIssueList() {
+  const { selectedProject } = useSelectedProject();
+  const owner = selectedProject?.owner;
+  const repo = selectedProject?.repo;
+
+  // When no project is selected, show the aggregate view
+  if (!selectedProject) {
+    return <AggregateWorkflowView />;
+  }
+
+  return <ScopedWorkflowView owner={owner!} repo={repo!} />;
+}
+
+/** Single-project scoped view */
+function ScopedWorkflowView({ owner, repo }: { owner: string; repo: string }) {
+  const { issues, isLoading, isError, error } = useWorkflowIssues(owner, repo);
+  const sync = useSyncIssues(owner, repo);
+  const { elicitations, pendingCount, timeoutMs } = useElicitations(owner, repo);
+
+  const [filter, setFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  const elicitationByIssue = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const e of elicitations) {
+      if (e.status === "pending") {
+        map.set(e.issueNumber, e.id);
+      }
+    }
+    return map;
+  }, [elicitations]);
+
+  const pendingElicitations = useMemo(
+    () => elicitations.filter((e) => e.status === "pending"),
+    [elicitations],
+  );
+
+  if (isLoading) return <WorkflowSkeleton />;
+
+  if (isError) {
+    return (
+      <Stack align="center" justify="center" gap="xs" p="xl" style={{ flex: 1 }}>
+        <Text size="sm" c="red">Failed to load workflow issues</Text>
         <Text size="xs" c="dimmed">{error?.message ?? "Unknown error"}</Text>
       </Stack>
     );
@@ -350,7 +698,7 @@ export function WorkflowIssueList() {
       </Group>
 
       {/* Pending Elicitation Cards */}
-      {pendingElicitations.length > 0 && owner && repo && (
+      {pendingElicitations.length > 0 && (
         <Stack gap="sm">
           {pendingElicitations.map((e) => (
             <ElicitationCard
@@ -383,90 +731,17 @@ export function WorkflowIssueList() {
         />
       </Group>
 
-      {/* Table */}
-      {filtered.length === 0 ? (
-        <Paper withBorder p="lg" radius="sm">
-          <Stack align="center" gap="xs">
-            <Text size="sm" c="dimmed">
-              {issues.length === 0
-                ? "No issues tracked. Click Sync to pull from GitHub."
-                : "No issues match the current filters."}
-            </Text>
-          </Stack>
-        </Paper>
-      ) : (
-        <ScrollArea style={{ flex: 1 }} offsetScrollbars>
-          <Table
-            striped
-            highlightOnHover
-            withTableBorder
-            withColumnBorders={false}
-            verticalSpacing={4}
-            horizontalSpacing="xs"
-            style={{ fontSize: "var(--mantine-font-size-xs)" }}
-          >
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th
-                  style={{ cursor: "pointer", userSelect: "none", width: 120 }}
-                  onClick={() => toggleSort("status")}
-                >
-                  Status{sortIndicator("status")}
-                </Table.Th>
-                <Table.Th
-                  style={{ cursor: "pointer", userSelect: "none", width: 50 }}
-                  onClick={() => toggleSort("number")}
-                >
-                  #{sortIndicator("number")}
-                </Table.Th>
-                <Table.Th>Title</Table.Th>
-                <Table.Th style={{ width: 100 }}>Project</Table.Th>
-                <Table.Th
-                  style={{ cursor: "pointer", userSelect: "none", width: 50 }}
-                  onClick={() => toggleSort("age")}
-                >
-                  Age{sortIndicator("age")}
-                </Table.Th>
-                <Table.Th style={{ width: 70 }}>Actions</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {filtered.map((issue) => (
-                <Table.Tr key={issue.number}>
-                  <Table.Td>
-                    <StatusBadge state={issue.state} />
-                  </Table.Td>
-                  <Table.Td>
-                    <Text
-                      size="xs"
-                      component="a"
-                      href={issue.ghUrl}
-                      target="_blank"
-                      rel="noopener"
-                      c="blue"
-                      style={{ textDecoration: "none" }}
-                    >
-                      #{issue.number}
-                    </Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="xs" lineClamp={1}>{issue.title}</Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="xs" c="dimmed" lineClamp={1}>{issue.project}</Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="xs" c="dimmed">{formatAge(issue.updatedAt)}</Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <RowActions issue={issue} owner={owner!} repo={repo!} elicitationId={elicitationByIssue.get(issue.number)} />
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
-      )}
+      {/* Table — single-project doesn't need project column */}
+      <IssueTable
+        issues={issues}
+        owner={owner}
+        repo={repo}
+        showProjectColumn={false}
+        filter={filter}
+        statusFilter={statusFilter}
+        projectFilter="all"
+        elicitationByIssue={elicitationByIssue}
+      />
     </Stack>
   );
 }

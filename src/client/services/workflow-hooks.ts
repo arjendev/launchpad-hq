@@ -4,8 +4,8 @@
  * Follows the REST + WebSocket merge pattern: initial fetch via TanStack Query,
  * real-time updates via useSubscription on the "workflow" channel.
  */
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useQuery, useMutation, useQueryClient, useQueries } from "@tanstack/react-query";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useSubscription } from "../contexts/WebSocketContext.js";
 import { authFetchJson as fetchJson, authFetch } from "./authFetch.js";
 import { notifications } from "@mantine/notifications";
@@ -19,6 +19,11 @@ import type {
   WorkflowElicitation,
   ElicitationListResponse,
   ElicitationRespondResponse,
+  ActivityEvent,
+  ActivityEventType,
+  PaginatedActivityResult,
+  CoordinatorStatusResponse,
+  DispatchResponse,
 } from "./workflow-types.js";
 
 /**
@@ -216,4 +221,198 @@ export function useRespondToElicitation() {
       void qc.invalidateQueries({ queryKey: ["workflow-issues", owner, repo] });
     },
   });
+}
+
+// ── Activity feed hooks ─────────────────────────────────
+
+/**
+ * Fetch activity feed for a project (or global if owner/repo not provided).
+ * Subscribes to WebSocket for real-time prepending of new events.
+ */
+export function useActivityFeed(owner?: string, repo?: string) {
+  const qc = useQueryClient();
+  const isScoped = !!owner && !!repo;
+  const endpoint = isScoped
+    ? `/api/workflow/${encodeURIComponent(owner!)}/${encodeURIComponent(repo!)}/activity`
+    : `/api/workflow/activity`;
+
+  const [realtimeEvents, setRealtimeEvents] = useState<ActivityEvent[]>([]);
+
+  const query = useQuery<PaginatedActivityResult>({
+    queryKey: ["activity-feed", owner ?? "global", repo ?? "global"],
+    queryFn: () => fetchJson<PaginatedActivityResult>(endpoint),
+    refetchInterval: 60_000,
+  });
+
+  // Listen for real-time activity events via WebSocket
+  const { data: wsUpdate } = useSubscription<WorkflowEvent>("workflow");
+  const prevRef = useRef<WorkflowEvent | null>(null);
+  useEffect(() => {
+    if (!wsUpdate || wsUpdate === prevRef.current) return;
+    prevRef.current = wsUpdate;
+
+    if (wsUpdate.type === "workflow:activity") {
+      const event = wsUpdate.event;
+      const matchesScope =
+        !isScoped ||
+        (event.projectOwner === owner && event.projectRepo === repo);
+      if (matchesScope) {
+        setRealtimeEvents((prev) => [event, ...prev]);
+      }
+    }
+  }, [wsUpdate, isScoped, owner, repo]);
+
+  // Reset realtime buffer on refetch
+  useEffect(() => {
+    if (query.dataUpdatedAt) {
+      setRealtimeEvents([]);
+    }
+  }, [query.dataUpdatedAt]);
+
+  const fetchedEvents = query.data?.events ?? [];
+  const allEvents = [...realtimeEvents, ...fetchedEvents];
+
+  // Dedupe by id (realtime events may also appear in fetched data)
+  const seen = new Set<string>();
+  const events = allEvents.filter((e) => {
+    if (seen.has(e.id)) return false;
+    seen.add(e.id);
+    return true;
+  });
+
+  const loadMore = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ["activity-feed"] });
+  }, [qc]);
+
+  return {
+    events,
+    total: query.data?.total ?? events.length,
+    hasMore: query.data?.hasMore ?? false,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    loadMore,
+  };
+}
+
+// ── Coordinator status hook ─────────────────────────────
+
+/**
+ * Fetch coordinator health status for a project.
+ * Auto-updates via WebSocket events.
+ */
+export function useCoordinatorStatus(owner?: string, repo?: string) {
+  const qc = useQueryClient();
+  const enabled = !!owner && !!repo;
+
+  const query = useQuery<CoordinatorStatusResponse>({
+    queryKey: ["coordinator-status", owner, repo],
+    queryFn: () =>
+      fetchJson<CoordinatorStatusResponse>(
+        `/api/workflow/${encodeURIComponent(owner!)}/${encodeURIComponent(repo!)}/coordinator/status`,
+      ),
+    enabled,
+    refetchInterval: 30_000,
+  });
+
+  // Refetch on WebSocket workflow events (coordinator status changes)
+  const { data: wsUpdate } = useSubscription<WorkflowEvent>("workflow");
+  const prevRef = useRef<WorkflowEvent | null>(null);
+  useEffect(() => {
+    if (wsUpdate && wsUpdate !== prevRef.current) {
+      prevRef.current = wsUpdate;
+      void qc.invalidateQueries({ queryKey: ["coordinator-status"] });
+    }
+  }, [wsUpdate, qc]);
+
+  return {
+    coordinator: query.data?.coordinator ?? null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+  };
+}
+
+// ── Dispatch issue hook ─────────────────────────────────
+
+/**
+ * Dispatch a backlog issue to the coordinator.
+ */
+export function useDispatchIssue() {
+  const qc = useQueryClient();
+
+  return useMutation<
+    DispatchResponse,
+    Error,
+    { owner: string; repo: string; issueNumber: number }
+  >({
+    mutationFn: async ({ owner, repo, issueNumber }) => {
+      const res = await authFetch(
+        `/api/workflow/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/dispatch/${issueNumber}`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `Dispatch failed (${res.status})`);
+      }
+      return res.json() as Promise<DispatchResponse>;
+    },
+    onSuccess: (_data, { owner, repo }) => {
+      void qc.invalidateQueries({ queryKey: ["workflow-issues", owner, repo] });
+      void qc.invalidateQueries({ queryKey: ["coordinator-status", owner, repo] });
+      void qc.invalidateQueries({ queryKey: ["activity-feed"] });
+    },
+  });
+}
+
+// ── All-project aggregate hook ──────────────────────────
+
+/**
+ * Fetch workflow issues from all known projects and merge into a single list.
+ * Used when no specific project is selected ("All" view).
+ */
+export function useAllWorkflowIssues(
+  projects: Array<{ owner: string; repo: string }>,
+) {
+  const qc = useQueryClient();
+  const enabled = projects.length > 0;
+
+  const queries = useQueries({
+    queries: projects.map((p) => ({
+      queryKey: ["workflow-issues", p.owner, p.repo] as const,
+      queryFn: () =>
+        fetchJson<WorkflowIssuesResponse>(
+          `/api/workflow/${encodeURIComponent(p.owner)}/${encodeURIComponent(p.repo)}/issues`,
+        ),
+      enabled,
+      refetchInterval: 60_000,
+    })),
+  });
+
+  // Refetch all on WebSocket workflow events
+  const { data: wsUpdate } = useSubscription<WorkflowEvent>("workflow");
+  const prevRef = useRef<WorkflowEvent | null>(null);
+  useEffect(() => {
+    if (wsUpdate && wsUpdate !== prevRef.current) {
+      prevRef.current = wsUpdate;
+      void qc.invalidateQueries({ queryKey: ["workflow-issues"] });
+    }
+  }, [wsUpdate, qc]);
+
+  const allIssues: WorkflowIssue[] = [];
+  for (const q of queries) {
+    if (q.data?.issues) {
+      allIssues.push(...q.data.issues);
+    }
+  }
+
+  const isLoading = queries.some((q) => q.isLoading);
+  const isError = queries.some((q) => q.isError);
+  const error = queries.find((q) => q.error)?.error ?? null;
+
+  return {
+    issues: allIssues,
+    count: allIssues.length,
+    isLoading,
+    isError,
+    error,
+  };
 }

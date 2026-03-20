@@ -101,6 +101,77 @@ export interface ElicitationRespondResponse {
   elicitation: WorkflowElicitation;
 }
 
+// ── Activity feed types ─────────────────────────────────
+
+export type ActivityEventType =
+  | "issue-dispatched"
+  | "progress"
+  | "elicitation-requested"
+  | "elicitation-answered"
+  | "elicitation-timeout"
+  | "issue-completed"
+  | "coordinator-started"
+  | "coordinator-crashed"
+  | "review-approved"
+  | "review-rejected";
+
+export type ActivitySeverity = "info" | "warning" | "urgent";
+
+export interface ActivityEvent {
+  id: string;
+  timestamp: string;
+  type: ActivityEventType;
+  projectOwner: string;
+  projectRepo: string;
+  issueNumber?: number;
+  message: string;
+  severity: ActivitySeverity;
+}
+
+export interface ActivityQuery {
+  since?: string;
+  limit?: number;
+  types?: ActivityEventType[];
+}
+
+export interface PaginatedActivityResult {
+  events: ActivityEvent[];
+  total: number;
+  hasMore: boolean;
+}
+
+export interface WorkflowActivityEvent {
+  type: "workflow:activity";
+  event: ActivityEvent;
+}
+
+// ── Coordinator status types ────────────────────────────
+
+export type CoordinatorStatus = "idle" | "starting" | "active" | "crashed";
+
+export interface CoordinatorState {
+  status: CoordinatorStatus;
+  startedAt?: string;
+  lastHealthPing?: string;
+  activeDispatches: Array<{
+    issueNumber: number;
+    status: "pending" | "running" | "completed" | "failed";
+    dispatchedAt: string;
+  }>;
+}
+
+export interface CoordinatorStatusResponse {
+  coordinator: CoordinatorState;
+}
+
+// ── Dispatch types ──────────────────────────────────────
+
+export interface DispatchResponse {
+  ok: boolean;
+  issueNumber: number;
+  status: string;
+}
+
 // ── WebSocket event types ───────────────────────────────
 
 export interface WorkflowIssueStateChangedEvent {
@@ -141,4 +212,5 @@ export type WorkflowEvent =
   | WorkflowSyncCompletedEvent
   | WorkflowElicitationEvent
   | WorkflowElicitationAnsweredEvent
-  | WorkflowElicitationTimeoutEvent;
+  | WorkflowElicitationTimeoutEvent
+  | WorkflowActivityEvent;

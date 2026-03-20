@@ -8,6 +8,7 @@ import { SessionList } from "../components/SessionList.js";
 import { BacklogList } from "../components/BacklogList.js";
 import { WorkflowIssueList } from "../components/WorkflowIssueList.js";
 import { InboxPanel } from "../components/InboxPanel.js";
+import { ActivityFeed } from "../components/ActivityFeed.js";
 import { ResizableTerminalPanel } from "../components/ResizableTerminalPanel.js";
 import { ConnectionStatus } from "../components/ConnectionStatus.js";
 import { ThemeToggle } from "../components/ThemeToggle.js";
@@ -100,11 +101,45 @@ export function DashboardLayout() {
               }}
             >
               {!selectedProject ? (
-                <Stack align="center" justify="center" style={{ flex: 1 }}>
-                  <Text size="lg" c="dimmed">
-                    Select a project to get started
-                  </Text>
-                </Stack>
+                <Flex style={{ flex: 1, minHeight: 0 }}>
+                  {/* No project selected — show workflow aggregate or prompt */}
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                    <Group px="sm" pt="xs" pb={4} style={{ borderBottom: "1px solid var(--lp-border)" }}>
+                      <SegmentedControl
+                        size="xs"
+                        value={centerTab}
+                        onChange={(v) => setCenterTab(v as "backlog" | "workflow")}
+                        data={[
+                          { label: "📋 Backlog", value: "backlog" },
+                          { label: "🔄 Workflow", value: "workflow" },
+                        ]}
+                      />
+                    </Group>
+                    <ScrollArea style={{ flex: 1, minHeight: 0 }}>
+                      {centerTab === "backlog" ? (
+                        <Stack align="center" justify="center" style={{ flex: 1, padding: 40 }}>
+                          <Text size="lg" c="dimmed">Select a project to view backlog</Text>
+                        </Stack>
+                      ) : (
+                        <WorkflowIssueList />
+                      )}
+                    </ScrollArea>
+                  </div>
+
+                  {/* Activity feed — global view */}
+                  <div
+                    style={{
+                      width: 260,
+                      minWidth: 260,
+                      borderLeft: "1px solid var(--lp-border)",
+                      display: "flex",
+                      flexDirection: "column",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <ActivityFeed />
+                  </div>
+                </Flex>
               ) : (
                 <>
                   {/* Tab switcher: Backlog vs Workflow */}
@@ -133,9 +168,28 @@ export function DashboardLayout() {
                     >
                       <InboxPanel />
                     </div>
-                    <ScrollArea style={{ flex: 1, minHeight: 0 }}>
-                      {centerTab === "backlog" ? <BacklogList /> : <WorkflowIssueList />}
-                    </ScrollArea>
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+                      <ScrollArea style={{ flex: 1, minHeight: 0 }}>
+                        {centerTab === "backlog" ? <BacklogList /> : <WorkflowIssueList />}
+                      </ScrollArea>
+                    </div>
+
+                    {/* Activity feed — scoped to project */}
+                    <div
+                      style={{
+                        width: 260,
+                        minWidth: 260,
+                        borderLeft: "1px solid var(--lp-border)",
+                        display: "flex",
+                        flexDirection: "column",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <ActivityFeed
+                        owner={selectedProject.owner}
+                        repo={selectedProject.repo}
+                      />
+                    </div>
                   </Flex>
 
                   {selectedSession && daemon && (
