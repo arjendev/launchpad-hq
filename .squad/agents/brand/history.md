@@ -24,6 +24,15 @@
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+### 2026-07-21: Workflow Issue List — Phase 1 frontend (#72)
+- Created `src/client/services/workflow-types.ts` — `WorkflowIssue`, `WorkflowState` (6 states: backlog → done), `WorkflowEvent` (WebSocket types), display config maps (colors, emojis, sort order)
+- Created `src/client/services/workflow-hooks.ts` — three hooks: `useWorkflowIssues(owner, repo)` (fetch + WS refetch), `useSyncIssues` (POST mutation), `useTransitionIssue` (PUT mutation). All use `authFetch`/`authFetchJson` pattern.
+- Created `src/client/components/WorkflowIssueList.tsx` — compact sortable/filterable Mantine Table with status badges, text filter, status dropdown, column sort (status/number/age), row actions (Approve/Reject for review, Respond for needs-input, overflow menu for others), Sync button with loading state, empty state messaging.
+- Added `WorkflowBadge` to `ProjectList.tsx` — per-project badge showing 🟡 action needed / 🔵 N active / 🟢 all done based on workflow issue states.
+- Added `SegmentedControl` tab switcher in `DashboardLayout.tsx` — "📋 Backlog" / "🔄 Workflow" in both desktop and mobile layouts.
+- Added `"workflow"` channel to both client (`ws-types.ts`) and server (`server/ws/types.ts`) Channel types.
+- Backend endpoints consumed: `GET /api/workflow/:owner/:repo/issues`, `POST .../sync`, `PUT .../issues/:number/state`, WS channel `"workflow"`. Romilly building these in parallel.
+
 ### 2026-07-21: Markdown rendering in Copilot conversation view (#66)
 - Created `src/client/components/MarkdownContent.tsx` — reusable markdown renderer using `react-markdown` + `remark-gfm`
 - Replaces plain `<Text whiteSpace="pre-wrap">` in `AssistantMessage` with proper markdown rendering
