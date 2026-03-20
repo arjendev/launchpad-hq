@@ -33,6 +33,7 @@ import selfDaemonPlugin from "./self-daemon/plugin.js";
 import selfDaemonRoutes from "./routes/self-daemon.js";
 import tunnelPlugin from "./routes/tunnel.js";
 import previewRoutes from "./routes/preview.js";
+import workflowRoutes from "./routes/workflow.js";
 import authPlugin from "./auth/plugin.js";
 
 const config = loadConfig();
@@ -150,6 +151,10 @@ await server.register(copilotSessionRoutes);
 await server.register(inboxRoutes);
 await server.register(settingsRoutes);
 await server.register(onboardingRoutes);
+
+// --- Workflow (state machine + GitHub sync + REST API) ---
+
+await server.register(workflowRoutes);
 
 // --- Self-daemon (spawns HQ's own daemon as a child process) ---
 
