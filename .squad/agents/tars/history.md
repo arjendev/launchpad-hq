@@ -332,3 +332,13 @@ Split `copilot/manager.ts` (1255→1016 lines) and `index.ts` (352→249 lines) 
 - ElicitationRelay doesn't hold a reference to CopilotManager's session map. Instead, the manager passes `isSessionActive`, `sendToSession`, and `sendSessionError` callbacks at call time. This keeps the relay testable and decoupled.
 
 **Verification:** 251 daemon tests pass, 949 server tests pass, typecheck clean.
+
+### 2026-03-21: Phase 3 — Typed Event Bus integration and terminal type docs (#76)
+- Verified DaemonRegistry already extends DaemonEventBus (Phase 2 commit a9b4b11)
+- Verified handler.ts has zero `as never` casts on emit calls
+- Verified copilot-aggregator/plugin.ts listeners use inferred types from DaemonEventMap
+- Removed `DaemonRegistryEvents` interface — all events now in DaemonEventMap
+- `copilot:sdk-state` event map fixed to match actual payload (no `projectId` in CopilotSdkStateMessage)
+- Preview events (`preview:proxy-response`, `preview:ws-data`, `preview:ws-close`) now have typed payloads
+- Added terminal type documentation: ws/types.ts defines browser→HQ messages (with `daemonId`), shared/protocol.ts defines HQ→daemon messages (with `projectId` + `sessionId`). Intentionally distinct.
+- Server typecheck clean, 1165 tests passing

@@ -693,6 +693,11 @@ export interface CommandMessage extends BaseMessage<'command'> {
   };
 }
 
+// HQ→daemon terminal messages.
+// These carry `projectId` + `sessionId`/`terminalId` and extend BaseMessage.
+// NOTE: ws/types.ts defines separate browser→HQ terminal types (TerminalInputMessage,
+// TerminalResizeMessage, etc.) that carry `daemonId` instead. The two sets are
+// intentionally distinct — different audiences, different wire formats.
 export interface TerminalInputMessage extends BaseMessage<'terminal-input'> {
   payload: {
     projectId: string;

@@ -33,6 +33,15 @@ export interface PingMessage {
 }
 
 // --- Terminal-specific client → server messages ---
+//
+// These types define the browser→HQ WebSocket terminal protocol.
+// They carry `daemonId` to identify which daemon/project the terminal belongs to.
+//
+// NOTE: shared/protocol.ts defines separate TerminalInputMessage and
+// TerminalResizeMessage types for the HQ→daemon protocol. Those extend
+// BaseMessage and carry `projectId` + `sessionId` instead of `daemonId`.
+// The two sets are intentionally distinct: different audiences, different
+// wire formats, different routing paths.
 
 export interface TerminalJoinMessage {
   type: "terminal:join";
