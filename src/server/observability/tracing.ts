@@ -26,8 +26,11 @@ export async function setupTracing(config?: OtelConfig): Promise<boolean> {
 
   // Dynamic imports to avoid loading heavy OTEL modules when disabled
   const { NodeSDK } = await import("@opentelemetry/sdk-node");
-  const { OTLPTraceExporter: GrpcExporter } = await import("@opentelemetry/exporter-trace-otlp-grpc");
-  const { OTLPTraceExporter: HttpExporter } = await import("@opentelemetry/exporter-trace-otlp-http");
+  const { OTLPTraceExporter: GrpcTraceExporter } = await import("@opentelemetry/exporter-trace-otlp-grpc");
+  const { OTLPTraceExporter: HttpTraceExporter } = await import("@opentelemetry/exporter-trace-otlp-http");
+  const { OTLPLogExporter: GrpcLogExporter } = await import("@opentelemetry/exporter-logs-otlp-grpc");
+  const { OTLPLogExporter: HttpLogExporter } = await import("@opentelemetry/exporter-logs-otlp-http");
+  const { BatchLogRecordProcessor } = await import("@opentelemetry/sdk-logs");
   const { resourceFromAttributes } = await import("@opentelemetry/resources");
   const { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } = await import("@opentelemetry/semantic-conventions");
   const { getNodeAutoInstrumentations } = await import("@opentelemetry/auto-instrumentations-node");
@@ -36,16 +39,20 @@ export async function setupTracing(config?: OtelConfig): Promise<boolean> {
 
   // Use gRPC for port 4317 (Aspire default), HTTP for others
   const isGrpc = config.endpoint.includes(":4317");
-  const exporter = isGrpc
-    ? new GrpcExporter({ url: config.endpoint })
-    : new HttpExporter({ url: config.endpoint });
+  const traceExporter = isGrpc
+    ? new GrpcTraceExporter({ url: config.endpoint })
+    : new HttpTraceExporter({ url: config.endpoint });
+  const logExporter = isGrpc
+    ? new GrpcLogExporter({ url: config.endpoint })
+    : new HttpLogExporter({ url: config.endpoint });
 
   const sdk = new NodeSDK({
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: serviceName,
       [ATTR_SERVICE_VERSION]: "0.1.4",
     }),
-    traceExporter: exporter,
+    traceExporter,
+    logRecordProcessors: [new BatchLogRecordProcessor(logExporter)],
     instrumentations: [
       getNodeAutoInstrumentations({
         // Only enable instrumentations we care about

@@ -14,6 +14,7 @@ import type {
 import type { CopilotManager } from './manager.js';
 import { logSdk, logDecision } from '../logger.js';
 import { startSpan, SpanStatusCode } from '../observability/tracing.js';
+import { sanitize } from '../observability/sanitize.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -135,6 +136,7 @@ export class CoordinatorSessionManager {
     }
 
     const span = startSpan('coordinator.start', { 'coordinator.resume': !!resumeSessionId });
+    span.addEvent('coordinator.config', { resumeSessionId: resumeSessionId ?? 'none', agentId: agentId ?? 'none' });
     this.stopped = false;
     // Remember agentId for crash recovery restarts
     if (agentId !== undefined) this._agentId = agentId ?? null;
@@ -176,6 +178,7 @@ export class CoordinatorSessionManager {
           resumed: !!resumeSessionId,
         },
       });
+      span.addEvent('message.sent_to_hq', { 'message.type': 'workflow:coordinator-started', sessionId });
 
       this.startHealthMonitor();
       logSdk(`Coordinator session started: ${sessionId}`);
@@ -192,6 +195,7 @@ export class CoordinatorSessionManager {
   /** Stop the coordinator session cleanly */
   async stop(): Promise<void> {
     const span = startSpan('coordinator.stop', { 'session.id': this._sessionId ?? 'none' });
+    span.addEvent('coordinator.state', { sessionId: this._sessionId ?? 'none', state: this._state, dispatched: this._dispatched });
     this.stopped = true;
     this.clearTimers();
 
@@ -286,6 +290,7 @@ export class CoordinatorSessionManager {
 
   private handleCrash(error: string): void {
     const span = startSpan('coordinator.crash', { 'error.message': error });
+    span.addEvent('coordinator.state', { error, sessionId: this._sessionId ?? 'none', consecutiveFailures: this._consecutiveFailures + 1, willRetry: !this.stopped });
     this._consecutiveFailures += 1;
     this.setState('crashed');
 
@@ -301,6 +306,7 @@ export class CoordinatorSessionManager {
         retryAttempt: this._consecutiveFailures,
       },
     });
+    span.addEvent('message.sent_to_hq', { 'message.type': 'workflow:coordinator-crashed', error });
 
     logSdk(`Coordinator crashed (attempt ${this._consecutiveFailures}): ${error}`);
     logDecision('coordinator', willRetry ? 'restart' : 'stop', {

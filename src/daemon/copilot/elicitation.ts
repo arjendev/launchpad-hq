@@ -11,6 +11,7 @@ import type { SessionEvent } from '@github/copilot-sdk';
 import type { SendToHq } from '../../shared/protocol.js';
 import { logSdk } from '../logger.js';
 import { startSpan, SpanStatusCode } from '../observability/tracing.js';
+import { sanitize } from '../observability/sanitize.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,6 +64,7 @@ export class ElicitationRelay {
     const data = event.data as Record<string, unknown>;
     const elicitationId = (data.requestId as string) ?? event.id;
     const span = startSpan('elicitation.relay', { 'elicitation.id': elicitationId, 'session.id': sessionId });
+    span.addEvent('elicitation.message', sanitize({ elicitationId, sessionId, message: (data.message as string) ?? '', mode: (data.mode as string) ?? 'default' }) as Record<string, string>);
     const message = (data.message as string) ?? '';
     const mode = (data.mode as 'form' | undefined) ?? undefined;
     const requestedSchema = (data.requestedSchema as { type: 'object'; properties: Record<string, unknown>; required?: string[] }) ?? {
@@ -83,6 +85,7 @@ export class ElicitationRelay {
         requestedSchema,
       },
     });
+    span.addEvent('message.sent_to_hq', { 'message.type': 'workflow:elicitation-requested', elicitationId });
 
     this.pendingElicitations.set(elicitationId, { sessionId });
     logSdk(`Elicitation ${elicitationId} captured (session ${sessionId})`);

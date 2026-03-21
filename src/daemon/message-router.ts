@@ -18,6 +18,7 @@ import type { IssueDispatcher } from './copilot/dispatch.js';
 import type { PreviewManager } from './preview-manager.js';
 import { logIncoming, logError } from './logger.js';
 import { extractTraceContext, withSpan, SpanStatusCode, type Span } from './observability/tracing.js';
+import { sanitize } from './observability/sanitize.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,6 +70,7 @@ export class MessageRouter {
       'daemon.handle_message',
       { 'message.type': msg.type },
       async (_span: Span) => {
+        _span.addEvent('message.received', sanitize(msg) as Record<string, string>);
         await this.dispatch(msg);
       },
       parentCtx,

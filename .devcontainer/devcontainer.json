@@ -11,7 +11,8 @@
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1.1.0": {},
     "ghcr.io/devcontainers/features/copilot-cli:1.0.0": {},
-    "ghcr.io/stuartleeks/dev-container-features/dev-tunnels:0.0.3": {}
+    "ghcr.io/stuartleeks/dev-container-features/dev-tunnels:0.0.1": {},
+    "ghcr.io/devcontainers/features/docker-in-docker": { "moby": false }
   },
   "postCreateCommand": "sudo chown -R node:node /home/node/.copilot && npm install && npx playwright install chromium --with-deps",
   "customizations": {

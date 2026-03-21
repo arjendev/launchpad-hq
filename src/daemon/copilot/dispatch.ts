@@ -14,6 +14,7 @@ import type { CoordinatorSessionManager } from './coordinator.js';
 import type { CopilotManager } from './manager.js';
 import { logSdk, logDecision } from '../logger.js';
 import { withSpan } from '../observability/tracing.js';
+import { sanitize } from '../observability/sanitize.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,7 +56,8 @@ export class IssueDispatcher {
    * Sends a formatted prompt with the issue details.
    */
   async dispatchIssue(issue: WorkflowIssuePayload): Promise<DispatchResult> {
-    return withSpan('dispatch.issue', { 'issue.number': issue.issueNumber }, async () => {
+    return withSpan('dispatch.issue', { 'issue.number': issue.issueNumber }, async (span) => {
+    span.addEvent('issue.details', sanitize({ issueNumber: issue.issueNumber, title: issue.title, labels: issue.labels }) as Record<string, string>);
     const sessionId = this.coordinator.sessionId;
 
     if (!sessionId) {
@@ -102,6 +104,7 @@ export class IssueDispatcher {
           title: issue.title,
         },
       });
+      span.addEvent('message.sent_to_hq', { 'message.type': 'workflow:dispatch-started', 'issue.number': issue.issueNumber });
 
       logSdk(`Issue #${issue.issueNumber} dispatched to session ${sessionId}`);
       logDecision('dispatch', 'accepted', { issueNumber: issue.issueNumber, sessionId });

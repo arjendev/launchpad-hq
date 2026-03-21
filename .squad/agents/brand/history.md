@@ -1,35 +1,50 @@
-# Brand — History
+# Brand — Frontend Dev Context
 
 ## Core Context
 
-### Architecture (post-#76 refactor)
-- **Hooks split into domain files**: `hooks.ts` is a 19-line barrel re-exporting from 6 domain files: `dashboard-hooks`, `daemon-hooks`, `session-hooks`, `conversation-hooks`, `tunnel-hooks`, `settings-hooks`.
-- **Workflow hooks**: separate file `workflow-hooks.ts` with issue CRUD, sync, transitions, dispatch, elicitations, activity, coordinator control.
-- **CoordinatorCard**: extracted from SessionList into its own component (`CoordinatorCard.tsx`).
-- **Conversation renderers**: split from CopilotConversation into `ConversationMessageRenderers.tsx`.
+### Architecture
+- **Stack:** Mantine v7, TanStack Router + Query, TypeScript, Vite
+- **Layout:** Progressive-depth 3-column grid — ProjectList (250px) | SessionList (220px) | Main (flex). Main splits vertically: content area + ResizableTerminalPanel
+- **Contexts:** ProjectContext → SessionContext → WebSocketContext → ThemeContext (nested in App.tsx inside MantineProvider)
+- **Pages:** `src/client/pages/` for full-page views (SettingsPage, OnboardingPage); `src/client/layouts/` for DashboardLayout
+- **Components:** `src/client/components/` — all UI components (30+)
+- **Services:** `src/client/services/` — hooks, types, auth, WebSocket client
+  - `hooks.ts` — barrel re-export from 6 domain files: dashboard-hooks, daemon-hooks, session-hooks, conversation-hooks, tunnel-hooks, settings-hooks
+  - `types.ts` — mirrors server types; **must stay in sync** with server type files
+  - `ws-types.ts` — mirrors `src/server/ws/types.ts` Channel/message types
+  - `auth.ts` / `authFetch.ts` — token management + authenticated fetch wrapper
+  - Feature-specific: `workflow-hooks.ts`, `workflow-types.ts`, `preview-hooks.ts`
 
 ### Patterns
-- TanStack Query for all data fetching. WS subscription invalidates queries for real-time updates.
-- Scoped WS invalidation: only invalidate specific queries on relevant events (not blanket invalidation).
-- Mantine for UI components. AppShell for layout. Dark theme default.
-- `authFetch` / `authFetchJson` for all API calls (Bearer token from in-memory auth).
-- WebSocket auth uses `getHqToken()` directly.
-- Session selection persisted via `sessionStorage` with auto-restore.
-
-### Component Architecture
-- Three-pane layout: project list (left), workflow issues (center), session panel (right).
-- `DashboardLayout` detects coordinator session and wires agent change callback.
-- `WorkflowIssueList` handles issue table with dispatch/done/reject actions, create/edit modals.
-- `CopilotConversation` renders streaming messages, tool calls, reasoning, queued/steering bars.
-- `SessionList` shows regular sessions + CoordinatorCard at top.
+- **REST + WebSocket merge:** Fetch initial data via TanStack Query, subscribe to WS channel, invalidate/patch query cache on updates. Any hook fetching daemon-related data must subscribe to the "daemon" WS channel.
+- **Auth:** All API calls use `authFetch`/`authFetchJson` (adds Bearer token). Token stored in-memory + sessionStorage. 401 triggers vanilla DOM overlay (works even if React crashes).
+- **Mutations:** Invalidate *all* related query keys defensively — better to re-fetch than leave stale data.
+- **Barrel re-exports:** When splitting god files, re-export from original path so consumers don't change imports.
+- **Settings UI:** Save immediately on interaction (optimistic), no explicit save button.
+- **Wizard steps:** `p.note()` for context, then `p.select()` for choices (@clack/prompts).
+- **MarkdownContent:** Reusable renderer (`react-markdown` + `remark-gfm`), styles via `ensureStyles()` scoped under `.lp-markdown`.
+- **Selective git add:** Always stage specific files, never `git add -A` — parallel agents share the filesystem.
 
 ### Gotchas
-- `subagent.selected` event must invalidate `session-agent` query for dropdown to update after resume.
-- `HIDDEN_EVENT_TYPES` set in renderers controls which SDK events are suppressed in conversation view.
-- Queued message bar: set on prompt send, cleared on `user.message` event from SDK.
-- Steering bar: set on `system.message` event, auto-dismisses after 8s.
+- **Mantine v7 size props** must be string (`"xs"`, `"sm"`), not numeric — TS enforces this but easy to forget.
+- **API response shapes:** Server wraps arrays in objects (e.g., `{ sessions: [], count, adapter }`). Always unwrap in the `queryFn`. Mock the correct shape in tests too.
+- **WebSocket mock pattern:** Use `vi.stubGlobal("WebSocket", ...)` + `vi.unstubAllGlobals()`. Do NOT use `vi.restoreAllMocks()` — it clears mock implementations.
+- **Fetch mock pattern:** `vi.stubGlobal("fetch", vi.fn(...))` with URL matching. Clean up with `vi.unstubAllGlobals()` in `beforeEach`.
+- **Theme FOUC:** `index.html` has inline script that reads `mantine-color-scheme-value` from localStorage before React mounts. Don't remove it.
+- **CSS variables:** Use `--lp-*` tokens (defined in `src/client/styles/theme.css`) for theme-aware colors, not raw Mantine variables for borders/backgrounds.
+- **Playwright catches what vitest misses:** Always run E2E after frontend changes — jsdom doesn't catch real browser issues.
+- **React 18 batching:** Can cause event loss in streaming views — `useConversationEntries` subscribes directly via `subscribe()` callback for this reason.
 
 ### User Preferences (Arjen)
-- Compact UI — buttons use icon-only when space is tight, share lines with status text.
-- Coordinator card: attach/detach → new → stop order. Icon-only buttons with tooltips.
-- Done issues can be re-dispatched (dispatch button shown on done state).
+- Prefers clean, layered UI — start simple/read-only, add interactivity later
+- Dark theme = deep navy "mission control" aesthetic; light theme = clean whites
+- Immediate-save settings (no submit buttons)
+- Decisions file is `.squad/decisions.md` (authoritative, do not create alternatives)
+
+### Testing
+- **Unit:** Vitest + jsdom, Mantine components need test wrapper with all providers (Theme, WebSocket, Project, Session)
+- **E2E:** Playwright, Chromium-only, `playwright.config.ts` at project root, `npm run test:e2e`
+- **Test utils:** `src/test-utils/client.tsx` — shared provider wrapper for component tests
+
+### WS Channels
+Current channels in `ws-types.ts`: daemon, copilot, devcontainer, workflow, preview, inbox

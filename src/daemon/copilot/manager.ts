@@ -41,7 +41,8 @@ import { buildSystemMessage } from './system-message.js';
 import { logIncoming, logOutgoing, logSdk, logSdkCall, logSdkEvent, logDecision } from '../logger.js';
 import { AgentResolver } from './agent-resolver.js';
 import { ElicitationRelay } from './elicitation.js';
-import { withSpan, startSpan, SpanStatusCode } from '../observability/tracing.js';
+import { withSpan, startSpan, SpanStatusCode, makeSpanContext, injectTraceContextFrom, type Context } from '../observability/tracing.js';
+import { sanitize } from '../observability/sanitize.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,6 +97,11 @@ export interface CopilotManagerOptions {
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 
+/** Truncate a string for span event payloads */
+function truncate(s: string, max = 500): string {
+  return s.length <= max ? s : s.slice(0, max) + '…';
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -131,6 +137,8 @@ export class CopilotManager {
   private started = false;
   private agentResolver: AgentResolver;
   private elicitationRelay: ElicitationRelay;
+  /** Maps sessionId → active OTEL context from the send_prompt span, so SDK events can be linked */
+  private activeTurnContexts = new Map<string, Context>();
 
   constructor(options: CopilotManagerOptions) {
     this.sendToHq = (msg: DaemonToHqMessage) => {
@@ -361,7 +369,8 @@ export class CopilotManager {
     requestId: string,
     config?: SessionConfigWire,
   ): Promise<void> {
-    await withSpan('copilot.create_session', { 'request.id': requestId }, async () => {
+    await withSpan('copilot.create_session', { 'request.id': requestId }, async (span) => {
+    span.addEvent('session.config', sanitize({ requestId, agentId: config?.agentId, model: config?.model }) as Record<string, string>);
     try {
       const selectedAgent = this.agentResolver.resolveRequestedAgent(config?.agentId);
       const sdkConfig: SessionConfig = this.buildSharedSdkConfig(config);
@@ -385,6 +394,7 @@ export class CopilotManager {
           }),
         },
       });
+      span.addEvent('message.sent_to_hq', { 'message.type': 'copilot-session-event', 'event.type': 'session.start' });
     } catch (err) {
       this.sendToHq({
         type: 'copilot-session-event',
@@ -399,6 +409,7 @@ export class CopilotManager {
           }),
         },
       });
+      span.addEvent('message.sent_to_hq', { 'message.type': 'copilot-session-event', 'event.type': 'session.error' });
     }
     });
   }
@@ -408,7 +419,8 @@ export class CopilotManager {
     sessionId: string,
     config?: Partial<SessionConfigWire>,
   ): Promise<void> {
-    await withSpan('copilot.resume_session', { 'request.id': requestId, 'session.id': sessionId }, async () => {
+    await withSpan('copilot.resume_session', { 'request.id': requestId, 'session.id': sessionId }, async (span) => {
+    span.addEvent('session.config', sanitize({ requestId, sessionId, agentId: config?.agentId, model: config?.model }) as Record<string, string>);
     try {
       const trackedSession = this.activeSessions.get(sessionId);
       logSdkCall('resumeSession', { requestId, sessionId });
@@ -447,6 +459,7 @@ export class CopilotManager {
           }),
         },
       });
+      span.addEvent('message.sent_to_hq', { 'message.type': 'copilot-session-event', 'event.type': 'session.start' });
     } catch (err) {
       this.sendToHq({
         type: 'copilot-session-event',
@@ -461,6 +474,7 @@ export class CopilotManager {
           }),
         },
       });
+      span.addEvent('message.sent_to_hq', { 'message.type': 'copilot-session-event', 'event.type': 'session.error' });
     }
     });
   }
@@ -471,7 +485,12 @@ export class CopilotManager {
     attachments?: MessageOptions['attachments'],
     mode?: PromptDeliveryMode,
   ): Promise<void> {
-    await withSpan('copilot.send_prompt', { 'session.id': sessionId }, async () => {
+    await withSpan('copilot.send_prompt', { 'session.id': sessionId }, async (span) => {
+    span.addEvent('prompt.content', { prompt: truncate(prompt, 500), mode: mode ?? 'default', sessionId });
+
+    // Store span context so SDK events fired during this turn are linked
+    this.activeTurnContexts.set(sessionId, makeSpanContext(span));
+
     const session = await this.getOrAttachSession(sessionId, undefined, {
       skipInitialStart: true,
     });
@@ -485,6 +504,7 @@ export class CopilotManager {
           event: syntheticEvent('session.error', { message: `No active session: ${sessionId}` }),
         },
       });
+      this.activeTurnContexts.delete(sessionId);
       return;
     }
 
@@ -908,19 +928,32 @@ export class CopilotManager {
 
       logSdkEvent(session.sessionId, event.type);
 
-      // Fire-and-forget span for each forwarded event
-      const span = startSpan('copilot.forward_event', { 'event.type': event.type, 'session.id': session.sessionId });
+      // Use the stored turn context as parent so forward_event spans are
+      // children of the copilot.send_prompt span that triggered this turn.
+      const turnCtx = this.activeTurnContexts.get(session.sessionId);
+      const span = startSpan('copilot.forward_event', { 'event.type': event.type, 'session.id': session.sessionId }, turnCtx);
+      span.addEvent('sdk.event', sanitize(event) as Record<string, string>);
+
+      // Inject traceparent so HQ can continue the distributed trace
+      const traceparent = turnCtx ? injectTraceContextFrom(turnCtx) : undefined;
       this.sendToHq({
         type: 'copilot-session-event',
         timestamp: Date.now(),
+        ...(traceparent ? { traceparent } : {}),
         payload: {
           projectId: this.projectId,
           sessionId: session.sessionId,
           event,
         },
       });
+      span.addEvent('message.sent_to_hq', { 'message.type': 'copilot-session-event', sessionId: session.sessionId });
       span.setStatus({ code: SpanStatusCode.OK });
       span.end();
+
+      // Clear stored context when the turn ends
+      if (event.type === 'session.idle' || event.type === 'assistant.turn_end') {
+        this.activeTurnContexts.delete(session.sessionId);
+      }
     });
 
     this.sessionUnsubscribers.set(session.sessionId, unsub);
