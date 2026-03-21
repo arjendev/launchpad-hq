@@ -311,3 +311,24 @@ Cooper groomed onboarding wizard epic and created 7 GitHub issues assigned acros
 - **PendingConnection** interface extended with `authTimer` field to track per-connection timeouts.
 - **Tests**: 4 new tests using `vi.useFakeTimers()` — timeout fires, timeout cancelled on auth success, cleanup clears timers, disconnect clears timers. Plus 1 H4 process.title test.
 - **Verification**: Typecheck clean (pre-existing ws/plugin.ts error not ours), 990/990 tests pass.
+
+### Phase 2 — Daemon God Class Refactor (#76) — 2026-03-21
+
+Split `copilot/manager.ts` (1255→1016 lines) and `index.ts` (352→249 lines) into focused modules:
+
+**New files created:**
+- `src/daemon/message-router.ts` — `MessageRouter` class, single entry point for all HQ→Daemon messages. Replaces 3 scattered `client.on('message')` handlers. Takes all handler dependencies (copilot, cliSessions, coordinator, issueDispatcher, previewManager) via constructor injection.
+- `src/daemon/copilot/elicitation.ts` — `ElicitationRelay` class, owns timeout management, pending elicitations Map, response handling. Uses callback pattern (`isSessionActive`, `sendToSession`, `sendSessionError`) to stay decoupled from CopilotManager internals.
+- `src/daemon/copilot/agent-resolver.ts` — `AgentResolver` class, owns agent catalog Map, lookup by ID/name/fuzzy match, apply/deselect agent selection, getCurrentSessionAgent, toAgentEventData/toAgentResponseData. Exposed as `catalog` readonly property for coordinator logging.
+- `src/daemon/preview-manager.ts` — `PreviewManager` class, owns entire preview lifecycle (start detection, retry loop, handler creation, cleanup).
+
+**Structural changes:**
+- `SendToHq` type moved to `src/shared/protocol.ts` — single definition, imported by all 4 daemon modules
+- `IssueDispatcher` is now a long-lived singleton created at daemon startup (was per-request)
+- `index.ts` has 1 `client.on('message')` (was 3) and 1 `client.on('authenticated')` (was 3)
+- All barrel exports (`copilot/index.ts`, `copilot-cli/index.ts`) updated
+
+**Key pattern — callback injection for cross-module concerns:**
+- ElicitationRelay doesn't hold a reference to CopilotManager's session map. Instead, the manager passes `isSessionActive`, `sendToSession`, and `sendSessionError` callbacks at call time. This keeps the relay testable and decoupled.
+
+**Verification:** 251 daemon tests pass, 949 server tests pass, typecheck clean.
