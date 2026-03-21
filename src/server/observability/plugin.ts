@@ -10,16 +10,23 @@ import fp from "fastify-plugin";
 import { trace, context, propagation, SpanStatusCode } from "@opentelemetry/api";
 import { isTracingEnabled, getTracer } from "./tracing.js";
 import { sanitizeForSpan, sanitizeToJsonAttr } from "./sanitize.js";
+import type { Span as OtelSpan } from "@opentelemetry/api";
 
 declare module "fastify" {
   interface FastifyRequest {
     traceId: string;
+    /** Active OTEL span for this request (undefined when tracing is off) */
+    otelSpan?: OtelSpan;
+    /** OTEL context with the active span set (undefined when tracing is off) */
+    otelContext?: import("@opentelemetry/api").Context;
   }
 }
 
 async function otelPlugin(fastify: FastifyInstance) {
   // Decorate with traceId (empty string default — overridden per-request)
   fastify.decorateRequest("traceId", "");
+  fastify.decorateRequest("otelSpan", undefined);
+  fastify.decorateRequest("otelContext", undefined);
 
   fastify.addHook("onRequest", async (request: FastifyRequest) => {
     if (!isTracingEnabled()) {
@@ -42,9 +49,10 @@ async function otelPlugin(fastify: FastifyInstance) {
       extractedContext,
     );
 
-    // Store span in context for downstream use
+    // Store span and context on request so route handlers can propagate trace
     const spanContext = trace.setSpan(extractedContext, span);
-    context.with(spanContext, () => {});
+    request.otelSpan = span;
+    request.otelContext = spanContext;
 
     // Expose trace ID on request for route handlers
     request.traceId = span.spanContext().traceId;

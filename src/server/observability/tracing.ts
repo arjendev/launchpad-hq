@@ -115,12 +115,12 @@ export async function withSpan<T>(
 }
 
 /**
- * Extract the current W3C traceparent from the active context.
+ * Extract the current W3C traceparent from the given or active context.
  * Returns undefined when no active span exists.
  */
-export function getTraceparent(): string | undefined {
+export function getTraceparent(ctx?: import("@opentelemetry/api").Context): string | undefined {
   const carrier: Record<string, string> = {};
-  propagation.inject(context.active(), carrier);
+  propagation.inject(ctx ?? context.active(), carrier);
   return carrier["traceparent"];
 }
 

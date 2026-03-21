@@ -110,16 +110,16 @@ export class DaemonRegistry extends DaemonEventBus {
   }
 
   /** Send a typed message to a specific daemon */
-  sendToDaemon(daemonId: string, message: HqToDaemonMessage): boolean {
+  sendToDaemon(daemonId: string, message: HqToDaemonMessage, otelContext?: import("@opentelemetry/api").Context): boolean {
     const daemon = this.daemons.get(daemonId);
     if (!daemon?.ws || daemon.ws.readyState !== daemon.ws.OPEN) return false;
-    // Inject W3C traceparent if OTEL is active
-    const traceparent = getTraceparent();
+    // Inject W3C traceparent if OTEL is active (use provided context or fall back to active)
+    const traceparent = getTraceparent(otelContext);
     const msg = traceparent ? { ...message, traceparent } : message;
 
     // Attach span event with the outgoing message payload
     if (isTracingEnabled()) {
-      const span = getTracer("daemon-registry").startSpan("daemon:sendToDaemon");
+      const span = getTracer("daemon-registry").startSpan("daemon:sendToDaemon", undefined, otelContext);
       span.addEvent("message.sent_to_daemon", {
         "daemon.id": daemonId,
         "message.type": message.type,
@@ -133,8 +133,8 @@ export class DaemonRegistry extends DaemonEventBus {
   }
 
   /** Broadcast a message to every connected daemon */
-  broadcastToDaemons(message: HqToDaemonMessage): void {
-    const traceparent = getTraceparent();
+  broadcastToDaemons(message: HqToDaemonMessage, otelContext?: import("@opentelemetry/api").Context): void {
+    const traceparent = getTraceparent(otelContext);
     const msg = traceparent ? { ...message, traceparent } : message;
     const serialized = JSON.stringify(msg);
     for (const daemon of this.daemons.values()) {

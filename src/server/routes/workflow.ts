@@ -424,7 +424,7 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
           ...(coord.sessionId ? { sessionId: coord.sessionId } : {}),
           ...(agentId ? { agentId } : {}),
         },
-      });
+      }, request.otelContext);
 
       if (!sent) {
         const reverted = coordinatorStopped(updated);
@@ -463,7 +463,7 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
         type: "workflow:stop-coordinator",
         timestamp: Date.now(),
         payload: { projectId },
-      });
+      }, request.otelContext);
 
       const updated = coordinatorStopped(coord);
       store.setCoordinator(owner, repo, updated);
@@ -491,7 +491,7 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
           type: "workflow:stop-coordinator",
           timestamp: Date.now(),
           payload: { projectId },
-        });
+        }, request.otelContext);
       }
 
       // Clear the stored sessionId so next start creates a fresh session
@@ -526,7 +526,7 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
             ...(agentId ? { agentId } : {}),
             // No sessionId → forces fresh session
           },
-        });
+        }, request.otelContext);
         server.ws.broadcast("workflow", {
           type: "workflow:coordinator-status-changed",
           projectId,
@@ -649,7 +649,7 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
           title: issue.title,
           labels: issue.labels,
         },
-      });
+      }, request.otelContext);
 
       if (!sent) {
         return reply.status(503).send({
@@ -760,7 +760,7 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
           elicitationId: id,
           response,
         },
-      });
+      }, request.otelContext);
 
       // Transition issue back to in-progress if it was blocking
       if (elicitation.issueNumber) {

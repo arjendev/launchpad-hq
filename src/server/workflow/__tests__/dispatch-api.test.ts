@@ -157,10 +157,10 @@ describe("Dispatch API", () => {
       });
 
       const registry = server.daemonRegistry as unknown as { sendToDaemon: ReturnType<typeof vi.fn> };
-      expect(registry.sendToDaemon).toHaveBeenCalledWith(
-        "test-owner/test-repo",
-        expect.objectContaining({ type: "workflow:start-coordinator" }),
-      );
+      expect(registry.sendToDaemon).toHaveBeenCalled();
+      const [daemonId, msg] = registry.sendToDaemon.mock.calls[0];
+      expect(daemonId).toBe("test-owner/test-repo");
+      expect(msg).toEqual(expect.objectContaining({ type: "workflow:start-coordinator" }));
     });
 
     it("returns 503 if daemon is offline", async () => {
@@ -307,10 +307,10 @@ describe("Dispatch API", () => {
       });
 
       const registry = server.daemonRegistry as unknown as { sendToDaemon: ReturnType<typeof vi.fn> };
-      expect(registry.sendToDaemon).toHaveBeenCalledWith(
-        "test-owner/test-repo",
-        expect.objectContaining({ type: "workflow:dispatch-issue" }),
-      );
+      expect(registry.sendToDaemon).toHaveBeenCalled();
+      const call = registry.sendToDaemon.mock.calls.find((c: unknown[]) => c[1]?.type === "workflow:dispatch-issue");
+      expect(call).toBeTruthy();
+      expect(call[0]).toBe("test-owner/test-repo");
     });
 
     it("allows re-dispatch for in-progress issue", async () => {

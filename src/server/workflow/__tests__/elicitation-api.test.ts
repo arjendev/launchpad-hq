@@ -219,16 +219,16 @@ describe("Elicitation API", () => {
       });
 
       const registry = server.daemonRegistry as unknown as { sendToDaemon: ReturnType<typeof vi.fn> };
-      expect(registry.sendToDaemon).toHaveBeenCalledWith(
-        "test-owner/test-repo",
-        expect.objectContaining({
-          type: "workflow:elicitation-response",
-          payload: expect.objectContaining({
-            elicitationId: "elicit-1",
-            response: { choice: "React" },
-          }),
+      expect(registry.sendToDaemon).toHaveBeenCalled();
+      const [daemonId, msg] = registry.sendToDaemon.mock.calls[0];
+      expect(daemonId).toBe("test-owner/test-repo");
+      expect(msg).toEqual(expect.objectContaining({
+        type: "workflow:elicitation-response",
+        payload: expect.objectContaining({
+          elicitationId: "elicit-1",
+          response: { choice: "React" },
         }),
-      );
+      }));
     });
 
     it("broadcasts answered event to clients", async () => {

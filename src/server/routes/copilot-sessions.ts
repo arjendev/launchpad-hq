@@ -71,13 +71,14 @@ function sendToDaemon(
   sessionId: string,
   reply: { status: (code: number) => { send: (body: unknown) => unknown } },
   buildMessage: (daemonId: string) => Parameters<typeof server.daemonRegistry.sendToDaemon>[1],
+  otelContext?: import("@opentelemetry/api").Context,
 ): boolean {
   const internal = server.copilotAggregator.getInternalSession(sessionId);
   if (!internal) {
     reply.status(404).send(notFound);
     return false;
   }
-  const sent = server.daemonRegistry.sendToDaemon(internal.daemonId, buildMessage(internal.daemonId));
+  const sent = server.daemonRegistry.sendToDaemon(internal.daemonId, buildMessage(internal.daemonId), otelContext);
   if (!sent) {
     reply.status(502).send(sendFailed);
     return false;
@@ -189,7 +190,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-send-prompt",
         timestamp: Date.now(),
         payload: { sessionId, prompt, ...(mode ? { mode } : {}) },
-      });
+      }, request.otelContext);
 
       if (!sent) {
         return reply.status(502).send(sendFailed);
@@ -209,7 +210,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-abort-session",
         timestamp: Date.now(),
         payload: { sessionId },
-      }));
+      }), request.otelContext);
       if (!ok) return;
 
       return reply.send({ ok: true });
@@ -236,7 +237,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-resume-session",
         timestamp: Date.now(),
         payload: { requestId, sessionId, sessionType, config },
-      });
+      }, request.otelContext);
       if (!sent) {
         return reply.status(502).send(sendFailed);
       }
@@ -265,7 +266,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-set-model",
         timestamp: Date.now(),
         payload: { sessionId, model },
-      }));
+      }), request.otelContext);
       if (!ok) return;
 
       return reply.send({ ok: true });
@@ -299,7 +300,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-set-mode",
         timestamp: Date.now(),
         payload: { sessionId, mode },
-      }));
+      }), request.otelContext);
       if (!ok) return;
 
       return reply.send({ ok: true });
@@ -326,7 +327,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-update-plan",
         timestamp: Date.now(),
         payload: { sessionId, content },
-      }));
+      }), request.otelContext);
       if (!ok) return;
 
       return reply.send({ ok: true });
@@ -343,7 +344,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-delete-plan",
         timestamp: Date.now(),
         payload: { sessionId },
-      }));
+      }), request.otelContext);
       if (!ok) return;
 
       return reply.send({ ok: true });
@@ -360,7 +361,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-delete-session",
         timestamp: Date.now(),
         payload: { sessionId },
-      }));
+      }), request.otelContext);
       if (!ok) return;
 
       // Tombstone locally so UI sees it immediately
@@ -380,7 +381,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-disconnect-session",
         timestamp: Date.now(),
         payload: { sessionId },
-      }));
+      }), request.otelContext);
       if (!ok) return;
 
       return reply.send({ ok: true });
@@ -402,7 +403,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-permission-response",
         timestamp: Date.now(),
         payload: { requestId: requestId as string, sessionId, decision: decision as 'allow' | 'deny' },
-      }));
+      }), request.otelContext);
       if (!ok) return;
 
       return reply.send({ ok: true });
@@ -424,7 +425,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-user-input-response",
         timestamp: Date.now(),
         payload: { requestId: requestId as string, sessionId, answer: answer as string, wasFreeform: Boolean(wasFreeform) },
-      }));
+      }), request.otelContext);
       if (!ok) return;
 
       return reply.send({ ok: true });
@@ -444,7 +445,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-get-mode",
         timestamp: Date.now(),
         payload: { requestId, sessionId },
-      }));
+      }), request.otelContext);
       if (!ok) return;
 
       try {
@@ -469,7 +470,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-get-agent",
         timestamp: Date.now(),
         payload: { requestId, sessionId },
-      }));
+      }), request.otelContext);
       if (!ok) return;
 
       try {
@@ -520,7 +521,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-set-agent",
         timestamp: Date.now(),
         payload: { requestId, sessionId, agentId },
-      }));
+      }), request.otelContext);
       if (!ok) return;
 
       try {
@@ -555,7 +556,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         type: "copilot-get-plan",
         timestamp: Date.now(),
         payload: { requestId, sessionId },
-      }));
+      }), request.otelContext);
       if (!ok) return;
 
       try {
