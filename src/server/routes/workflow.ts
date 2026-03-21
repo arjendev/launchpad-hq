@@ -569,6 +569,66 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
     },
   );
 
+  /** POST /api/workflow/:owner/:repo/coordinator/reset — clear sessionId and create fresh session */
+  server.post<{ Params: { owner: string; repo: string } }>(
+    "/api/workflow/:owner/:repo/coordinator/reset",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+      const projectId = pk(request.params);
+
+      // Stop existing coordinator if running
+      if (server.daemonRegistry?.getDaemon(projectId)) {
+        server.daemonRegistry.sendToDaemon(projectId, {
+          type: "workflow:stop-coordinator",
+          timestamp: Date.now(),
+          payload: { projectId },
+        });
+      }
+
+      // Clear the stored sessionId so next start creates a fresh session
+      const coord = store.getCoordinator(owner, repo);
+      const cleared = {
+        ...coord,
+        status: "idle" as const,
+        sessionId: null,
+        startedAt: null,
+        error: null,
+      };
+      store.setCoordinator(owner, repo, cleared);
+
+      // Look up preferred agent and restart
+      let agentId: string | null = null;
+      if (server.stateService) {
+        try {
+          agentId = await server.stateService.getProjectAutonomousCopilotAgent(owner, repo) ?? null;
+        } catch { /* ignore */ }
+      }
+
+      // Small delay to let stop propagate before starting fresh
+      setTimeout(() => {
+        if (!server.daemonRegistry?.getDaemon(projectId)) return;
+        const starting = coordinatorStarting(cleared);
+        store.setCoordinator(owner, repo, starting);
+        server.daemonRegistry!.sendToDaemon(projectId, {
+          type: "workflow:start-coordinator",
+          timestamp: Date.now(),
+          payload: {
+            projectId,
+            ...(agentId ? { agentId } : {}),
+            // No sessionId → forces fresh session
+          },
+        });
+        server.ws.broadcast("workflow", {
+          type: "workflow:coordinator-status-changed",
+          projectId,
+          status: "starting",
+        });
+      }, 500);
+
+      return reply.send({ ok: true });
+    },
+  );
+
   /** PUT /api/workflow/:owner/:repo/coordinator/agent — set autonomous agent preference */
   server.put<{
     Params: { owner: string; repo: string };

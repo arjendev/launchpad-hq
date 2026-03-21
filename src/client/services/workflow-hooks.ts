@@ -388,6 +388,27 @@ export function useStopCoordinator() {
   });
 }
 
+export function useResetCoordinator() {
+  const qc = useQueryClient();
+
+  return useMutation<{ ok: boolean }, Error, { owner: string; repo: string }>({
+    mutationFn: async ({ owner, repo }) => {
+      const res = await authFetch(
+        `/api/workflow/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/coordinator/reset`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `Reset coordinator failed (${res.status})`);
+      }
+      return res.json() as Promise<{ ok: boolean }>;
+    },
+    onSuccess: (_data, { owner, repo }) => {
+      void qc.invalidateQueries({ queryKey: ["coordinator-status", owner, repo] });
+    },
+  });
+}
+
 // ── Dispatch issue hook ─────────────────────────────────
 
 /**

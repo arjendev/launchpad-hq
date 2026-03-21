@@ -29,6 +29,7 @@ import {
   useCoordinatorStatus,
   useStartCoordinator,
   useStopCoordinator,
+  useResetCoordinator,
 } from "../services/workflow-hooks.js";
 import type { CoordinatorStatus } from "../services/workflow-types.js";
 
@@ -102,6 +103,7 @@ function CoordinatorCard({ owner, repo }: { owner: string; repo: string }) {
   const { selectedSession, selectSession } = useSelectedSession();
   const startCoordinator = useStartCoordinator();
   const stopCoordinator = useStopCoordinator();
+  const resetCoordinator = useResetCoordinator();
 
   const status: CoordinatorStatus = coordinator?.status ?? "idle";
   const dotColor = coordinatorDotColor[status];
@@ -226,6 +228,21 @@ function CoordinatorCard({ owner, repo }: { owner: string; repo: string }) {
                   style={{ flexShrink: 0 }}
                 >
                   {isRunning ? "⏹" : "▶"}
+                </Button>
+              </Tooltip>
+              <Tooltip label="New session (clears history)">
+                <Button
+                  variant="subtle"
+                  size="compact-xs"
+                  color="orange"
+                  onClick={(e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    resetCoordinator.mutate({ owner, repo });
+                  }}
+                  loading={resetCoordinator.isPending}
+                  style={{ flexShrink: 0 }}
+                >
+                  🔄
                 </Button>
               </Tooltip>
             </Group>
