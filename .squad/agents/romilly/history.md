@@ -9,6 +9,16 @@
 - **State service**: dual backend (GitStateManager for GitHub repo, LocalStateManager for filesystem). Hot-swap via `reinitializeStateService()`.
 - **WorkflowStore**: in-memory + periodic flush to enrichment.json. Load resets coordinator to idle but preserves sessionId.
 
+### Observability (#59)
+- **OTEL tracing**: `src/server/observability/tracing.ts` — opt-in via `LaunchpadConfig.otel.enabled`. Dynamic imports ensure zero overhead when disabled. `setupTracing()` must run BEFORE Fastify creation.
+- **OTEL plugin**: `src/server/observability/plugin.ts` — Fastify plugin adding `request.traceId` decorator and per-request spans. Registered after websocket, before auth.
+- **Structured logger**: `src/server/observability/logger.ts` — `createLogger(name)` with trace context injection and `sanitize()` for stripping sensitive fields.
+- **Instrumented paths**: daemon WS handler (per-message spans), workflow daemon-events (coordinator/progress/completion spans), copilot-aggregator (session-event spans), GitHub GraphQL (per-operation spans), GitHub REST (tracedFetch wrapper).
+- **Trace context propagation**: `registry.sendToDaemon()` and `broadcastToDaemons()` inject W3C `traceparent` into HQ→daemon messages.
+- **Config**: `LaunchpadConfig.otel?: { enabled, endpoint, serviceName }`. CLI flags `--otel` and `--otel-endpoint` override config.json.
+- **OTEL packages**: `@opentelemetry/*` packages need `ssr.external: [/^@opentelemetry\//]` in vitest.config.ts to avoid Vite import resolution failures.
+- **Aspire Dashboard**: `scripts/aspire-dashboard.sh` starts/stops the container. Dashboard on :18888, OTLP gRPC on :4317.
+
 ### Patterns
 - Route files: validate request → call service → respond. No business logic, no event wiring.
 - Plugins own their services via `fp()` wrapper and `decorate()`.
@@ -22,6 +32,7 @@
 - Tests need `await server.register(workflowPlugin)` BEFORE `workflowRoutes`.
 - `coordinatorStarted()` only works from "starting" state — test must POST /start first then emit event.
 - report_progress(completed) → HQ marks issue done via copilot:tool-invocation handler in daemon-events.ts.
+- `@opentelemetry/resources` v2 exports `resourceFromAttributes()` not `new Resource()` — the class is type-only.
 
 ### Test Infrastructure
 - `createTestServer()` in `src/test-utils/server.ts` — lightweight Fastify for injection tests.
