@@ -14,7 +14,7 @@
     "ghcr.io/stuartleeks/dev-container-features/dev-tunnels:0.0.1": {},
     "ghcr.io/devcontainers/features/docker-in-docker": { "moby": false }
   },
-  "postCreateCommand": "sudo chown -R node:node /home/node/.copilot && npm install && npx playwright install chromium --with-deps",
+  "postCreateCommand": "sudo chown -R node:node /home/node/.copilot && npm install && npx playwright install chromium --with-deps && curl -LsSf https://astral.sh/uv/install.sh | sh",
   "customizations": {
     "vscode": {
       "extensions": [
