@@ -16,6 +16,9 @@ import {
   ActionIcon,
   Tooltip,
   Loader,
+  Switch,
+  TextInput,
+  Anchor,
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import {
@@ -27,6 +30,7 @@ import {
   IconInfoCircle,
   IconCheck,
   IconX,
+  IconActivityHeartbeat,
 } from "@tabler/icons-react";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -35,6 +39,10 @@ import {
   useTunnelStatus,
   useListModels,
   useValidateRepo,
+  useOtelSettings,
+  useUpdateOtelSettings,
+  useAspireDashboard,
+  useToggleAspireDashboard,
 } from "../services/hooks.js";
 import type { LaunchpadConfig, TunnelState } from "../services/types.js";
 import { ThemeToggle } from "../components/ThemeToggle.js";
@@ -89,6 +97,12 @@ export function SettingsPage() {
   const { data: modelsData } = useListModels();
   const validateRepo = useValidateRepo();
 
+  // OTEL hooks
+  const { data: otelSettings } = useOtelSettings();
+  const updateOtel = useUpdateOtelSettings();
+  const { data: aspireState } = useAspireDashboard();
+  const toggleAspire = useToggleAspireDashboard();
+
   // Local form state — synced from server on load
   const [stateMode, setStateMode] = useState<string>("local");
   const [stateRepoOwner, setStateRepoOwner] = useState<string>("");
@@ -100,6 +114,11 @@ export function SettingsPage() {
   const [tunnelBootstrapping, setTunnelBootstrapping] = useState(false);
   const [tunnelResult, setTunnelResult] = useState<{ url?: string; error?: string } | null>(null);
   const lastTunnelResultKeyRef = useRef<string | null>(null);
+
+  // OTEL local form state
+  const [otelEnabled, setOtelEnabled] = useState(false);
+  const [otelEndpoint, setOtelEndpoint] = useState("http://localhost:4317");
+  const [otelServiceName, setOtelServiceName] = useState("launchpad-hq");
 
   // Subscribe to real-time tunnel status updates via WebSocket
   const { data: wsTunnelStatus } = useSubscription<TunnelState>("tunnel");
@@ -158,6 +177,15 @@ export function SettingsPage() {
       }
     }
   }, [liveTunnel]);
+
+  // Sync OTEL settings from server on load
+  useEffect(() => {
+    if (otelSettings) {
+      setOtelEnabled(otelSettings.enabled);
+      setOtelEndpoint(otelSettings.endpoint);
+      setOtelServiceName(otelSettings.serviceName ?? "launchpad-hq");
+    }
+  }, [otelSettings]);
 
   // Build model options — merge server-provided models with fallback list
   const modelOptions = modelsData?.models?.length
@@ -246,6 +274,28 @@ export function SettingsPage() {
         setTunnelStopped(true);
       }
     }
+  }
+
+  function handleOtelEnabledChange(checked: boolean) {
+    setOtelEnabled(checked);
+    updateOtel.mutate({ enabled: checked, endpoint: otelEndpoint, serviceName: otelServiceName });
+  }
+
+  function handleOtelEndpointBlur() {
+    if (otelEndpoint !== otelSettings?.endpoint) {
+      updateOtel.mutate({ enabled: otelEnabled, endpoint: otelEndpoint, serviceName: otelServiceName });
+    }
+  }
+
+  function handleOtelServiceNameBlur() {
+    if (otelServiceName !== (otelSettings?.serviceName ?? "launchpad-hq")) {
+      updateOtel.mutate({ enabled: otelEnabled, endpoint: otelEndpoint, serviceName: otelServiceName });
+    }
+  }
+
+  function handleAspireToggle() {
+    const action = aspireState?.running ? "stop" : "start";
+    toggleAspire.mutate({ action });
   }
 
   const maxWidth = isMobile ? "100%" : 640;
@@ -482,6 +532,93 @@ export function SettingsPage() {
               {tunnelMode === "always" && !settings?.tunnel.configured && !tunnelBootstrapping && !tunnelResult && (
                 <Alert color="yellow" variant="light">
                   Run <strong>devtunnel user login</strong> in your terminal to authenticate, then restart launchpad-hq.
+                </Alert>
+              )}
+            </SettingSection>
+
+            {/* ── Observability (OTEL) ────────────────────────── */}
+            <SettingSection
+              icon={<IconActivityHeartbeat size={20} />}
+              title="Observability"
+              description="Enable OpenTelemetry tracing for end-to-end visibility into Copilot sessions, API requests, and background tasks. Traces are exported via OTLP to your collector."
+              requiresRestart
+            >
+              <Switch
+                label="Enable OpenTelemetry"
+                checked={otelEnabled}
+                onChange={(e) => handleOtelEnabledChange(e.currentTarget.checked)}
+                disabled={isLoading}
+              />
+
+              {otelEnabled && (
+                <>
+                  <TextInput
+                    label="OTLP Endpoint"
+                    description="gRPC endpoint for your OTLP collector"
+                    value={otelEndpoint}
+                    onChange={(e) => setOtelEndpoint(e.currentTarget.value)}
+                    onBlur={handleOtelEndpointBlur}
+                    placeholder="http://localhost:4317"
+                    disabled={isLoading}
+                  />
+
+                  <TextInput
+                    label="Service Name"
+                    description="Identifies this instance in traces (optional)"
+                    value={otelServiceName}
+                    onChange={(e) => setOtelServiceName(e.currentTarget.value)}
+                    onBlur={handleOtelServiceNameBlur}
+                    placeholder="launchpad-hq"
+                    disabled={isLoading}
+                  />
+
+                  <Divider />
+
+                  <Group justify="space-between" align="center">
+                    <Stack gap={2}>
+                      <Text size="sm" fw={500}>Aspire Dashboard</Text>
+                      <Text size="xs" c="dimmed">
+                        One-click local collector + trace viewer via Docker
+                      </Text>
+                    </Stack>
+                    <Button
+                      variant={aspireState?.running ? "outline" : "filled"}
+                      color={aspireState?.running ? "red" : "blue"}
+                      size="compact-sm"
+                      onClick={handleAspireToggle}
+                      loading={toggleAspire.isPending}
+                      disabled={isLoading}
+                    >
+                      {aspireState?.running ? "Stop" : "Launch"} Aspire
+                    </Button>
+                  </Group>
+
+                  {aspireState?.running && aspireState.dashboardUrl && (
+                    <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
+                      Aspire Dashboard:{" "}
+                      <Anchor href={aspireState.dashboardUrl} target="_blank" rel="noopener">
+                        {aspireState.dashboardUrl}
+                      </Anchor>
+                    </Alert>
+                  )}
+
+                  {aspireState?.error && (
+                    <Alert color="red" variant="light" icon={<IconX size={16} />}>
+                      {aspireState.error}
+                    </Alert>
+                  )}
+
+                  {toggleAspire.isError && (
+                    <Alert color="red" variant="light" icon={<IconX size={16} />}>
+                      {toggleAspire.error.message}
+                    </Alert>
+                  )}
+                </>
+              )}
+
+              {updateOtel.isSuccess && (
+                <Alert color="blue" variant="light" icon={<IconInfoCircle size={16} />} withCloseButton onClose={() => updateOtel.reset()}>
+                  Requires server restart to take effect.
                 </Alert>
               )}
             </SettingSection>

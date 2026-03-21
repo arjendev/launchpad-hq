@@ -18,6 +18,19 @@ function mergeConfig(
   body: Partial<LaunchpadConfig>,
 ): LaunchpadConfig {
   const defaults = defaultLaunchpadConfig();
+
+  // Merge otel: only include if either current or body has it
+  let otel: LaunchpadConfig["otel"] | undefined;
+  if (body.otel !== undefined || current.otel !== undefined) {
+    otel = {
+      enabled: body.otel?.enabled ?? current.otel?.enabled ?? false,
+      endpoint: body.otel?.endpoint ?? current.otel?.endpoint ?? "http://localhost:4317",
+      ...(body.otel?.serviceName ?? current.otel?.serviceName
+        ? { serviceName: body.otel?.serviceName ?? current.otel?.serviceName }
+        : {}),
+    };
+  }
+
   return {
     ...current,
     ...body,
@@ -31,6 +44,7 @@ function mergeConfig(
       ...current.tunnel,
       ...(body.tunnel ?? {}),
     },
+    ...(otel ? { otel } : {}),
     version: 1,
   };
 }
@@ -206,6 +220,87 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       return { ...updated, tunnelStatus };
+    },
+  );
+
+  /** Return current OTEL configuration. */
+  fastify.get("/api/settings/otel", async () => {
+    const config = fastify.launchpadConfig;
+    return {
+      enabled: config.otel?.enabled ?? false,
+      endpoint: config.otel?.endpoint ?? "http://localhost:4317",
+      serviceName: config.otel?.serviceName ?? "launchpad-hq",
+    };
+  });
+
+  /** Update OTEL configuration. Requires server restart to take effect. */
+  fastify.put<{ Body: { enabled?: boolean; endpoint?: string; serviceName?: string } }>(
+    "/api/settings/otel",
+    async (request, reply) => {
+      const body = request.body as { enabled?: boolean; endpoint?: string; serviceName?: string };
+      const current = fastify.launchpadConfig;
+
+      const otel = {
+        enabled: body.enabled ?? current.otel?.enabled ?? false,
+        endpoint: body.endpoint ?? current.otel?.endpoint ?? "http://localhost:4317",
+        ...(body.serviceName ? { serviceName: body.serviceName } : {}),
+      };
+
+      const updated = mergeConfig(current, { otel });
+
+      if (updated.stateMode === "git") {
+        await fastify.stateService.saveLaunchpadConfig(updated);
+        await saveBootstrapConfig({
+          version: 1,
+          stateMode: updated.stateMode,
+          stateRepo: updated.stateRepo,
+        });
+      } else {
+        await saveLaunchpadConfig(updated);
+      }
+      fastify.launchpadConfig = updated;
+
+      return {
+        ...otel,
+        message: "OTEL configuration updated. Restart the server for changes to take effect.",
+      };
+    },
+  );
+
+  /** Get Aspire Dashboard container status. */
+  fastify.get("/api/settings/otel/aspire", async () => {
+    return {
+      running: false,
+      dashboardUrl: null,
+      error: null,
+    };
+  });
+
+  /** Start or stop the Aspire Dashboard Docker container. */
+  fastify.post<{ Body: { action: "start" | "stop" } }>(
+    "/api/settings/otel/aspire",
+    async (request, reply) => {
+      const { action } = request.body as { action?: string };
+
+      if (action !== "start" && action !== "stop") {
+        return reply.status(400).send({ error: 'action must be "start" or "stop"' });
+      }
+
+      // Aspire Dashboard Docker orchestration will be implemented by Romilly.
+      // For now, return a placeholder response so the UI is fully wired.
+      if (action === "start") {
+        return {
+          running: false,
+          dashboardUrl: "http://localhost:18888",
+          error: "Aspire Dashboard Docker integration not yet implemented. Install and run manually: docker run -d -p 18888:18888 -p 4317:18889 mcr.microsoft.com/dotnet/aspire-dashboard:latest",
+        };
+      }
+
+      return {
+        running: false,
+        dashboardUrl: null,
+        error: null,
+      };
     },
   );
 };

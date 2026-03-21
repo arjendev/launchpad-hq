@@ -22,6 +22,10 @@ export interface ServerConfig {
   tunnel: boolean;
   /** Port the tunnel should expose — Vite (5173) in dev, Fastify in prod. */
   tunnelPort: number;
+  /** CLI override: enable OTEL tracing. */
+  otel: boolean;
+  /** CLI override: custom OTLP endpoint (implies otel=true). */
+  otelEndpoint: string | undefined;
 }
 
 export function loadConfig(): ServerConfig {
@@ -31,6 +35,21 @@ export function loadConfig(): ServerConfig {
   const isDev = !isBuilt && process.env.NODE_ENV !== "production";
   const args = process.argv.slice(2);
   const port = Number(process.env.PORT) || 4321;
+
+  // Parse --otel-endpoint <url> from CLI args
+  let otelEndpoint: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--otel-endpoint" && args[i + 1]) {
+      otelEndpoint = args[i + 1];
+      break;
+    }
+    if (args[i].startsWith("--otel-endpoint=")) {
+      otelEndpoint = args[i].slice("--otel-endpoint=".length);
+      break;
+    }
+  }
+
+  const otelFlag = args.includes("--otel") || otelEndpoint !== undefined;
 
   return {
     port,
@@ -53,5 +72,7 @@ export function loadConfig(): ServerConfig {
     tunnelPort: isDev
       ? Number(process.env.VITE_PORT) || 5173
       : port,
+    otel: otelFlag,
+    otelEndpoint,
   };
 }

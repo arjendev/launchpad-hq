@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { authFetchJson as fetchJson } from "./authFetch.js";
-import type { LaunchpadConfig } from "./types.js";
+import type { LaunchpadConfig, OtelConfig, AspireDashboardState } from "./types.js";
 
 /** Fetch current launchpad settings. */
 export function useSettings() {
@@ -53,6 +53,64 @@ export function useResetOnboarding() {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["settings"] });
+    },
+  });
+}
+
+// ── OTEL / Aspire ───────────────────────────────────────────────────────────
+
+/** Fetch current OTEL configuration. */
+export function useOtelSettings() {
+  return useQuery<OtelConfig>({
+    queryKey: ["otel-settings"],
+    queryFn: () => fetchJson<OtelConfig>("/api/settings/otel"),
+    staleTime: 30_000,
+  });
+}
+
+/** Update OTEL configuration (partial merge). */
+export function useUpdateOtelSettings() {
+  const qc = useQueryClient();
+  return useMutation<OtelConfig & { message: string }, Error, Partial<OtelConfig>>({
+    mutationFn: (body) =>
+      fetchJson<OtelConfig & { message: string }>("/api/settings/otel", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["otel-settings"] });
+      void qc.invalidateQueries({ queryKey: ["settings"] });
+    },
+  });
+}
+
+/** Get Aspire Dashboard container status. */
+export function useAspireDashboard() {
+  return useQuery<AspireDashboardState>({
+    queryKey: ["aspire-dashboard"],
+    queryFn: () => fetchJson<AspireDashboardState>("/api/settings/otel/aspire"),
+    staleTime: 10_000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (data?.running) return 15_000;
+      return 60_000;
+    },
+  });
+}
+
+/** Start or stop the Aspire Dashboard container. */
+export function useToggleAspireDashboard() {
+  const qc = useQueryClient();
+  return useMutation<AspireDashboardState, Error, { action: "start" | "stop" }>({
+    mutationFn: (body) =>
+      fetchJson<AspireDashboardState>("/api/settings/otel/aspire", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["aspire-dashboard"] });
     },
   });
 }

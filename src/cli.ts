@@ -51,6 +51,8 @@ Options:
   --host <host>           Bind address (default: 127.0.0.1, auto 0.0.0.0 in devcontainers)
   --verbose               Enable debug-level logging
   --tunnel                Auto-start Dev Tunnel on boot
+  --otel                  Enable OpenTelemetry tracing (default endpoint)
+  --otel-endpoint <url>   Enable OTEL with a custom OTLP endpoint
   --help, -h              Show this help message
 
 Prerequisites:

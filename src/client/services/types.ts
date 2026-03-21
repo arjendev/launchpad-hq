@@ -496,5 +496,27 @@ export interface LaunchpadConfig {
     mode: "always" | "on-demand";
     configured: boolean;
   };
+  /** OpenTelemetry tracing configuration. Opt-in — disabled by default. */
+  otel?: {
+    enabled: boolean;
+    /** OTLP endpoint (default: http://localhost:4317 for Aspire Dashboard). */
+    endpoint: string;
+    /** Service name reported to the collector (default: "launchpad-hq"). */
+    serviceName?: string;
+  };
   onboardingComplete: boolean;
+}
+
+// ── OTEL / Aspire types (match server /api/settings/otel routes) ────────────
+
+export interface OtelConfig {
+  enabled: boolean;
+  endpoint: string;
+  serviceName?: string;
+}
+
+export interface AspireDashboardState {
+  running: boolean;
+  dashboardUrl: string | null;
+  error: string | null;
 }

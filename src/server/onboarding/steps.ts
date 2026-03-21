@@ -352,9 +352,119 @@ export function createDevtunnelStep(ops?: DevtunnelOps): WizardStep {
 
 export const devtunnelStep = createDevtunnelStep();
 
+// ── Step 5: Observability / OTEL (optional) (#59) ───────────────────────────
+
+export const otelStep: WizardStep = {
+  id: "otel",
+  title: "Observability (Optional)",
+
+  async prompt(_currentConfig: LaunchpadConfig) {
+    p.note(
+      [
+        "OpenTelemetry gives you end-to-end tracing for Copilot sessions,",
+        "API requests, and background tasks.",
+        "",
+        "📊 Aspire Dashboard — local collector + trace viewer (Docker)",
+        "   • Endpoint: http://localhost:4317 (gRPC)",
+        "   • Dashboard: http://localhost:18888",
+        "",
+        "🔗 Custom Endpoint — send traces to your own OTLP collector",
+        "",
+        "This is completely optional. You can enable it later in Settings.",
+      ].join("\n"),
+      "🔭 Observability",
+    );
+
+    const choice = await p.select({
+      message: "How would you like to set up tracing?",
+      options: [
+        {
+          value: "aspire",
+          label: "Enable with Aspire Dashboard",
+          hint: "recommended — Docker-based, zero config",
+        },
+        {
+          value: "custom",
+          label: "Enable with custom endpoint",
+          hint: "bring your own collector",
+        },
+        {
+          value: "skip",
+          label: "Skip",
+          hint: "leave observability disabled for now",
+        },
+      ],
+      initialValue: "skip" as string,
+    });
+
+    if (p.isCancel(choice) || choice === "skip") {
+      return { otelChoice: "skip" };
+    }
+
+    if (choice === "aspire") {
+      return {
+        otelChoice: "aspire",
+        enabled: true,
+        endpoint: "http://localhost:4317",
+      };
+    }
+
+    // Custom endpoint
+    const endpoint = await p.text({
+      message: "OTLP gRPC endpoint:",
+      placeholder: "http://localhost:4317",
+      defaultValue: "http://localhost:4317",
+      validate: (val) => {
+        if (!val) return "Please enter an endpoint URL";
+        try {
+          new URL(val);
+        } catch {
+          return "Please enter a valid URL (e.g. http://localhost:4317)";
+        }
+        return undefined;
+      },
+    });
+
+    if (p.isCancel(endpoint)) {
+      return { otelChoice: "skip" };
+    }
+
+    return {
+      otelChoice: "custom",
+      enabled: true,
+      endpoint: endpoint as string,
+    };
+  },
+
+  validate(values) {
+    const choice = values.otelChoice as string | undefined;
+    if (choice !== "skip" && choice !== "aspire" && choice !== "custom") {
+      return "Invalid observability choice.";
+    }
+    if (choice !== "skip" && !values.endpoint) {
+      return "Endpoint is required when OTEL is enabled.";
+    }
+    return null;
+  },
+
+  apply(config, values) {
+    if (values.otelChoice === "skip") {
+      return config;
+    }
+    return {
+      ...config,
+      otel: {
+        enabled: true,
+        endpoint: values.endpoint as string,
+      },
+    };
+  },
+};
+
 export const defaultSteps: WizardStep[] = [
   stateModeStep,
   copilotPrefStep,
   modelStep,
   devtunnelStep,
+  otelStep,
 ];
