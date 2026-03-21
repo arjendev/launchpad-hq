@@ -37,7 +37,7 @@ export async function setupTracing(config?: OtelConfig): Promise<boolean> {
 
   const serviceName = config.serviceName ?? "launchpad-hq";
 
-  // Use gRPC for port 4317 (Aspire default), HTTP for others
+  // Use gRPC for port 4317 (OTLP default), HTTP for others
   const isGrpc = config.endpoint.includes(":4317");
   const traceExporter = isGrpc
     ? new GrpcTraceExporter({ url: config.endpoint })

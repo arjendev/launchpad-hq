@@ -41,8 +41,6 @@ import {
   useValidateRepo,
   useOtelSettings,
   useUpdateOtelSettings,
-  useAspireDashboard,
-  useToggleAspireDashboard,
 } from "../services/hooks.js";
 import type { LaunchpadConfig, TunnelState } from "../services/types.js";
 import { ThemeToggle } from "../components/ThemeToggle.js";
@@ -100,8 +98,6 @@ export function SettingsPage() {
   // OTEL hooks
   const { data: otelSettings } = useOtelSettings();
   const updateOtel = useUpdateOtelSettings();
-  const { data: aspireState } = useAspireDashboard();
-  const toggleAspire = useToggleAspireDashboard();
 
   // Local form state — synced from server on load
   const [stateMode, setStateMode] = useState<string>("local");
@@ -291,11 +287,6 @@ export function SettingsPage() {
     if (otelServiceName !== (otelSettings?.serviceName ?? "launchpad-hq")) {
       updateOtel.mutate({ enabled: otelEnabled, endpoint: otelEndpoint, serviceName: otelServiceName });
     }
-  }
-
-  function handleAspireToggle() {
-    const action = aspireState?.running ? "stop" : "start";
-    toggleAspire.mutate({ action });
   }
 
   const maxWidth = isMobile ? "100%" : 640;
@@ -572,47 +563,6 @@ export function SettingsPage() {
                     disabled={isLoading}
                   />
 
-                  <Divider />
-
-                  <Group justify="space-between" align="center">
-                    <Stack gap={2}>
-                      <Text size="sm" fw={500}>Aspire Dashboard</Text>
-                      <Text size="xs" c="dimmed">
-                        One-click local collector + trace viewer via Docker
-                      </Text>
-                    </Stack>
-                    <Button
-                      variant={aspireState?.running ? "outline" : "filled"}
-                      color={aspireState?.running ? "red" : "blue"}
-                      size="compact-sm"
-                      onClick={handleAspireToggle}
-                      loading={toggleAspire.isPending}
-                      disabled={isLoading}
-                    >
-                      {aspireState?.running ? "Stop" : "Launch"} Aspire
-                    </Button>
-                  </Group>
-
-                  {aspireState?.running && aspireState.dashboardUrl && (
-                    <Alert color="green" variant="light" icon={<IconCheck size={16} />}>
-                      Aspire Dashboard:{" "}
-                      <Anchor href={aspireState.dashboardUrl} target="_blank" rel="noopener">
-                        {aspireState.dashboardUrl}
-                      </Anchor>
-                    </Alert>
-                  )}
-
-                  {aspireState?.error && (
-                    <Alert color="red" variant="light" icon={<IconX size={16} />}>
-                      {aspireState.error}
-                    </Alert>
-                  )}
-
-                  {toggleAspire.isError && (
-                    <Alert color="red" variant="light" icon={<IconX size={16} />}>
-                      {toggleAspire.error.message}
-                    </Alert>
-                  )}
                 </>
               )}
 

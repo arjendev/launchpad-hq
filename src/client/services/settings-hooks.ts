@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { authFetchJson as fetchJson } from "./authFetch.js";
-import type { LaunchpadConfig, OtelConfig, AspireDashboardState } from "./types.js";
+import type { LaunchpadConfig, OtelConfig } from "./types.js";
 
 /** Fetch current launchpad settings. */
 export function useSettings() {
@@ -57,7 +57,7 @@ export function useResetOnboarding() {
   });
 }
 
-// ── OTEL / Aspire ───────────────────────────────────────────────────────────
+// ── OTEL ────────────────────────────────────────────────────────────────────
 
 /** Fetch current OTEL configuration. */
 export function useOtelSettings() {
@@ -81,36 +81,6 @@ export function useUpdateOtelSettings() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["otel-settings"] });
       void qc.invalidateQueries({ queryKey: ["settings"] });
-    },
-  });
-}
-
-/** Get Aspire Dashboard container status. */
-export function useAspireDashboard() {
-  return useQuery<AspireDashboardState>({
-    queryKey: ["aspire-dashboard"],
-    queryFn: () => fetchJson<AspireDashboardState>("/api/settings/otel/aspire"),
-    staleTime: 10_000,
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      if (data?.running) return 15_000;
-      return 60_000;
-    },
-  });
-}
-
-/** Start or stop the Aspire Dashboard container. */
-export function useToggleAspireDashboard() {
-  const qc = useQueryClient();
-  return useMutation<AspireDashboardState, Error, { action: "start" | "stop" }>({
-    mutationFn: (body) =>
-      fetchJson<AspireDashboardState>("/api/settings/otel/aspire", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["aspire-dashboard"] });
     },
   });
 }

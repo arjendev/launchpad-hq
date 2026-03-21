@@ -446,7 +446,7 @@ The `sql` tool is **CLI-only**. It does not exist on VS Code, JetBrains, or GitH
 
 ### MCP Integration
 
-MCP (Model Context Protocol) servers extend Squad with tools for external services — Trello, Aspire dashboards, Azure, Notion, and more. The user configures MCP servers in their environment; Squad discovers and uses them.
+MCP (Model Context Protocol) servers extend Squad with tools for external services — Trello, Azure, Notion, and more. The user configures MCP servers in their environment; Squad discovers and uses them.
 
 > **Full patterns:** Read `.squad/skills/mcp-tool-discovery/SKILL.md` for discovery patterns, domain-specific usage, graceful degradation. Read `.squad/templates/mcp-config.md` for config file locations, sample configs, and authentication notes.
 
@@ -455,7 +455,6 @@ MCP (Model Context Protocol) servers extend Squad with tools for external servic
 At task start, scan your available tools list for known MCP prefixes:
 - `github-mcp-server-*` → GitHub API (issues, PRs, code search, actions)
 - `trello_*` → Trello boards, cards, lists
-- `aspire_*` → Aspire dashboard (metrics, logs, health)
 - `azure_*` → Azure resource management
 - `notion_*` → Notion pages and databases
 

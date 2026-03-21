@@ -364,9 +364,10 @@ export const otelStep: WizardStep = {
         "OpenTelemetry gives you end-to-end tracing for Copilot sessions,",
         "API requests, and background tasks.",
         "",
-        "📊 Aspire Dashboard — local collector + trace viewer (Docker)",
+        "📊 Jaeger — local collector + trace viewer (Docker)",
         "   • Endpoint: http://localhost:4317 (gRPC)",
-        "   • Dashboard: http://localhost:18888",
+        "   • UI: http://localhost:16686",
+        "   • Start with: docker compose up -d",
         "",
         "🔗 Custom Endpoint — send traces to your own OTLP collector",
         "",
@@ -379,9 +380,9 @@ export const otelStep: WizardStep = {
       message: "How would you like to set up tracing?",
       options: [
         {
-          value: "aspire",
-          label: "Enable with Aspire Dashboard",
-          hint: "recommended — Docker-based, zero config",
+          value: "jaeger",
+          label: "Enable with Jaeger (Docker)",
+          hint: "recommended — run docker compose up -d first",
         },
         {
           value: "custom",
@@ -401,9 +402,9 @@ export const otelStep: WizardStep = {
       return { otelChoice: "skip" };
     }
 
-    if (choice === "aspire") {
+    if (choice === "jaeger") {
       return {
-        otelChoice: "aspire",
+        otelChoice: "jaeger",
         enabled: true,
         endpoint: "http://localhost:4317",
       };
@@ -438,7 +439,7 @@ export const otelStep: WizardStep = {
 
   validate(values) {
     const choice = values.otelChoice as string | undefined;
-    if (choice !== "skip" && choice !== "aspire" && choice !== "custom") {
+    if (choice !== "skip" && choice !== "jaeger" && choice !== "custom") {
       return "Invalid observability choice.";
     }
     if (choice !== "skip" && !values.endpoint) {

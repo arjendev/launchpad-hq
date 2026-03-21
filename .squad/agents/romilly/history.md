@@ -17,7 +17,7 @@
 - **Trace context propagation**: `registry.sendToDaemon()` and `broadcastToDaemons()` inject W3C `traceparent` into HQ→daemon messages.
 - **Config**: `LaunchpadConfig.otel?: { enabled, endpoint, serviceName }`. CLI flags `--otel` and `--otel-endpoint` override config.json.
 - **OTEL packages**: `@opentelemetry/*` packages need `ssr.external: [/^@opentelemetry\//]` in vitest.config.ts to avoid Vite import resolution failures.
-- **Aspire Dashboard**: `scripts/aspire-dashboard.sh` starts/stops the container. Dashboard on :18888, OTLP gRPC on :4317.
+- **Jaeger**: `docker compose up -d` starts the collector + UI. Jaeger UI on :16686, OTLP gRPC on :4317.
 
 ### Patterns
 - Route files: validate request → call service → respond. No business logic, no event wiring.

@@ -64,7 +64,7 @@ export async function setupTracing(opts: {
     [ATTR_SERVICE_VERSION]: opts.serviceVersion ?? '0.1.0',
   });
 
-  // Use gRPC for port 4317 (Aspire default), HTTP for others
+  // Use gRPC for port 4317 (OTLP default), HTTP for others
   const isGrpc = opts.endpoint.includes(':4317');
   const traceExporter = isGrpc
     ? new GrpcTraceExporter({ url: opts.endpoint })

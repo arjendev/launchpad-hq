@@ -266,43 +266,6 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       };
     },
   );
-
-  /** Get Aspire Dashboard container status. */
-  fastify.get("/api/settings/otel/aspire", async () => {
-    return {
-      running: false,
-      dashboardUrl: null,
-      error: null,
-    };
-  });
-
-  /** Start or stop the Aspire Dashboard Docker container. */
-  fastify.post<{ Body: { action: "start" | "stop" } }>(
-    "/api/settings/otel/aspire",
-    async (request, reply) => {
-      const { action } = request.body as { action?: string };
-
-      if (action !== "start" && action !== "stop") {
-        return reply.status(400).send({ error: 'action must be "start" or "stop"' });
-      }
-
-      // Aspire Dashboard Docker orchestration will be implemented by Romilly.
-      // For now, return a placeholder response so the UI is fully wired.
-      if (action === "start") {
-        return {
-          running: false,
-          dashboardUrl: "http://localhost:18888",
-          error: "Aspire Dashboard Docker integration not yet implemented. Install and run manually: docker run -d -p 18888:18888 -p 4317:18889 mcr.microsoft.com/dotnet/aspire-dashboard:latest",
-        };
-      }
-
-      return {
-        running: false,
-        dashboardUrl: null,
-        error: null,
-      };
-    },
-  );
 };
 
 export default settingsRoutes;

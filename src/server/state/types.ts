@@ -119,7 +119,7 @@ export interface LaunchpadConfig {
   /** OpenTelemetry tracing configuration. Opt-in — disabled by default. */
   otel?: {
     enabled: boolean;
-    /** OTLP endpoint (default: http://localhost:4317 for Aspire Dashboard). */
+    /** OTLP endpoint (default: http://localhost:4317). */
     endpoint: string;
     /** Service name reported to the collector (default: "launchpad-hq"). */
     serviceName?: string;
