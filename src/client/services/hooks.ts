@@ -1156,6 +1156,8 @@ export function useConversationEntries(sessionId: string | null): {
             // Track the main agent's display name
             const selData = event.data as { agentDisplayName?: string; agentName?: string };
             mainAgentNameRef.current = selData.agentDisplayName ?? selData.agentName ?? null;
+            // Invalidate the agent dropdown query so it refreshes
+            void qc.invalidateQueries({ queryKey: ["session-agent", sessionId] });
             // Emit as event entry
             setRealtimeEntries((prev) => [
               ...prev,
