@@ -42,6 +42,7 @@ import { logIncoming, logOutgoing, logSdk, logSdkCall, logSdkEvent, logDecision 
 import { AgentResolver } from './agent-resolver.js';
 import { ElicitationRelay } from './elicitation.js';
 import { withSpan, startSpan, SpanStatusCode, makeSpanContext, injectTraceContextFrom, type Context } from '../observability/tracing.js';
+import { trace } from '@opentelemetry/api';
 import { sanitizeToString } from '../observability/sanitize.js';
 
 // ---------------------------------------------------------------------------
@@ -485,11 +486,13 @@ export class CopilotManager {
     attachments?: MessageOptions['attachments'],
     mode?: PromptDeliveryMode,
   ): Promise<void> {
-    await withSpan('copilot.send_prompt', { 'session.id': sessionId }, async (span) => {
-    span.addEvent('prompt.content', { prompt: truncate(prompt, 500), mode: mode ?? 'default', sessionId });
+    // Create a long-lived turn span that covers the entire SDK turn lifecycle.
+    // It stays open until session.idle or assistant.turn_end fires.
+    const turnSpan = startSpan('copilot.send_prompt', { 'session.id': sessionId });
+    turnSpan.addEvent('prompt.content', { prompt: truncate(prompt, 500), mode: mode ?? 'default', sessionId });
 
-    // Store span context so SDK events fired during this turn are linked
-    this.activeTurnContexts.set(sessionId, makeSpanContext(span));
+    // Store span context so SDK events fired during this turn are children
+    this.activeTurnContexts.set(sessionId, makeSpanContext(turnSpan));
 
     const session = await this.getOrAttachSession(sessionId, undefined, {
       skipInitialStart: true,
@@ -504,6 +507,8 @@ export class CopilotManager {
           event: syntheticEvent('session.error', { message: `No active session: ${sessionId}` }),
         },
       });
+      turnSpan.setStatus({ code: SpanStatusCode.ERROR, message: 'No active session' });
+      turnSpan.end();
       this.activeTurnContexts.delete(sessionId);
       return;
     }
@@ -516,6 +521,8 @@ export class CopilotManager {
         ...(attachments ? { attachments } : {}),
         ...(mode ? { mode } : {}),
       });
+      // NOTE: Do NOT end turnSpan here. SDK events will fire asynchronously.
+      // The span is ended in trackSession() when session.idle fires.
     } catch (err) {
       this.sendToHq({
         type: 'copilot-session-event',
@@ -526,8 +533,10 @@ export class CopilotManager {
           event: syntheticEvent('session.error', { message: String(err) }),
         },
       });
+      turnSpan.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+      turnSpan.end();
+      this.activeTurnContexts.delete(sessionId);
     }
-    });
   }
 
   private async handleAbort(sessionId: string): Promise<void> {
@@ -950,8 +959,17 @@ export class CopilotManager {
       span.setStatus({ code: SpanStatusCode.OK });
       span.end();
 
-      // Clear stored context when the turn ends
+      // Clear stored context and end the turn span when the turn ends
       if (event.type === 'session.idle' || event.type === 'assistant.turn_end') {
+        const turnCtxToEnd = this.activeTurnContexts.get(session.sessionId);
+        if (turnCtxToEnd) {
+          // Extract the span from the stored context and end it
+          const turnSpanRef = trace.getSpan(turnCtxToEnd);
+          if (turnSpanRef) {
+            turnSpanRef.setStatus({ code: SpanStatusCode.OK });
+            turnSpanRef.end();
+          }
+        }
         this.activeTurnContexts.delete(session.sessionId);
       }
     });
