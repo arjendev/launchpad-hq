@@ -57,10 +57,30 @@ export interface WorkflowElicitationRequestedPayload {
   requestedSchema?: { type: "object"; properties: Record<string, unknown>; required?: string[] };
 }
 
+// ── Preview event payloads ───────────────────────────────
+
+export interface PreviewProxyResponsePayload {
+  requestId: string;
+  statusCode: number;
+  headers: Record<string, string>;
+  body: string;
+}
+
+export interface PreviewWsDataPayload {
+  channelId: string;
+  data: string;
+}
+
+export interface PreviewWsClosePayload {
+  channelId: string;
+  code?: number;
+  reason?: string;
+}
+
 // ── Complete event map ───────────────────────────────────
 
 export interface DaemonEventMap {
-  // Daemon lifecycle (already typed in registry)
+  // Daemon lifecycle
   "daemon:connected": [daemon: DaemonSummary];
   "daemon:disconnected": [daemon: DaemonSummary];
 
@@ -68,7 +88,7 @@ export interface DaemonEventMap {
   "copilot:session-list": [daemonId: string | undefined, payload: { projectId: string; requestId?: string; sessions: unknown[] }];
   "copilot:session-event": [daemonId: string | undefined, payload: { projectId: string; sessionId: string; sessionType?: unknown; event: unknown }];
   "copilot:agent-catalog": [daemonId: string | undefined, payload: { projectId: string; agents: unknown[] }];
-  "copilot:sdk-state": [daemonId: string | undefined, payload: { projectId: string; state: unknown; error?: string }];
+  "copilot:sdk-state": [daemonId: string | undefined, payload: { state: unknown; error?: string }];
   "copilot:tool-invocation": [daemonId: string | undefined, payload: { sessionId: string; projectId: string; tool: string; args: unknown; timestamp: number }];
   "copilot:conversation": [projectId: string, payload: { projectId: string; sessionId: string; messages: unknown[] }];
   "copilot:models-list": [daemonId: string | undefined, payload: { requestId?: string; models: unknown[] }];
@@ -76,10 +96,10 @@ export interface DaemonEventMap {
   "copilot:agent-response": [daemonId: string | undefined, payload: { requestId: string; sessionId: string; agentId: string | null; agentName: string | null; error?: string }];
   "copilot:plan-response": [daemonId: string | undefined, payload: { requestId: string; sessionId: string; plan: { exists: boolean; content: string | null; path: string | null } }];
 
-  // Preview events (payload only)
-  "preview:proxy-response": [payload: unknown];
-  "preview:ws-data": [payload: unknown];
-  "preview:ws-close": [payload: unknown];
+  // Preview events (typed payloads)
+  "preview:proxy-response": [payload: PreviewProxyResponsePayload];
+  "preview:ws-data": [payload: PreviewWsDataPayload];
+  "preview:ws-close": [payload: PreviewWsClosePayload];
 
   // Workflow events (payload only)
   "workflow:coordinator-started": [payload: WorkflowCoordinatorStartedPayload];

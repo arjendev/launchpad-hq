@@ -40,43 +40,45 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
   // ── Daemon copilot message routing ────────────────────
   // Events emitted by DaemonWsHandler.routeMessage() with signature (daemonId, payload)
 
-  registry.on("copilot:session-list", (daemonId: string, payload: { projectId: string; requestId?: string; sessions: SessionMetadata[] }) => {
-    aggregator.updateSessions(daemonId, payload.projectId, payload.sessions);
+  registry.on("copilot:session-list", (daemonId, payload) => {
+    aggregator.updateSessions(daemonId ?? "", payload.projectId, payload.sessions as SessionMetadata[]);
 
     // Resolve any pending request-response (e.g. from the resume-picker endpoint)
     if (payload.requestId) {
-      aggregator.resolveRequest(payload.requestId, { sessions: payload.sessions });
+      aggregator.resolveRequest(payload.requestId, { sessions: payload.sessions as SessionMetadata[] });
     }
   });
 
-  registry.on("copilot:session-event", (daemonId: string, payload: { projectId: string; sessionId: string; sessionType?: SessionType; event: SessionEvent }) => {
-    aggregator.handleSessionEvent(daemonId, payload.sessionId, payload.event);
+  registry.on("copilot:session-event", (daemonId, payload) => {
+    const event = payload.event as SessionEvent;
+    const sessionType = payload.sessionType as SessionType | undefined;
+    aggregator.handleSessionEvent(daemonId ?? "", payload.sessionId, event);
 
     // Track session type if provided
-    if (payload.sessionType) {
-      aggregator.setSessionType(payload.sessionId, payload.sessionType);
+    if (sessionType) {
+      aggregator.setSessionType(payload.sessionId, sessionType);
     }
 
     // Track subagent display names so we can enrich persisted messages
-    if (payload.event.type === "subagent.started") {
-      const d = payload.event.data as { toolCallId?: string; agentDisplayName?: string; agentName?: string };
+    if (event.type === "subagent.started") {
+      const d = event.data as { toolCallId?: string; agentDisplayName?: string; agentName?: string };
       if (d.toolCallId) {
         subagentNamesByToolCallId.set(d.toolCallId, d.agentDisplayName ?? d.agentName ?? "subagent");
       }
     }
 
     // Track the selected main agent name
-    if (payload.event.type === "subagent.selected") {
-      const d = payload.event.data as { agentDisplayName?: string; agentName?: string };
+    if (event.type === "subagent.selected") {
+      const d = event.data as { agentDisplayName?: string; agentName?: string };
       mainAgentNameBySession.set(payload.sessionId, d.agentDisplayName ?? d.agentName ?? "");
     }
-    if (payload.event.type === "subagent.deselected") {
+    if (event.type === "subagent.deselected") {
       mainAgentNameBySession.delete(payload.sessionId);
     }
 
     // Persist assistant messages to conversation history so they survive refresh
-    if (payload.event.type === "assistant.message") {
-      const data = payload.event.data as {
+    if (event.type === "assistant.message") {
+      const data = event.data as {
         content?: string;
         parentToolCallId?: string;
         model?: string;
@@ -100,18 +102,18 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
         aggregator.appendMessages(payload.sessionId, [{
           role: "assistant",
           content,
-          timestamp: new Date(payload.event.timestamp).getTime(),
+          timestamp: new Date(event.timestamp).getTime(),
           ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
         }]);
       }
     }
 
     // Permanently delete corrupted/incompatible sessions from the SDK
-    if (payload.event.type === "session.error") {
-      const errMsg = String((payload.event.data as Record<string, unknown>)?.message ?? "");
+    if (event.type === "session.error") {
+      const errMsg = String((event.data as Record<string, unknown>)?.message ?? "");
       if (errMsg.includes("corrupted") || errMsg.includes("incompatible")) {
         fastify.log.warn(`Deleting corrupted SDK session ${payload.sessionId}: ${errMsg}`);
-        registry.sendToDaemon(daemonId, {
+        registry.sendToDaemon(daemonId ?? "", {
           type: "copilot-delete-session",
           timestamp: Date.now(),
           payload: { sessionId: payload.sessionId },
@@ -120,70 +122,52 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
     }
 
     // If the event carries a requestId, resolve any pending request-response
-    const requestId = (payload.event as SessionEvent & { data?: Record<string, unknown> })?.data?.requestId;
+    const requestId = (event as SessionEvent & { data?: Record<string, unknown> })?.data?.requestId;
     if (requestId && typeof requestId === "string") {
       aggregator.resolveRequest(requestId, { sessionId: payload.sessionId });
     }
   });
 
-  registry.on("copilot:sdk-state", (daemonId: string, payload: { projectId: string; state: ConnectionState; error?: string }) => {
-    aggregator.handleSdkStateChange(daemonId, payload.state, payload.error);
+  registry.on("copilot:sdk-state", (daemonId, payload) => {
+    aggregator.handleSdkStateChange(daemonId ?? "", payload.state as ConnectionState, payload.error);
   });
 
-  registry.on("copilot:conversation", (_daemonId: string, payload: { sessionId: string; messages: CopilotMessage[] }) => {
-    aggregator.appendMessages(payload.sessionId, payload.messages);
+  registry.on("copilot:conversation", (_projectId, payload) => {
+    aggregator.appendMessages(payload.sessionId, payload.messages as CopilotMessage[]);
   });
 
-  registry.on("copilot:tool-invocation", (_daemonId: string, payload: {
-    sessionId: string;
-    projectId: string;
-    tool: CopilotHqToolName;
-    args: Record<string, unknown>;
-    timestamp: number;
-  }) => {
+  registry.on("copilot:tool-invocation", (_daemonId, payload) => {
     aggregator.handleToolInvocation(
       payload.sessionId,
       payload.projectId,
-      payload.tool,
-      payload.args,
+      payload.tool as CopilotHqToolName,
+      payload.args as Record<string, unknown>,
       payload.timestamp,
     );
   });
 
   // ── Request-response handlers (resolve pending REST requests) ──
 
-  registry.on("copilot:models-list", (_daemonId: string, payload: { requestId?: string; models: ModelInfo[] }) => {
+  registry.on("copilot:models-list", (_daemonId, payload) => {
     if (payload.requestId) {
-      aggregator.resolveRequest(payload.requestId, { models: payload.models });
+      aggregator.resolveRequest(payload.requestId, { models: payload.models as ModelInfo[] });
     }
   });
 
-  registry.on("copilot:mode-response", (_daemonId: string, payload: { requestId: string; sessionId: string; mode: string }) => {
+  registry.on("copilot:mode-response", (_daemonId, payload) => {
     aggregator.resolveRequest(payload.requestId, { mode: payload.mode });
   });
 
-  registry.on(
-    "copilot:agent-response",
-    (
-      _daemonId: string,
-      payload: {
-        requestId: string;
-        sessionId: string;
-        agentId: string | null;
-        agentName: string | null;
-        error?: string;
-      },
-    ) => {
-      aggregator.resolveRequest(payload.requestId, {
-        sessionId: payload.sessionId,
-        agentId: payload.agentId,
-        agentName: payload.agentName,
-        ...(payload.error ? { error: payload.error } : {}),
-      });
-    },
-  );
+  registry.on("copilot:agent-response", (_daemonId, payload) => {
+    aggregator.resolveRequest(payload.requestId, {
+      sessionId: payload.sessionId,
+      agentId: payload.agentId,
+      agentName: payload.agentName,
+      ...(payload.error ? { error: payload.error } : {}),
+    });
+  });
 
-  registry.on("copilot:plan-response", (_daemonId: string, payload: { requestId: string; sessionId: string; plan: { exists: boolean; content: string | null; path: string | null } }) => {
+  registry.on("copilot:plan-response", (_daemonId, payload) => {
     aggregator.resolveRequest(payload.requestId, { plan: payload.plan });
   });
 

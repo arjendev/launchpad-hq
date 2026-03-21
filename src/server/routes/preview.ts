@@ -15,16 +15,13 @@ import fp from "fastify-plugin";
 import QRCode from "qrcode";
 import type {
   PreviewProxyRequestMessage,
-  PreviewProxyResponseMessage,
-  PreviewWsOpenMessage,
-  PreviewWsDataMessage,
-  PreviewWsCloseMessage,
 } from "../../shared/protocol.js";
+import type { PreviewProxyResponsePayload } from "../daemon-registry/event-bus.js";
 
 // ── Pending request tracking ─────────────────────────────
 
 interface PendingRequest {
-  resolve: (response: PreviewProxyResponseMessage["payload"]) => void;
+  resolve: (response: PreviewProxyResponsePayload) => void;
   reject: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
 }
@@ -40,7 +37,7 @@ const pendingRequests = new Map<string, PendingRequest>();
  */
 export function resolvePreviewResponse(
   requestId: string,
-  response: PreviewProxyResponseMessage["payload"],
+  response: PreviewProxyResponsePayload,
 ): void {
   const pending = pendingRequests.get(requestId);
   if (!pending) return;
@@ -120,15 +117,15 @@ async function previewPlugin(fastify: FastifyInstance) {
   const registry = fastify.daemonRegistry;
 
   // Wire up registry events for preview responses and WS relay
-  registry.on("preview:proxy-response", (payload: PreviewProxyResponseMessage["payload"]) => {
+  registry.on("preview:proxy-response", (payload) => {
     resolvePreviewResponse(payload.requestId, payload);
   });
 
-  registry.on("preview:ws-data", (payload: PreviewWsDataMessage["payload"]) => {
+  registry.on("preview:ws-data", (payload) => {
     forwardPreviewWsData(payload.channelId, payload.data);
   });
 
-  registry.on("preview:ws-close", (payload: PreviewWsCloseMessage["payload"]) => {
+  registry.on("preview:ws-close", (payload) => {
     closePreviewWsChannel(payload.channelId, payload.code, payload.reason);
   });
 
@@ -413,8 +410,8 @@ async function previewPlugin(fastify: FastifyInstance) {
 }
 
 /** Wait for a preview-proxy-response matching the requestId */
-function waitForResponse(requestId: string): Promise<PreviewProxyResponseMessage["payload"]> {
-  return new Promise<PreviewProxyResponseMessage["payload"]>((resolve, reject) => {
+function waitForResponse(requestId: string): Promise<PreviewProxyResponsePayload> {
+  return new Promise<PreviewProxyResponsePayload>((resolve, reject) => {
     const timeout = setTimeout(() => {
       pendingRequests.delete(requestId);
       reject(new Error("Preview proxy timeout"));
