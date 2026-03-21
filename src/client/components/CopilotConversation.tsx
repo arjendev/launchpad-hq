@@ -26,6 +26,7 @@ import {
   useSetModel,
   useSetSessionAgent,
 } from "../services/hooks.js";
+import type { SteeringMessage } from "../services/hooks.js";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import type {
   PromptDeliveryMode,
@@ -47,6 +48,56 @@ export interface CopilotConversationProps {
 const DEFAULT_SESSION_AGENT_ID = "builtin:default";
 const DEFAULT_SESSION_AGENT_LABEL = "Default";
 
+function truncateMessage(msg: string, maxLen = 80): string {
+  return msg.length > maxLen ? msg.slice(0, maxLen) + "…" : msg;
+}
+
+/** Compact status bar for a queued/pending user prompt */
+function QueuedMessageBar({ message }: { message: string }) {
+  return (
+    <Group
+      gap={6}
+      px="xs"
+      py={4}
+      style={{ borderBottom: "1px solid var(--lp-border)" }}
+      data-testid="queued-message-bar"
+    >
+      <Text size="xs" c="dimmed" style={{ fontFamily: "monospace" }}>
+        ⏳ Queued: &quot;{truncateMessage(message)}&quot;
+      </Text>
+    </Group>
+  );
+}
+
+/** Compact status bar for system/developer steering messages */
+function SteeringMessageBar({
+  message,
+  onDismiss,
+}: {
+  message: SteeringMessage;
+  onDismiss: () => void;
+}) {
+  const icon = message.role === "developer" ? "🔧" : "⚙️";
+  const label = message.role === "developer" ? "Steering" : "System";
+  return (
+    <Group
+      gap={6}
+      px="xs"
+      py={4}
+      justify="space-between"
+      style={{ borderBottom: "1px solid var(--lp-border)" }}
+      data-testid="steering-message-bar"
+    >
+      <Text size="xs" c="dimmed" style={{ fontFamily: "monospace" }}>
+        {icon} {label}: &quot;{truncateMessage(message.content)}&quot;
+      </Text>
+      <Button size="compact-xs" variant="subtle" c="dimmed" onClick={onDismiss}>
+        ✕
+      </Button>
+    </Group>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────
 
 export function CopilotConversation({
@@ -58,7 +109,7 @@ export function CopilotConversation({
   const { selectedProject } = useSelectedProject();
   const owner = selectedProject?.owner;
   const repo = selectedProject?.repo;
-  const { entries, rawEvents, isLoading, isError, error, sessionStatus } =
+  const { entries, rawEvents, isLoading, isError, error, sessionStatus, queuedMessage, setQueuedMessage, steeringMessage, clearSteeringMessage } =
     useConversationEntries(sessionId);
   const { data: sessionData } = useAggregatedSession(sessionId);
   const activity = sessionData?.activity ?? DEFAULT_SESSION_ACTIVITY;
@@ -160,9 +211,10 @@ export function CopilotConversation({
   const handleSend = useCallback((mode?: PromptDeliveryMode) => {
     const text = promptText.trim();
     if (!text || sendPrompt.isPending) return;
+    setQueuedMessage(text);
     sendPrompt.mutate({ sessionId, prompt: text, ...(mode ? { mode } : {}) });
     setPromptText("");
-  }, [promptText, sessionId, sendPrompt]);
+  }, [promptText, sessionId, sendPrompt, setQueuedMessage]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -317,6 +369,16 @@ export function CopilotConversation({
             {activity.phase === "error" && "Error"}
           </Text>
         </Group>
+      )}
+
+      {/* Queued / Steering message indicators */}
+      {(queuedMessage || steeringMessage) && (
+        <Box style={{ borderBottom: "1px solid var(--lp-border)" }}>
+          {queuedMessage && <QueuedMessageBar message={queuedMessage} />}
+          {steeringMessage && (
+            <SteeringMessageBar message={steeringMessage} onDismiss={clearSteeringMessage} />
+          )}
+        </Box>
       )}
 
       {/* Prompt input */}

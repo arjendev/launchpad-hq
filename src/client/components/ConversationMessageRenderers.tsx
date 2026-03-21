@@ -334,7 +334,6 @@ export const UserInputRequestCard = memo(function UserInputRequestCard({
 // ── Noise filter — events we never show inline ─────────
 
 export const HIDDEN_EVENT_TYPES = new Set([
-  "pending_messages.modified",
   "session.tools_updated",
   "hook.start",
   "hook.end",

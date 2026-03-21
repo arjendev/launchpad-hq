@@ -84,6 +84,12 @@ function formatEventContent(eventType: string, data: Record<string, unknown>): s
       return "Returned to the default agent";
     case "abort":
       return "Aborted";
+    case "system.message": {
+      const role = data.role as string | undefined;
+      const content = String(data.content ?? "");
+      const prefix = role === "developer" ? "Developer" : "System";
+      return `${prefix}: ${content.slice(0, 100)}`;
+    }
     default: {
       const summary = Object.entries(data)
         .filter(([, v]) => v !== undefined && v !== null)
@@ -102,6 +108,12 @@ export interface RawSessionEvent {
   id?: string;
 }
 
+export interface SteeringMessage {
+  content: string;
+  role: "system" | "developer";
+  timestamp: number;
+}
+
 export function useConversationEntries(sessionId: string | null): {
   entries: ConversationEntry[];
   rawEvents: RawSessionEvent[];
@@ -109,6 +121,10 @@ export function useConversationEntries(sessionId: string | null): {
   isError: boolean;
   error: Error | null;
   sessionStatus: AggregatedSession["status"] | null;
+  queuedMessage: string | null;
+  setQueuedMessage: (msg: string | null) => void;
+  steeringMessage: SteeringMessage | null;
+  clearSteeringMessage: () => void;
 } {
   const qc = useQueryClient();
   const {
@@ -133,6 +149,14 @@ export function useConversationEntries(sessionId: string | null): {
 
   // Track all raw SDK events for the debug viewer
   const [rawEvents, setRawEvents] = useState<RawSessionEvent[]>([]);
+
+  // Queued message indicator — set when user sends a prompt, cleared on user.message
+  const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
+
+  // Steering/system message indicator — set on system.message events
+  const [steeringMessage, setSteeringMessage] = useState<SteeringMessage | null>(null);
+  const steeringTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearSteeringMessage = useCallback(() => setSteeringMessage(null), []);
 
   // Track latest assistant.usage for annotating the next assistant message
   const lastUsageRef = useRef<{ model: string; duration: number; inputTokens: number; outputTokens: number; initiator: string } | null>(null);
@@ -187,6 +211,7 @@ export function useConversationEntries(sessionId: string | null): {
             // User prompts sent from HQ are written to canonical REST history in the
             // send endpoint before the daemon echoes `user.message`. Rendering both
             // sources produces duplicate user rows with different timestamps.
+            setQueuedMessage(null);
             void qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
             void qc.invalidateQueries({ queryKey: ["aggregated-session", sessionId] });
             break;
@@ -425,6 +450,32 @@ export function useConversationEntries(sessionId: string | null): {
             break;
           }
 
+          case "system.message": {
+            const sysData = event.data as { content?: string; role?: string };
+            const role = (sysData.role === "developer" ? "developer" : "system") as "system" | "developer";
+            const content = sysData.content ?? "";
+            if (steeringTimerRef.current) clearTimeout(steeringTimerRef.current);
+            setSteeringMessage({ content, role, timestamp: ts });
+            steeringTimerRef.current = setTimeout(() => setSteeringMessage(null), 8000);
+            // Also emit as event entry for the timeline
+            setRealtimeEntries((prev) => [
+              ...prev,
+              {
+                id: `rt-evt-${event.type}-${ts}`,
+                type: "event" as const,
+                content: formatEventContent(event.type, event.data as Record<string, unknown>),
+                timestamp: ts,
+                eventType: event.type,
+                eventData: event.data as Record<string, unknown>,
+              },
+            ]);
+            break;
+          }
+
+          case "pending_messages.modified":
+            // Handled via queuedMessage state — no timeline entry needed
+            break;
+
           default: {
             setRealtimeEntries((prev) => [
               ...prev,
@@ -476,8 +527,18 @@ export function useConversationEntries(sessionId: string | null): {
       toolStartsRef.current.clear();
       subagentNamesRef.current.clear();
       mainAgentNameRef.current = null;
+      setQueuedMessage(null);
+      setSteeringMessage(null);
+      if (steeringTimerRef.current) clearTimeout(steeringTimerRef.current);
     }
   }, [sessionId]);
+
+  // Clean up steering auto-dismiss timer on unmount
+  useEffect(() => {
+    return () => {
+      if (steeringTimerRef.current) clearTimeout(steeringTimerRef.current);
+    };
+  }, []);
 
   // Build unified entries list from REST messages + tool invocations + realtime events
   const entries = useCallback((): ConversationEntry[] => {
@@ -546,5 +607,9 @@ export function useConversationEntries(sessionId: string | null): {
     isError: messagesError,
     error: messagesErr,
     sessionStatus: session?.status ?? null,
+    queuedMessage,
+    setQueuedMessage,
+    steeringMessage,
+    clearSteeringMessage,
   };
 }
