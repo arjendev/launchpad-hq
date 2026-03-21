@@ -56,7 +56,7 @@ export class IssueDispatcher {
    * Sends a formatted prompt with the issue details.
    */
   async dispatchIssue(issue: WorkflowIssuePayload): Promise<DispatchResult> {
-    return withSpan('dispatch.issue', { 'issue.number': issue.issueNumber }, async (span) => {
+    return withSpan('dispatch.issue', { 'issue.number': issue.issueNumber, 'issue.title': issue.title }, async (span) => {
     span.addEvent('issue.details', { issueNumber: issue.issueNumber, title: issue.title, labels: sanitizeToString(issue.labels) });
     const sessionId = this.coordinator.sessionId;
 

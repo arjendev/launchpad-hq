@@ -139,6 +139,7 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
           "copilot.sessionId": payload.sessionId,
           "copilot.event.type": event.type,
           "copilot.daemonId": daemonId ?? "unknown",
+          ...(sessionType ? { "copilot.sessionType": sessionType } : {}),
         },
       });
 

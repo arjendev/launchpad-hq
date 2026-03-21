@@ -72,11 +72,6 @@ Users configure MCP servers at these locations (checked in priority order):
 }
 ```
 
-## Sample Config — Jaeger
-
-Jaeger doesn't need an MCP configuration — it's a Docker container that receives OTLP traces directly.
-Start it with `docker compose up -d`. The Jaeger UI is available at `http://localhost:16686`.
-
 ## Authentication Notes
 
 - **GitHub MCP requires a separate token** from the `gh` CLI auth. Generate at https://github.com/settings/tokens

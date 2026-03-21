@@ -382,6 +382,9 @@ export class CopilotManager {
       await this.agentResolver.applyAgentSelection(session, selectedAgent);
       const currentAgent = await this.agentResolver.getCurrentSessionAgent(session);
 
+      span.setAttribute('session.id', session.sessionId);
+      if (currentAgent) span.setAttribute('agent.name', currentAgent.agentName ?? currentAgent.agentId ?? 'unknown');
+
       const traceparent = injectTraceContextFrom(makeSpanContext(span));
       this.sendToHq({
         type: 'copilot-session-event',
@@ -451,6 +454,9 @@ export class CopilotManager {
       }
       const currentAgent = await this.agentResolver.getCurrentSessionAgent(session);
 
+      if (currentAgent) span.setAttribute('agent.name', currentAgent.agentName ?? currentAgent.agentId ?? 'unknown');
+      span.setAttribute('session.resumed', true);
+
       const traceparent = injectTraceContextFrom(makeSpanContext(span));
       this.sendToHq({
         type: 'copilot-session-event',
@@ -496,7 +502,7 @@ export class CopilotManager {
   ): Promise<void> {
     // Create a long-lived turn span that covers the entire SDK turn lifecycle.
     // It stays open until session.idle or assistant.turn_end fires.
-    const turnSpan = startSpan('copilot.send_prompt', { 'session.id': sessionId });
+    const turnSpan = startSpan('copilot.send_prompt', { 'session.id': sessionId, 'prompt.mode': mode ?? 'default' });
     turnSpan.addEvent('prompt.content', { prompt: truncate(prompt, 500), mode: mode ?? 'default', sessionId });
 
     // Store span context so SDK events fired during this turn are children

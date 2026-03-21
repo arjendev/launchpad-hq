@@ -119,7 +119,12 @@ export class DaemonRegistry extends DaemonEventBus {
 
     // Attach span event with the outgoing message payload
     if (isTracingEnabled()) {
-      const span = getTracer("daemon-registry").startSpan("daemon:sendToDaemon", undefined, otelContext);
+      const span = getTracer("daemon-registry").startSpan("daemon:sendToDaemon", {
+        attributes: {
+          "daemon.id": daemonId,
+          "message.type": message.type,
+        },
+      }, otelContext);
       span.addEvent("message.sent_to_daemon", {
         "daemon.id": daemonId,
         "message.type": message.type,

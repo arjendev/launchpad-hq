@@ -164,6 +164,7 @@ export class CoordinatorSessionManager {
       }
 
       this._sessionId = sessionId;
+      span.setAttribute('session.id', sessionId);
       this._startedAt = Date.now();
       this._consecutiveFailures = 0;
       this.setState('active');
@@ -288,7 +289,7 @@ export class CoordinatorSessionManager {
   // -----------------------------------------------------------------------
 
   private handleCrash(error: string): void {
-    const span = startSpan('coordinator.crash', { 'error.message': error });
+    const span = startSpan('coordinator.crash', { 'error.message': error, 'coordinator.consecutive_failures': this._consecutiveFailures + 1, 'coordinator.will_retry': !this.stopped });
     span.addEvent('coordinator.state', { error, sessionId: this._sessionId ?? 'none', consecutiveFailures: this._consecutiveFailures + 1, willRetry: !this.stopped });
     this._consecutiveFailures += 1;
     this.setState('crashed');
