@@ -276,41 +276,4 @@ describe("LocalStateManager", () => {
       expect(updated?.defaultCopilotSdkAgent).toBeNull();
     });
   });
-
-  // ---- inbox ----------------------------------------------------------------
-
-  describe("inbox", () => {
-    it("returns default inbox when nothing stored", async () => {
-      const inbox = await manager.getInbox("acme", "api");
-      expect(inbox).toEqual({
-        version: 1,
-        projectId: "acme/api",
-        messages: [],
-      });
-    });
-
-    it("round-trips inbox data", async () => {
-      const inbox = {
-        version: 1 as const,
-        projectId: "acme/api",
-        messages: [
-          {
-            id: "msg-1",
-            projectId: "acme/api",
-            sessionId: "sess-1",
-            tool: "report_blocker" as const,
-            args: { reason: "test" },
-            title: "Test blocker",
-            status: "unread" as const,
-            createdAt: "2026-01-01T00:00:00Z",
-          },
-        ],
-      };
-
-      await manager.saveInbox("acme", "api", inbox);
-      const loaded = await manager.getInbox("acme", "api");
-
-      expect(loaded).toEqual(inbox);
-    });
-  });
 });

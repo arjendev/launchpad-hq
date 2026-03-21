@@ -10,6 +10,7 @@ import type {
   GitHubRepoMetadata,
   PaginatedResult,
 } from "../github/graphql-types.js";
+import { isValidOwnerRepo, deriveDaemonStatus } from "../utils/validation.js";
 
 // ── Request / Response types ────────────────────────────
 
@@ -75,12 +76,6 @@ export interface DashboardResponse {
 }
 
 // ── Validation helpers ──────────────────────────────────
-
-const OWNER_REPO_REGEX = /^[a-zA-Z0-9_.-]+$/;
-
-function isValidOwnerRepo(value: string): boolean {
-  return OWNER_REPO_REGEX.test(value) && value.length > 0 && value.length <= 100;
-}
 
 function parseIssueStates(state?: string): Array<"OPEN" | "CLOSED"> | undefined {
   if (!state) return undefined;
@@ -149,22 +144,6 @@ async function assertProjectTracked(
       p.owner.toLowerCase() === owner.toLowerCase() &&
       p.repo.toLowerCase() === repo.toLowerCase(),
   );
-}
-
-// ── Daemon status derivation ────────────────────────────
-
-function deriveDaemonStatus(
-  fastify: { daemonRegistry: { getAllDaemons(): Array<{ projectId: string; state: string; lastHeartbeat: number }> } },
-  owner: string,
-  repo: string,
-): "online" | "offline" {
-  const projectId = `${owner}/${repo}`;
-  const daemons = fastify.daemonRegistry.getAllDaemons();
-  return daemons.some(
-    (d) => d.projectId.toLowerCase() === projectId.toLowerCase() && d.state === "connected",
-  )
-    ? "online"
-    : "offline";
 }
 
 // ── Route plugin ────────────────────────────────────────

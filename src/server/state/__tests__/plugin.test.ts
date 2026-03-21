@@ -149,12 +149,6 @@ describe("statePlugin", () => {
           return defaultLaunchpadConfig();
         }
         async saveLaunchpadConfig() {}
-        async getInbox() {
-          throw new Error("not implemented");
-        }
-        async saveInbox() {
-          throw new Error("not implemented");
-        }
         async flush() {}
         async getProjectByToken() {
           return undefined;
@@ -257,12 +251,6 @@ describe("statePlugin", () => {
           return defaultLaunchpadConfig();
         }
         async saveLaunchpadConfig() {}
-        async getInbox() {
-          throw new Error("not implemented");
-        }
-        async saveInbox() {
-          throw new Error("not implemented");
-        }
         async getProjectByToken() {
           return undefined;
         }
@@ -306,12 +294,6 @@ describe("statePlugin", () => {
         }
         async saveLaunchpadConfig(config: unknown) {
           return gitSaveLaunchpadConfig(config);
-        }
-        async getInbox() {
-          throw new Error("not implemented");
-        }
-        async saveInbox() {
-          throw new Error("not implemented");
         }
         async flush() {}
         async getProjectByToken() {
@@ -365,8 +347,6 @@ describe("statePlugin", () => {
         getLaunchpadConfig: vi.fn().mockResolvedValue(defaultLaunchpadConfig()),
         saveLaunchpadConfig: vi.fn().mockResolvedValue(undefined),
         flush: vi.fn().mockResolvedValue(undefined),
-        getInbox: vi.fn(),
-        saveInbox: vi.fn(),
         getProjectByToken: vi.fn(),
         updateProjectState: vi.fn(),
         getProjectDefaultCopilotAgent: vi.fn(),

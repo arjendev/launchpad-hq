@@ -49,8 +49,6 @@ function createMockStateService(initialProjects: ProjectConfig["projects"] = [])
     updateProjectState: vi.fn().mockResolvedValue(undefined),
     getProjectDefaultCopilotAgent: vi.fn().mockResolvedValue(undefined),
     updateProjectDefaultCopilotAgent: vi.fn().mockResolvedValue(undefined),
-    getInbox: vi.fn().mockResolvedValue({ version: 1, projectId: "acme/widget", messages: [] }),
-    saveInbox: vi.fn().mockResolvedValue(undefined),
   };
 }
 

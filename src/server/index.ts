@@ -19,14 +19,12 @@ import cachePlugin from "./cache/plugin.js";
 import websocket from "./ws/plugin.js";
 import daemonRegistryPlugin from "./daemon-registry/plugin.js";
 
-import attentionPlugin from "./attention/plugin.js";
 import copilotPlugin from "./copilot/plugin.js";
 import copilotAggregatorPlugin from "./copilot-aggregator/plugin.js";
 import daemonRoutes from "./routes/daemons.js";
 import terminalRelayPlugin from "./terminal-relay/plugin.js";
 import terminalRoutes from "./routes/terminals.js";
 import copilotSessionRoutes from "./routes/copilot-sessions.js";
-import inboxRoutes from "./routes/inbox.js";
 import settingsRoutes from "./routes/settings.js";
 import onboardingRoutes from "./routes/onboarding.js";
 import selfDaemonPlugin from "./self-daemon/plugin.js";
@@ -145,11 +143,9 @@ await server.register(cachePlugin);
 await server.register(healthRoutes);
 await server.register(projectRoutes);
 await server.register(githubDataRoutes);
-await server.register(attentionPlugin);
 await server.register(daemonRoutes);
 await server.register(terminalRoutes);
 await server.register(copilotSessionRoutes);
-await server.register(inboxRoutes);
 await server.register(settingsRoutes);
 await server.register(onboardingRoutes);
 

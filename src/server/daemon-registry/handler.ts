@@ -256,14 +256,6 @@ export class DaemonWsHandler {
         });
         break;
 
-      case "attention-item":
-        this.broadcast("attention", {
-          type: "attention:daemon-item",
-          projectId: msg.payload.projectId,
-          item: msg.payload.item,
-        });
-        break;
-
       case "copilot-models-list":
         this.registry.emit("copilot:models-list", this.wsToDaemonId.get(ws), msg.payload);
         break;

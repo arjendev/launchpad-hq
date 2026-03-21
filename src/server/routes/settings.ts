@@ -7,6 +7,7 @@ import {
   saveBootstrapConfig,
 } from "../state/launchpad-config.js";
 import { getGitHubToken } from "../github/auth.js";
+import { checkRepo } from "../github/rest.js";
 import { loadConfig } from "../config.js";
 
 /**
@@ -71,34 +72,20 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
-        const res = await fetch(
-          `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: "application/vnd.github+json",
-              "User-Agent": "launchpad-hq",
-              "X-GitHub-Api-Version": "2022-11-28",
-            },
-          },
-        );
+        const validation = await checkRepo(token, owner, repo);
 
-        if (res.status === 404) {
+        if (validation.status === 404) {
           return { valid: false, error: `Repository ${owner}/${repo} not found` };
         }
 
-        if (!res.ok) {
+        if (!validation.exists) {
           return {
             valid: false,
-            error: `GitHub API error: ${res.status}`,
+            error: `GitHub API error: ${validation.status}`,
           };
         }
 
-        const data = (await res.json()) as {
-          permissions?: { push?: boolean; admin?: boolean };
-        };
-
-        const hasWrite = data.permissions?.push === true || data.permissions?.admin === true;
+        const hasWrite = validation.permissions?.push === true || validation.permissions?.admin === true;
 
         if (!hasWrite) {
           return {

@@ -197,16 +197,6 @@ export interface SessionConfigWire {
   streaming?: boolean;
 }
 
-/** Attention item surfaced by the daemon */
-export interface AttentionItem {
-  id: string;
-  severity: 'info' | 'warning' | 'error';
-  title: string;
-  detail?: string;
-  source: string;
-  timestamp: number;
-}
-
 /** Command sub-types that HQ can send to a daemon */
 export type CommandAction =
   | 'attach-terminal'
@@ -393,13 +383,6 @@ export interface PreviewWsCloseMessage extends BaseMessage<'preview-ws-close'> {
     channelId: string;
     code?: number;
     reason?: string;
-  };
-}
-
-export interface AttentionItemMessage extends BaseMessage<'attention-item'> {
-  payload: {
-    projectId: string;
-    item: AttentionItem;
   };
 }
 
@@ -645,7 +628,6 @@ export type DaemonToHqMessage =
   | CopilotPlanResponseMessage
   | CopilotAgentResponseMessage
   | CopilotAuthStatusMessage
-  | AttentionItemMessage
   | CopilotToolInvocationMessage
   | AuthResponseMessage
   | CopilotPermissionRequestMessage

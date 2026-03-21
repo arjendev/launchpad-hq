@@ -6,7 +6,6 @@ import { useNavigate } from "@tanstack/react-router";
 import { ProjectList } from "../components/ProjectList.js";
 import { SessionList } from "../components/SessionList.js";
 import { WorkflowIssueList } from "../components/WorkflowIssueList.js";
-import { InboxPanel } from "../components/InboxPanel.js";
 import { ActivityFeed } from "../components/ActivityFeed.js";
 import { ResizableTerminalPanel } from "../components/ResizableTerminalPanel.js";
 import { ConnectionStatus } from "../components/ConnectionStatus.js";
@@ -16,7 +15,7 @@ import { MobileNavBar } from "../components/MobileNavBar.js";
 import type { MobileTab } from "../components/MobileNavBar.js";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { useSelectedSession } from "../contexts/SessionContext.js";
-import { useDaemonForProject, useInboxCount, useSettings } from "../services/hooks.js";
+import { useDaemonForProject, useSettings } from "../services/hooks.js";
 import { useCoordinatorStatus, useSetAutonomousAgent } from "../services/workflow-hooks.js";
 export function DashboardLayout() {
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -37,10 +36,6 @@ export function DashboardLayout() {
     ? `${selectedProject.owner}/${selectedProject.repo}`
     : undefined;
   const { daemon } = useDaemonForProject(projectId);
-  const { data: inboxData } = useInboxCount(
-    selectedProject?.owner,
-    selectedProject?.repo,
-  );
 
   // Coordinator agent change callback
   const { coordinator } = useCoordinatorStatus(selectedProject?.owner, selectedProject?.repo);
@@ -139,18 +134,6 @@ export function DashboardLayout() {
               ) : (
                 <>
                   <Flex style={{ flex: 1, minHeight: 0 }}>
-                    <div
-                      style={{
-                        width: 250,
-                        minWidth: 250,
-                        borderRight: "1px solid var(--lp-border)",
-                        overflow: "hidden",
-                        display: "flex",
-                        flexDirection: "column",
-                      }}
-                    >
-                      <InboxPanel />
-                    </div>
                     <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
                       <ScrollArea style={{ flex: 1, minHeight: 0 }}>
                         <WorkflowIssueList />
@@ -285,10 +268,7 @@ export function DashboardLayout() {
                       </Stack>
                     ) : (
                       <Stack gap={0}>
-                        <InboxPanel />
-                        <div style={{ borderTop: "1px solid var(--lp-border)" }}>
-                          <WorkflowIssueList />
-                        </div>
+                        <WorkflowIssueList />
                       </Stack>
                     )}
                   </ScrollArea>
@@ -301,7 +281,7 @@ export function DashboardLayout() {
           <MobileNavBar
             activeTab={mobileTab}
             onTabChange={setMobileTab}
-            unreadCount={inboxData?.unread}
+            unreadCount={0}
           />
         </div>
       </AppShell.Main>

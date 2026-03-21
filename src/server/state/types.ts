@@ -94,33 +94,8 @@ export interface StateService {
     repo: string,
     agent: string | null,
   ): Promise<ProjectEntry | undefined>;
-  /** Load a project's inbox from the state repo. */
-  getInbox(owner: string, repo: string): Promise<ProjectInbox>;
-  /** Persist a project's inbox to the state repo. */
-  saveInbox(owner: string, repo: string, inbox: ProjectInbox): Promise<void>;
   /** Flush any pending debounced writes immediately (e.g. on shutdown). */
   flush(): Promise<void>;
-}
-
-/** A single inbox message created by an agent tool invocation. */
-export interface InboxMessage {
-  id: string;
-  projectId: string;
-  sessionId: string;
-  tool: "request_human_review" | "report_blocker";
-  args: Record<string, unknown>;
-  title: string;
-  status: "unread" | "read" | "archived";
-  createdAt: string;
-  readAt?: string;
-  archivedAt?: string;
-}
-
-/** Per-project inbox stored in launchpad-state repo. */
-export interface ProjectInbox {
-  version: 1;
-  projectId: string;
-  messages: InboxMessage[];
 }
 
 /**
@@ -182,8 +157,4 @@ export function defaultUserPreferences(): UserPreferences {
 
 export function defaultEnrichmentData(): EnrichmentData {
   return { version: 1, projects: {}, updatedAt: new Date().toISOString() };
-}
-
-export function defaultProjectInbox(projectId: string): ProjectInbox {
-  return { version: 1, projectId, messages: [] };
 }

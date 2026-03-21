@@ -16,7 +16,6 @@ import type {
   CopilotSdkStateMessage,
   CopilotModelsListMessage,
   CopilotAuthStatusMessage,
-  AttentionItemMessage,
   AuthResponseMessage,
   AuthChallengeMessage,
   AuthAcceptMessage,
@@ -207,26 +206,6 @@ describe('Protocol message types', () => {
       expect(msg.payload.messages).toHaveLength(2);
     });
 
-    it('attention-item message has correct shape', () => {
-      const msg: AttentionItemMessage = {
-        type: 'attention-item',
-        timestamp: now,
-        payload: {
-          projectId: 'proj-1',
-          item: {
-            id: 'att-1',
-            severity: 'warning',
-            title: 'Build failed',
-            detail: 'exit code 1',
-            source: 'terminal',
-            timestamp: now,
-          },
-        },
-      };
-      expect(msg.type).toBe('attention-item');
-      expect(msg.payload.item.severity).toBe('warning');
-    });
-
     it('auth-response message has correct shape', () => {
       const msg: AuthResponseMessage = {
         type: 'auth-response',
@@ -384,11 +363,10 @@ describe('Protocol message types', () => {
         'copilot-sdk-state',
         'copilot-models-list',
         'copilot-auth-status',
-        'attention-item',
         'copilot-tool-invocation',
         'auth-response',
       ];
-      expect(types).toHaveLength(15);
+      expect(types).toHaveLength(14);
     });
 
     it('HqToDaemonMessage union contains all HQ message types', () => {
@@ -442,14 +420,14 @@ describe('Protocol message types', () => {
         'copilot-session-list', 'copilot-session-event', 'copilot-agent-catalog', 'copilot-conversation',
         'copilot-sdk-state', 'copilot-models-list', 'copilot-auth-status',
         'copilot-tool-invocation',
-        'attention-item', 'auth-response',
+        'auth-response',
         'auth-challenge', 'auth-accept', 'auth-reject',
         'command', 'terminal-input', 'terminal-spawn', 'terminal-resize',
         'terminal-kill', 'request-status',
         'copilot-create-session', 'copilot-resume-session', 'copilot-send-prompt',
         'copilot-abort-session', 'copilot-list-sessions',
       ];
-      expect(allTypes).toHaveLength(29);
+      expect(allTypes).toHaveLength(28);
     });
   });
 });

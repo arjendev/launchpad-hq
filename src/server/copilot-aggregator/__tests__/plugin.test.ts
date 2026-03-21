@@ -188,38 +188,4 @@ describe("Copilot aggregator plugin", () => {
       sessionId: "s1",
     }));
   });
-
-  it("broadcasts attention event for request_human_review", () => {
-    const broadcastSpy = vi.spyOn(server.ws, "broadcast");
-
-    server.copilotAggregator.handleToolInvocation("s1", "proj-1", "request_human_review", { reason: "Need help", urgency: "high" }, 5000);
-
-    expect(broadcastSpy).toHaveBeenCalledWith("attention", expect.objectContaining({
-      type: "attention:copilot-tool",
-      tool: "request_human_review",
-      sessionId: "s1",
-    }));
-  });
-
-  it("broadcasts attention event for report_blocker", () => {
-    const broadcastSpy = vi.spyOn(server.ws, "broadcast");
-
-    server.copilotAggregator.handleToolInvocation("s1", "proj-1", "report_blocker", { blocker: "Cannot connect" }, 5000);
-
-    expect(broadcastSpy).toHaveBeenCalledWith("attention", expect.objectContaining({
-      type: "attention:copilot-tool",
-      tool: "report_blocker",
-    }));
-  });
-
-  it("does not broadcast attention event for report_progress", () => {
-    const broadcastSpy = vi.spyOn(server.ws, "broadcast");
-
-    server.copilotAggregator.handleToolInvocation("s1", "proj-1", "report_progress", { status: "working", summary: "hi" }, 5000);
-
-    const attentionCalls = broadcastSpy.mock.calls.filter(
-      (call) => call[0] === "attention",
-    );
-    expect(attentionCalls).toHaveLength(0);
-  });
 });

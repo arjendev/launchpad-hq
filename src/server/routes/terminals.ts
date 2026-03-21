@@ -9,9 +9,42 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyPluginAsync } from 'fastify';
 
-// In-memory tracking of terminal IDs per daemon (HQ doesn't own PTYs,
-// but tracks what we've asked the daemon to spawn)
-const daemonTerminals = new Map<string, Set<string>>();
+/** Encapsulated tracker for terminal IDs per daemon. */
+export class TerminalTracker {
+  private readonly terminals = new Map<string, Set<string>>();
+
+  add(daemonId: string, terminalId: string): void {
+    let set = this.terminals.get(daemonId);
+    if (!set) {
+      set = new Set();
+      this.terminals.set(daemonId, set);
+    }
+    set.add(terminalId);
+  }
+
+  remove(daemonId: string, terminalId: string): void {
+    const set = this.terminals.get(daemonId);
+    if (set) {
+      set.delete(terminalId);
+      if (set.size === 0) this.terminals.delete(daemonId);
+    }
+  }
+
+  list(daemonId: string): string[] {
+    const set = this.terminals.get(daemonId);
+    return set ? [...set] : [];
+  }
+
+  clear(): void {
+    this.terminals.clear();
+  }
+}
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    terminalTracker: TerminalTracker;
+  }
+}
 
 /** Build daemon ID from route params */
 function daemonId(params: { owner: string; repo: string }): string {
@@ -19,6 +52,9 @@ function daemonId(params: { owner: string; repo: string }): string {
 }
 
 const terminalRoutes: FastifyPluginAsync = async (server) => {
+  const tracker = new TerminalTracker();
+  server.decorate('terminalTracker', tracker);
+
   /** POST /api/daemons/:owner/:repo/terminal — spawn a new terminal on the daemon */
   server.post<{
     Params: { owner: string; repo: string };
@@ -57,13 +93,7 @@ const terminalRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(502).send({ error: 'send_failed', message: 'Daemon not connected' });
     }
 
-    // Track the terminal ID
-    let terminals = daemonTerminals.get(id);
-    if (!terminals) {
-      terminals = new Set();
-      daemonTerminals.set(id, terminals);
-    }
-    terminals.add(terminalId);
+    tracker.add(id, terminalId);
 
     return reply.status(201).send({ terminalId });
   });
@@ -93,12 +123,7 @@ const terminalRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(502).send({ error: 'send_failed', message: 'Daemon not connected' });
     }
 
-    // Remove from tracking
-    const terminals = daemonTerminals.get(id);
-    if (terminals) {
-      terminals.delete(termId);
-      if (terminals.size === 0) daemonTerminals.delete(id);
-    }
+    tracker.remove(id, termId);
 
     return reply.send({ ok: true });
   });
@@ -114,8 +139,7 @@ const terminalRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(404).send({ error: 'not_found', message: 'Daemon not found' });
     }
 
-    const terminals = daemonTerminals.get(id);
-    const terminalIds = terminals ? [...terminals] : [];
+    const terminalIds = tracker.list(id);
 
     return reply.send({ terminalIds });
   });
@@ -123,7 +147,8 @@ const terminalRoutes: FastifyPluginAsync = async (server) => {
 
 /** For testing: clear the in-memory terminal tracking */
 export function clearTerminalTracking(): void {
-  daemonTerminals.clear();
+  // Backward compat — tests that call this function directly
+  // will still work, though they should prefer server.terminalTracker.clear()
 }
 
 export default terminalRoutes;

@@ -82,8 +82,6 @@ function fakeStateService() {
     updateProjectState: vi.fn(),
     getProjectDefaultCopilotAgent: vi.fn(),
     updateProjectDefaultCopilotAgent: vi.fn(),
-    getInbox: vi.fn(),
-    saveInbox: vi.fn(),
     sync: vi.fn().mockResolvedValue(undefined),
     flush: vi.fn().mockResolvedValue(undefined),
   };

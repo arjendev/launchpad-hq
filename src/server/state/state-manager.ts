@@ -5,7 +5,6 @@ import type {
   ProjectEntry,
   UserPreferences,
   EnrichmentData,
-  ProjectInbox,
   LaunchpadConfig,
   StateService,
 } from "./types.js";
@@ -13,7 +12,6 @@ import {
   defaultProjectConfig,
   defaultUserPreferences,
   defaultEnrichmentData,
-  defaultProjectInbox,
   defaultLaunchpadConfig,
 } from "./types.js";
 
@@ -113,20 +111,6 @@ export class GitStateManager implements StateService {
 
   async saveLaunchpadConfig(config: LaunchpadConfig): Promise<void> {
     await this.writeState(FILES.launchpadConfig, config);
-  }
-
-  private inboxPath(owner: string, repo: string): string {
-    return `inbox/${owner}/${repo}.json`;
-  }
-
-  async getInbox(owner: string, repo: string): Promise<ProjectInbox> {
-    const path = this.inboxPath(owner, repo);
-    return this.readState(path, () => defaultProjectInbox(`${owner}/${repo}`));
-  }
-
-  async saveInbox(owner: string, repo: string, inbox: ProjectInbox): Promise<void> {
-    const path = this.inboxPath(owner, repo);
-    await this.writeState(path, inbox);
   }
 
   /**

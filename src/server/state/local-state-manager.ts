@@ -7,7 +7,6 @@ import type {
   ProjectEntry,
   UserPreferences,
   EnrichmentData,
-  ProjectInbox,
   LaunchpadConfig,
   StateService,
 } from "./types.js";
@@ -15,7 +14,6 @@ import {
   defaultProjectConfig,
   defaultUserPreferences,
   defaultEnrichmentData,
-  defaultProjectInbox,
   defaultLaunchpadConfig,
 } from "./types.js";
 
@@ -75,20 +73,6 @@ export class LocalStateManager implements StateService {
 
   async saveLaunchpadConfig(config: LaunchpadConfig): Promise<void> {
     await this.writeJson(FILES.launchpadConfig, config);
-  }
-
-  async getInbox(owner: string, repo: string): Promise<ProjectInbox> {
-    const path = this.inboxPath(owner, repo);
-    return this.readJson(path, () => defaultProjectInbox(`${owner}/${repo}`));
-  }
-
-  async saveInbox(
-    owner: string,
-    repo: string,
-    inbox: ProjectInbox,
-  ): Promise<void> {
-    const path = this.inboxPath(owner, repo);
-    await this.writeJson(path, inbox);
   }
 
   /** No-op for local mode — everything is already on disk. */
@@ -181,10 +165,6 @@ export class LocalStateManager implements StateService {
 
   private resolve(path: string): string {
     return join(this.root, path);
-  }
-
-  private inboxPath(owner: string, repo: string): string {
-    return `inbox/${owner}/${repo}.json`;
   }
 
   private async readJson<T>(path: string, defaultFn: () => T): Promise<T> {

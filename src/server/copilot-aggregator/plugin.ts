@@ -1,5 +1,4 @@
 import type { FastifyInstance } from "fastify";
-import { randomUUID } from "node:crypto";
 import fp from "fastify-plugin";
 import type {
   SessionEvent,
@@ -12,7 +11,6 @@ import type {
   CopilotHqToolName,
   SessionType,
 } from "../../shared/protocol.js";
-import type { InboxMessage } from "../state/types.js";
 import { CopilotSessionAggregator } from "./aggregator.js";
 
 declare module "fastify" {
@@ -200,55 +198,6 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
       type: "copilot:tool-invocation",
       ...record,
     });
-
-    // Emit attention events for review requests and blockers
-    if (record.tool === "request_human_review" || record.tool === "report_blocker") {
-      fastify.ws.broadcast("attention", {
-        type: "attention:copilot-tool",
-        tool: record.tool,
-        sessionId: record.sessionId,
-        projectId: record.projectId,
-        args: record.args,
-        timestamp: record.timestamp,
-      });
-
-      // Create inbox message and persist
-      const [owner, repo] = record.projectId.split("/");
-      if (owner && repo) {
-        const args = record.args as Record<string, unknown>;
-        const title = String(
-          args.title ?? args.message ?? args.reason ?? record.tool,
-        );
-        const inboxMsg: InboxMessage = {
-          id: randomUUID(),
-          projectId: record.projectId,
-          sessionId: record.sessionId,
-          tool: record.tool,
-          args,
-          title,
-          status: "unread",
-          createdAt: new Date(record.timestamp).toISOString(),
-        };
-
-        // Fire-and-forget persistence (log errors, don't block event loop)
-        fastify.stateService
-          .getInbox(owner, repo)
-          .then((inbox) => {
-            inbox.messages.push(inboxMsg);
-            return fastify.stateService.saveInbox(owner, repo, inbox);
-          })
-          .then(() => {
-            fastify.ws.broadcast("inbox", {
-              type: "inbox:new-message",
-              projectId: record.projectId,
-              message: inboxMsg,
-            });
-          })
-          .catch((err) => {
-            fastify.log.error({ err, projectId: record.projectId }, "Failed to persist inbox message");
-          });
-      }
-    }
   });
 
   // ── Decorate ──────────────────────────────────────────

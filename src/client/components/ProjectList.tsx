@@ -13,7 +13,7 @@ import {
   Title,
   UnstyledButton,
 } from "@mantine/core";
-import { useDashboard, useRemoveProject, useInboxCount, useRegenerateDaemonToken, useGetProjectDetail } from "../services/hooks.js";
+import { useDashboard, useRemoveProject, useRegenerateDaemonToken, useGetProjectDetail } from "../services/hooks.js";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { AddProjectWizard } from "./AddProjectWizard.js";
 import { DaemonSetupInstructions } from "./DaemonSetupInstructions.js";
@@ -129,8 +129,6 @@ function ProjectItem({
   onShowDaemonCommand: () => void;
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const { data: inboxData } = useInboxCount(project.owner, project.repo);
-  const unread = inboxData?.unread ?? 0;
 
   return (
     <UnstyledButton
@@ -165,11 +163,6 @@ function ProjectItem({
                 <Text size="sm" fw={500} style={{ wordBreak: "break-word" }}>
                   {project.owner}/{project.repo}
                 </Text>
-                {unread > 0 && (
-                  <Badge size="xs" color="red" variant="filled">
-                    {unread}
-                  </Badge>
-                )}
               </Group>
 
             </Box>

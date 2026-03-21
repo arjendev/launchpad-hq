@@ -2,6 +2,9 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import type { ProjectEntry, ProjectConfig } from "../state/types.js";
 import type { RuntimeTarget, WorkState } from "../../shared/protocol.js";
 import { generateDaemonToken } from "../../shared/auth.js";
+import { isValidOwnerRepo, deriveDaemonInfo } from "../utils/validation.js";
+import { checkRepo, searchRepos, listUserRepos, searchUsers } from "../github/rest.js";
+import type { GitHubRepoItem, GitHubUserItem } from "../github/rest.js";
 
 // ---- Request / Response types -----------------------------------------------
 
@@ -58,41 +61,7 @@ interface DiscoverUsersQuery {
   q?: string;
 }
 
-interface GitHubRepoApiItem {
-  full_name: string;
-  owner: { login: string };
-  name: string;
-  description: string | null;
-  html_url: string;
-  private: boolean;
-  language: string | null;
-  updated_at: string;
-}
-
-interface GitHubSearchRepoItem {
-  full_name: string;
-  owner: { login: string };
-  name: string;
-  description: string | null;
-  html_url: string;
-  private: boolean;
-  language: string | null;
-  updated_at: string;
-}
-
-interface GitHubUserSearchItem {
-  login: string;
-  type: "User" | "Organization";
-  avatar_url: string;
-}
-
 // ---- Validation helpers -----------------------------------------------------
-
-const OWNER_REPO_REGEX = /^[a-zA-Z0-9_.-]+$/;
-
-function isValidOwnerRepo(value: string): boolean {
-  return OWNER_REPO_REGEX.test(value) && value.length > 0 && value.length <= 100;
-}
 
 function validationError(reply: FastifyReply, message: string) {
   return reply.status(400).send({ error: "validation_error", message });
@@ -106,45 +75,6 @@ const VALID_RUNTIME_TARGETS: ReadonlySet<string> = new Set([
 
 function isValidRuntimeTarget(value: unknown): value is RuntimeTarget {
   return typeof value === "string" && VALID_RUNTIME_TARGETS.has(value);
-}
-
-// ---- GitHub repo existence check --------------------------------------------
-
-async function repoExistsOnGitHub(
-  token: string,
-  owner: string,
-  repo: string,
-): Promise<boolean> {
-  const response = await fetch(
-    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": "launchpad-hq",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    },
-  );
-  return response.ok;
-}
-
-// ---- Daemon status derivation -----------------------------------------------
-
-function deriveDaemonInfo(
-  fastify: { daemonRegistry: { getAllDaemons(): Array<{ projectId: string; state: string; lastHeartbeat: number }> } },
-  owner: string,
-  repo: string,
-): { daemonStatus: "online" | "offline"; lastSeen?: number } {
-  const projectId = `${owner}/${repo}`;
-  const daemons = fastify.daemonRegistry.getAllDaemons();
-  const daemon = daemons.find(
-    (d) => d.projectId.toLowerCase() === projectId.toLowerCase() && d.state === "connected",
-  );
-  if (daemon) {
-    return { daemonStatus: "online", lastSeen: daemon.lastHeartbeat };
-  }
-  return { daemonStatus: "offline" };
 }
 
 function toProjectResponse(
@@ -228,8 +158,8 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
         message: "GitHub authentication is not available. Run: gh auth login",
       });
     }
-    const repoExists = await repoExistsOnGitHub(fastify.githubToken, owner, repo);
-    if (!repoExists) {
+    const validation = await checkRepo(fastify.githubToken, owner, repo);
+    if (!validation.exists) {
       return reply.status(404).send({
         error: "repo_not_found",
         message: `Repository ${owner}/${repo} was not found on GitHub. Check the owner and repo name.`,
@@ -425,52 +355,34 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
     const owner = typeof query.owner === "string" ? query.owner.trim() : "";
     const searchTerm = typeof query.q === "string" ? query.q.trim() : "";
 
-    const headers = {
-      Authorization: `Bearer ${fastify.githubToken}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": "launchpad-hq",
-      "X-GitHub-Api-Version": "2022-11-28",
-    };
-
-    let repos: GitHubRepoApiItem[];
+    let repos: GitHubRepoItem[];
 
     try {
       if (owner || searchTerm) {
-        // Use GitHub search API for filtered queries
         const qualifiers: string[] = [];
         if (searchTerm) qualifiers.push(`${searchTerm} in:name`);
         if (owner) qualifiers.push(`user:${owner}`);
-        const q = encodeURIComponent(qualifiers.join(" "));
+        const result = await searchRepos(fastify.githubToken, qualifiers.join(" "), { perPage, page });
 
-        const response = await fetch(
-          `https://api.github.com/search/repositories?q=${q}&sort=updated&order=desc&per_page=${perPage}&page=${page}`,
-          { headers },
-        );
-
-        if (!response.ok) {
+        if (result.status !== 200) {
           return reply.status(502).send({
             error: "github_api_error",
-            message: `GitHub API returned ${response.status}.`,
+            message: `GitHub API returned ${result.status}.`,
           });
         }
 
-        const data = (await response.json()) as { items: GitHubSearchRepoItem[] };
-        repos = data.items;
+        repos = result.repos;
       } else {
-        // Default: list authenticated user's own repos
-        const response = await fetch(
-          `https://api.github.com/user/repos?sort=updated&direction=desc&per_page=${perPage}&page=${page}&type=owner`,
-          { headers },
-        );
+        const result = await listUserRepos(fastify.githubToken, { perPage, page });
 
-        if (!response.ok) {
+        if (result.status !== 200) {
           return reply.status(502).send({
             error: "github_api_error",
-            message: `GitHub API returned ${response.status}.`,
+            message: `GitHub API returned ${result.status}.`,
           });
         }
 
-        repos = (await response.json()) as GitHubRepoApiItem[];
+        repos = result.repos;
       }
     } catch {
       return reply.status(502).send({
@@ -520,43 +432,29 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
       return { users: [] };
     }
 
-    let response: Response;
     try {
-      const q = encodeURIComponent(searchTerm);
-      response = await fetch(
-        `https://api.github.com/search/users?q=${q}&per_page=20`,
-        {
-          headers: {
-            Authorization: `Bearer ${fastify.githubToken}`,
-            Accept: "application/vnd.github+json",
-            "User-Agent": "launchpad-hq",
-            "X-GitHub-Api-Version": "2022-11-28",
-          },
-        },
-      );
+      const result = await searchUsers(fastify.githubToken, searchTerm);
+
+      if (result.status !== 200) {
+        return reply.status(502).send({
+          error: "github_api_error",
+          message: `GitHub API returned ${result.status}.`,
+        });
+      }
+
+      const users = result.users.map((u) => ({
+        login: u.login,
+        type: u.type,
+        avatarUrl: u.avatar_url,
+      }));
+
+      return { users };
     } catch {
       return reply.status(502).send({
         error: "github_api_error",
         message: "Failed to reach GitHub API. Check your network connection.",
       });
     }
-
-    if (!response.ok) {
-      return reply.status(502).send({
-        error: "github_api_error",
-        message: `GitHub API returned ${response.status}.`,
-      });
-    }
-
-    const data = (await response.json()) as { items: GitHubUserSearchItem[] };
-
-    const users = data.items.map((u) => ({
-      login: u.login,
-      type: u.type,
-      avatarUrl: u.avatar_url,
-    }));
-
-    return { users };
   });
 };
 

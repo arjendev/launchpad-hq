@@ -5,17 +5,16 @@
 
 // --- Channels ---
 
-export type Channel = "copilot" | "terminal" | "daemon" | "attention" | "inbox" | "tunnel" | "preview" | "workflow";
+export type Channel = "copilot" | "terminal" | "daemon" | "tunnel" | "preview" | "workflow" | "inbox";
 
 export const VALID_CHANNELS: readonly Channel[] = [
   "copilot",
   "terminal",
   "daemon",
-  "attention",
-  "inbox",
   "tunnel",
   "preview",
   "workflow",
+  "inbox",
 ] as const;
 
 // --- Client → Server messages ---
