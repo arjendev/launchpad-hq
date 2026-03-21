@@ -8,13 +8,13 @@
 import * as pty from 'node-pty';
 import { randomUUID } from 'node:crypto';
 import type {
-  DaemonToHqMessage,
   HqToDaemonMessage,
+  SendToHq,
   SessionType,
 } from '../../shared/protocol.js';
 import { logSdk } from '../logger.js';
 
-export type SendToHq = (msg: DaemonToHqMessage) => void;
+export type { SendToHq } from '../../shared/protocol.js';
 
 /** Minimal PTY handle — the subset of IPty we actually use */
 interface PtyHandle {

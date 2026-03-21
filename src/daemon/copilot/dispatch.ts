@@ -7,8 +7,8 @@
  */
 
 import type {
-  DaemonToHqMessage,
   DispatchStatus,
+  SendToHq,
   WorkflowIssuePayload,
 } from '../../shared/protocol.js';
 import type { CoordinatorSessionManager } from './coordinator.js';
@@ -19,7 +19,7 @@ import { logSdk } from '../logger.js';
 // Types
 // ---------------------------------------------------------------------------
 
-export type SendToHq = (msg: DaemonToHqMessage) => void;
+export type { SendToHq } from '../../shared/protocol.js';
 
 export type { DispatchStatus } from '../../shared/protocol.js';
 

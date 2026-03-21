@@ -8,7 +8,7 @@
 
 import type {
   CoordinatorStatus,
-  DaemonToHqMessage,
+  SendToHq,
   SessionEvent,
 } from '../../shared/protocol.js';
 import type { CopilotManager } from './manager.js';
@@ -18,7 +18,7 @@ import { logSdk } from '../logger.js';
 // Types
 // ---------------------------------------------------------------------------
 
-export type SendToHq = (msg: DaemonToHqMessage) => void;
+export type { SendToHq } from '../../shared/protocol.js';
 
 export interface CoordinatorOptions {
   /** Function to forward messages to HQ */

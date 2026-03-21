@@ -15,9 +15,9 @@ import { DaemonState } from './state.js';
 import { setupDaemonTerminal, DaemonTerminalManager } from './terminal/index.js';
 import { CopilotManager, discoverCopilotAgents } from './copilot/index.js';
 import { CliSessionManager } from './copilot-cli/index.js';
-import { logIncoming, logOutgoing } from './logger.js';
-import { PreviewProxyHandler } from './preview.js';
-import { detectPreviewPort } from './preview-detect.js';
+import { logOutgoing } from './logger.js';
+import { PreviewManager } from './preview-manager.js';
+import { MessageRouter } from './message-router.js';
 
 export interface DaemonProcess {
   client: DaemonWebSocketClient;
@@ -25,7 +25,7 @@ export interface DaemonProcess {
   terminalManager: DaemonTerminalManager;
   copilot: CopilotManager;
   cliSessions: CliSessionManager;
-  previewHandler: PreviewProxyHandler | null;
+  previewHandler: PreviewManager;
   shutdown: () => void;
 }
 
@@ -53,61 +53,6 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     protocolVersion: PROTOCOL_VERSION,
     agentCatalog: discoveredAgents.catalog,
   };
-
-  // --- Connection lifecycle ---
-
-  client.on('connected', () => {
-    console.log(`🔌 Connected to HQ at ${config.hqUrl}`);
-  });
-
-  client.on('authenticated', () => {
-    console.log('✅ Authenticated with HQ');
-    logOutgoing('register', daemonInfo);
-    client.sendRegistration(daemonInfo);
-    if (daemonInfo.agentCatalog?.length) {
-      logOutgoing('copilot-agent-catalog', {
-        projectId: config.projectId,
-        agents: daemonInfo.agentCatalog,
-      });
-      client.send({
-        type: 'copilot-agent-catalog',
-        timestamp: Date.now(),
-        payload: {
-          projectId: config.projectId,
-          agents: daemonInfo.agentCatalog,
-        },
-      });
-    }
-    state.update({ daemonOnline: true, initialized: true });
-  });
-
-  client.on('auth-rejected', (reason) => {
-    console.error(`❌ Auth rejected: ${reason}`);
-  });
-
-  client.on('disconnected', (_code, reason) => {
-    console.log(`🔌 Disconnected from HQ: ${reason || 'unknown'}`);
-    state.setOnline(false);
-  });
-
-  client.on('error', (err) => {
-    console.error(`⚠ WebSocket error: ${err.message}`);
-  });
-
-  // --- State change → HQ notification ---
-
-  client.on('message', (msg) => {
-    if (msg.type === 'request-status') {
-      logIncoming(msg.type, msg.payload);
-      client.sendStatusUpdate(state.current);
-    }
-  });
-
-  state.onChange((newState) => {
-    if (client.isAuthenticated) {
-      client.sendStatusUpdate(newState);
-    }
-  });
 
   // --- Terminal handler ---
 
@@ -148,145 +93,100 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     projectName: config.projectName,
   });
 
+  // --- IssueDispatcher (long-lived singleton) ---
+
+  const issueDispatcher = new IssueDispatcher({
+    sendToHq: (m) => client.send(m),
+    copilotManager: copilot,
+    coordinator,
+    projectId: config.projectId,
+  });
+
   addCapability(daemonInfo, 'copilot-sdk');
   addCapability(daemonInfo, 'copilot-cli');
   if (discoveredAgents.customAgents.length > 0) {
     addCapability(daemonInfo, 'copilot-custom-agents');
   }
 
-  client.on('message', async (msg) => {
-    // Handle coordinator lifecycle messages
-    if (msg.type === 'workflow:start-coordinator') {
-      const payload = msg.payload as { projectId: string; sessionId?: string; agentId?: string | null };
-      void coordinator.start(payload.sessionId, payload.agentId).catch((err) => {
-        console.error(`⚠ Coordinator start failed: ${err}`);
-      });
-      return;
-    }
-    if (msg.type === 'workflow:stop-coordinator') {
-      void coordinator.stop().catch((err) => {
-        console.error(`⚠ Coordinator stop failed: ${err}`);
-      });
-      return;
-    }
-    if (msg.type === 'workflow:dispatch-issue') {
-      const payload = msg.payload as { projectId: string; issueNumber: number; title: string; labels?: string[] };
-      const dispatcher = new IssueDispatcher({
-        sendToHq: (m) => client.send(m),
-        copilotManager: copilot,
-        coordinator,
-        projectId: config.projectId,
-      });
-      void dispatcher.dispatchIssue({
-        issueNumber: payload.issueNumber,
-        title: payload.title,
-        body: "",
-        labels: payload.labels ?? [],
-      }).catch((err) => {
-        console.error(`⚠ Issue dispatch failed for #${payload.issueNumber}: ${err}`);
-      });
-      return;
-    }
+  // --- Preview manager ---
 
-    if (!msg.type.startsWith('copilot-') && !msg.type.startsWith('terminal-') && !msg.type.startsWith('workflow:elicitation-')) return;
+  const previewManager = new PreviewManager({
+    client,
+    projectId: config.projectId,
+    projectPath: config.projectPath,
+    previewPort: config.previewPort,
+    daemonInfo,
+  });
 
-    // Try CLI session manager first (handles its own sessions + copilot-cli type)
-    const handledByCli = await cliSessions.handleMessage(msg);
-    if (handledByCli) return;
+  // --- Message router (single entry point for all HQ messages) ---
 
-    // Fall through to default CopilotManager (copilot-sdk type + elicitation responses)
-    if (msg.type.startsWith('copilot-') || msg.type === 'workflow:elicitation-response') {
-      void copilot.handleMessage(msg);
-    }
+  const router = new MessageRouter({
+    client,
+    state,
+    copilot,
+    cliSessions,
+    coordinator,
+    issueDispatcher,
+    previewManager,
+  });
+
+  // --- Connection lifecycle ---
+
+  client.on('connected', () => {
+    console.log(`🔌 Connected to HQ at ${config.hqUrl}`);
   });
 
   client.on('authenticated', () => {
+    console.log('✅ Authenticated with HQ');
+    logOutgoing('register', daemonInfo);
+    client.sendRegistration(daemonInfo);
+    if (daemonInfo.agentCatalog?.length) {
+      logOutgoing('copilot-agent-catalog', {
+        projectId: config.projectId,
+        agents: daemonInfo.agentCatalog,
+      });
+      client.send({
+        type: 'copilot-agent-catalog',
+        timestamp: Date.now(),
+        payload: {
+          projectId: config.projectId,
+          agents: daemonInfo.agentCatalog,
+        },
+      });
+    }
+    state.update({ daemonOnline: true, initialized: true });
+
     void copilot.start().catch((err) => {
       console.error(`⚠ Copilot SDK start failed: ${err}`);
     });
+
+    previewManager.start();
   });
 
-  // --- Preview proxy handler ---
+  client.on('auth-rejected', (reason) => {
+    console.error(`❌ Auth rejected: ${reason}`);
+  });
 
-  let previewHandler: PreviewProxyHandler | null = null;
-  let previewDetectTimer: ReturnType<typeof setInterval> | null = null;
+  client.on('disconnected', (_code, reason) => {
+    console.log(`🔌 Disconnected from HQ: ${reason || 'unknown'}`);
+    state.setOnline(false);
+  });
 
-  /** Max retries for periodic re-detection (15 s × 20 = 5 min) */
-  const PREVIEW_RETRY_INTERVAL_MS = 15_000;
-  const PREVIEW_MAX_RETRIES = 20;
-  let previewRetryCount = 0;
+  client.on('error', (err) => {
+    console.error(`⚠ WebSocket error: ${err.message}`);
+  });
 
-  function startPreview(port: number, autoDetected: boolean, detectedFrom?: 'config' | 'devcontainer' | 'port-scan' | 'package-json'): void {
-    if (previewHandler) return; // Already running
-    previewHandler = new PreviewProxyHandler({
-      client,
-      projectId: config.projectId,
-      previewPort: port,
-      autoDetected,
-      detectedFrom,
-    });
-    addCapability(daemonInfo, 'preview');
-    console.log(`🖼 Preview proxy enabled on port ${port} (${detectedFrom ?? 'config'})`);
-  }
+  // --- Single message handler ---
 
-  function stopPreviewRetry(): void {
-    if (previewDetectTimer) {
-      clearInterval(previewDetectTimer);
-      previewDetectTimer = null;
-    }
-  }
-
-  // Preview message routing (must be registered before connection)
   client.on('message', (msg) => {
-    if (!msg.type.startsWith('preview-')) return;
-    if (previewHandler) {
-      previewHandler.handleMessage(msg);
-    }
+    void router.handleMessage(msg);
   });
 
-  // On authentication: send config if explicit port, or auto-detect
-  client.on('authenticated', () => {
-    if (config.previewPort) {
-      console.log(`🔍 Preview detect: explicit previewPort=${config.previewPort} configured, skipping auto-detection`);
-      startPreview(config.previewPort, false, 'config');
-      previewHandler!.sendConfig();
-    } else {
-      console.log(`🔍 Preview detect: no explicit previewPort, attempting auto-detection for projectPath=${config.projectPath}`);
-      // Auto-detect on first auth, then retry every 15s for up to 5 min
-      previewRetryCount = 0;
-      void detectAndStartPreview();
-      previewDetectTimer = setInterval(() => {
-        if (previewHandler) {
-          stopPreviewRetry();
-          return;
-        }
-        previewRetryCount++;
-        if (previewRetryCount > PREVIEW_MAX_RETRIES) {
-          console.log(`🔍 Preview detect: gave up after ${PREVIEW_MAX_RETRIES} retries`);
-          stopPreviewRetry();
-          return;
-        }
-        console.log(`🔍 Preview detect: retry ${previewRetryCount}/${PREVIEW_MAX_RETRIES}, scanning...`);
-        void detectAndStartPreview();
-      }, PREVIEW_RETRY_INTERVAL_MS);
+  state.onChange((newState) => {
+    if (client.isAuthenticated) {
+      client.sendStatusUpdate(newState);
     }
   });
-
-  async function detectAndStartPreview(): Promise<void> {
-    try {
-      const detected = await detectPreviewPort(config.projectPath);
-      console.log(`🔍 Preview detect: detection result = ${detected ? `port ${detected.port} from ${detected.source}` : 'null'}`);
-      if (detected && !previewHandler) {
-        startPreview(detected.port, true, detected.source);
-        if (client.isAuthenticated) {
-          previewHandler!.sendConfig();
-        }
-        stopPreviewRetry();
-      }
-    } catch {
-      // Silent — detection is best-effort
-    }
-  }
 
   // --- Start connection ---
 
@@ -297,10 +197,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
 
   function shutdown(): void {
     console.log('\n⏏ Daemon shutting down…');
-    stopPreviewRetry();
-    if (previewHandler) {
-      previewHandler.cleanup();
-    }
+    previewManager.stop();
     void copilot.stop().catch(() => {});
     void coordinator.stop().catch(() => {});
     void cliSessions.stop().catch(() => {});
@@ -310,7 +207,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     console.log('👋 Daemon stopped.');
   }
 
-  return { client, state, terminalManager, copilot, cliSessions, previewHandler, shutdown };
+  return { client, state, terminalManager, copilot, cliSessions, previewHandler: previewManager, shutdown };
 }
 
 function addCapability(daemonInfo: DaemonInfo, capability: string): void {
@@ -335,7 +232,7 @@ function detectRuntime(): DaemonInfo['runtimeTarget'] {
 const isDirectRun =
   typeof process !== 'undefined' &&
   process.argv[1] &&
-  import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
+    import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
 
 if (isDirectRun) {
   const daemon = startDaemon();

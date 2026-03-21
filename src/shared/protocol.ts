@@ -879,3 +879,10 @@ export type WsMessage = DaemonToHqMessage | HqToDaemonMessage;
 
 /** All valid message type discriminants */
 export type MessageType = WsMessage['type'];
+
+// ---------------------------------------------------------------------------
+// Shared utility types
+// ---------------------------------------------------------------------------
+
+/** Callback used by daemon modules to send messages to HQ */
+export type SendToHq = (msg: DaemonToHqMessage) => void;
