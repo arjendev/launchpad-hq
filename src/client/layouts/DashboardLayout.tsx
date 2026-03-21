@@ -17,6 +17,7 @@ import type { MobileTab } from "../components/MobileNavBar.js";
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { useSelectedSession } from "../contexts/SessionContext.js";
 import { useDaemonForProject, useInboxCount, useSettings } from "../services/hooks.js";
+import { useCoordinatorStatus, useSetAutonomousAgent } from "../services/workflow-hooks.js";
 export function DashboardLayout() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [mobileTab, setMobileTab] = useState<MobileTab>("projects");
@@ -40,6 +41,20 @@ export function DashboardLayout() {
     selectedProject?.owner,
     selectedProject?.repo,
   );
+
+  // Coordinator agent change callback
+  const { coordinator } = useCoordinatorStatus(selectedProject?.owner, selectedProject?.repo);
+  const setAutonomousAgent = useSetAutonomousAgent();
+  const isCoordinatorSession = !!(coordinator?.sessionId && selectedSession?.sessionId === coordinator.sessionId);
+  const handleCoordinatorAgentChange = isCoordinatorSession && selectedProject
+    ? (agentId: string | null) => {
+        setAutonomousAgent.mutate({
+          owner: selectedProject.owner,
+          repo: selectedProject.repo,
+          agentId,
+        });
+      }
+    : undefined;
 
   // ── Desktop layout ────────────────────────────────────
   if (!isMobile) {
@@ -167,6 +182,7 @@ export function DashboardLayout() {
                       sessionType={selectedSession.sessionType}
                       terminalId={selectedSession.sessionId}
                       onClose={() => selectSession(null)}
+                      onAgentChange={handleCoordinatorAgentChange}
                       defaultHeight={Math.floor(
                         (window.innerHeight - 50) * 0.7,
                       )}
@@ -229,6 +245,7 @@ export function DashboardLayout() {
                 sessionType={selectedSession.sessionType}
                 terminalId={selectedSession.sessionId}
                 onClose={() => selectSession(null)}
+                onAgentChange={handleCoordinatorAgentChange}
                 defaultHeight={window.innerHeight - 46 - 52}
                 minHeight={200}
               />

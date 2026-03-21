@@ -621,3 +621,30 @@ export function useAllWorkflowIssues(
     error,
   };
 }
+
+// ── Autonomous agent preference hooks ───────────────────
+
+export function useSetAutonomousAgent() {
+  const qc = useQueryClient();
+  return useMutation<
+    { ok: boolean; agentId: string | null },
+    Error,
+    { owner: string; repo: string; agentId: string | null }
+  >({
+    mutationFn: async ({ owner, repo, agentId }) => {
+      const res = await authFetch(
+        `/api/workflow/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/coordinator/agent`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agentId }),
+        },
+      );
+      if (!res.ok) throw new Error(`Failed to set autonomous agent (${res.status})`);
+      return res.json() as Promise<{ ok: boolean; agentId: string | null }>;
+    },
+    onSuccess: (_data, { owner, repo }) => {
+      void qc.invalidateQueries({ queryKey: ["coordinator-status", owner, repo] });
+    },
+  });
+}

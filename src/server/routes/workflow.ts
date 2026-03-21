@@ -502,7 +502,7 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       let agentId: string | null = null;
       if (server.stateService) {
         try {
-          agentId = await server.stateService.getProjectDefaultCopilotAgent(owner, repo) ?? null;
+          agentId = await server.stateService.getProjectAutonomousCopilotAgent(owner, repo) ?? null;
         } catch { /* ignore */ }
       }
 
@@ -566,6 +566,41 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
       });
 
       return reply.send({ ok: true, coordinator: updated });
+    },
+  );
+
+  /** PUT /api/workflow/:owner/:repo/coordinator/agent — set autonomous agent preference */
+  server.put<{
+    Params: { owner: string; repo: string };
+    Body: { agentId: string | null };
+  }>(
+    "/api/workflow/:owner/:repo/coordinator/agent",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+      const { agentId } = request.body ?? {};
+
+      if (agentId !== null && typeof agentId !== "string") {
+        return reply.status(400).send({ error: "bad_request", message: "agentId must be a string or null" });
+      }
+
+      if (server.stateService) {
+        await server.stateService.updateProjectAutonomousCopilotAgent(owner, repo, agentId ?? null);
+      }
+
+      return reply.send({ ok: true, agentId: agentId ?? null });
+    },
+  );
+
+  /** GET /api/workflow/:owner/:repo/coordinator/agent — get autonomous agent preference */
+  server.get<{ Params: { owner: string; repo: string } }>(
+    "/api/workflow/:owner/:repo/coordinator/agent",
+    async (request, reply) => {
+      const { owner, repo } = request.params;
+      let agentId: string | null = null;
+      if (server.stateService) {
+        agentId = await server.stateService.getProjectAutonomousCopilotAgent(owner, repo) ?? null;
+      }
+      return reply.send({ agentId });
     },
   );
 
@@ -897,7 +932,7 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
         let agentId: string | null = null;
         if (server.stateService) {
           try {
-            agentId = await server.stateService.getProjectDefaultCopilotAgent(owner, repo) ?? null;
+            agentId = await server.stateService.getProjectAutonomousCopilotAgent(owner, repo) ?? null;
           } catch { /* state service may not be ready */ }
         }
 

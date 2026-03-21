@@ -111,7 +111,7 @@ export class LocalStateManager implements StateService {
     owner: string,
     repo: string,
     updates: Partial<
-      Pick<ProjectEntry, "initialized" | "workState" | "defaultCopilotSdkAgent">
+      Pick<ProjectEntry, "initialized" | "workState" | "defaultCopilotSdkAgent" | "autonomousCopilotSdkAgent">
     >,
   ): Promise<ProjectEntry | undefined> {
     const config = await this.getConfig();
@@ -126,6 +126,9 @@ export class LocalStateManager implements StateService {
     if (updates.workState !== undefined) project.workState = updates.workState;
     if (updates.defaultCopilotSdkAgent !== undefined) {
       project.defaultCopilotSdkAgent = updates.defaultCopilotSdkAgent;
+    }
+    if (updates.autonomousCopilotSdkAgent !== undefined) {
+      project.autonomousCopilotSdkAgent = updates.autonomousCopilotSdkAgent;
     }
 
     await this.saveConfig(config);
@@ -151,6 +154,27 @@ export class LocalStateManager implements StateService {
     agent: string | null,
   ): Promise<ProjectEntry | undefined> {
     return this.updateProjectState(owner, repo, { defaultCopilotSdkAgent: agent });
+  }
+
+  async getProjectAutonomousCopilotAgent(
+    owner: string,
+    repo: string,
+  ): Promise<string | null | undefined> {
+    const config = await this.getConfig();
+    const project = config.projects.find(
+      (p) =>
+        p.owner.toLowerCase() === owner.toLowerCase() &&
+        p.repo.toLowerCase() === repo.toLowerCase(),
+    );
+    return project ? project.autonomousCopilotSdkAgent ?? null : undefined;
+  }
+
+  async updateProjectAutonomousCopilotAgent(
+    owner: string,
+    repo: string,
+    agent: string | null,
+  ): Promise<ProjectEntry | undefined> {
+    return this.updateProjectState(owner, repo, { autonomousCopilotSdkAgent: agent });
   }
 
   // ---- internal helpers -----------------------------------------------------

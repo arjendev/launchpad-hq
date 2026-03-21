@@ -11,6 +11,8 @@ export interface ProjectEntry {
   workState: WorkState;
   /** Null/undefined means "use the default Copilot SDK agent". */
   defaultCopilotSdkAgent?: string | null;
+  /** Agent preference for the autonomous coordinator session. */
+  autonomousCopilotSdkAgent?: string | null;
 }
 
 /** Stored in config.json inside launchpad-state repo. */
@@ -68,7 +70,7 @@ export interface StateService {
   updateProjectState(
     owner: string,
     repo: string,
-    updates: Partial<Pick<ProjectEntry, "initialized" | "workState" | "defaultCopilotSdkAgent">>,
+    updates: Partial<Pick<ProjectEntry, "initialized" | "workState" | "defaultCopilotSdkAgent" | "autonomousCopilotSdkAgent">>,
   ): Promise<ProjectEntry | undefined>;
   /** Read the remembered Copilot SDK agent for a project. */
   getProjectDefaultCopilotAgent(
@@ -77,6 +79,17 @@ export interface StateService {
   ): Promise<string | null | undefined>;
   /** Update the remembered Copilot SDK agent for a project. */
   updateProjectDefaultCopilotAgent(
+    owner: string,
+    repo: string,
+    agent: string | null,
+  ): Promise<ProjectEntry | undefined>;
+  /** Read the autonomous coordinator agent preference. */
+  getProjectAutonomousCopilotAgent(
+    owner: string,
+    repo: string,
+  ): Promise<string | null | undefined>;
+  /** Update the autonomous coordinator agent preference. */
+  updateProjectAutonomousCopilotAgent(
     owner: string,
     repo: string,
     agent: string | null,

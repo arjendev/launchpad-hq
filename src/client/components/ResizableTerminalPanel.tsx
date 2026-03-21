@@ -28,6 +28,8 @@ export interface ResizableTerminalPanelProps {
   onClose?: () => void;
   /** Initial panel height in pixels. @default 300 */
   defaultHeight?: number;
+  /** Called when agent changes in the conversation dropdown (for coordinator sessions). */
+  onAgentChange?: (agentId: string | null) => void;
   /** Minimum height the panel can be dragged to. @default 100 */
   minHeight?: number;
 }
@@ -58,6 +60,7 @@ export function ResizableTerminalPanel({
   onClose,
   defaultHeight = 300,
   minHeight = 100,
+  onAgentChange,
 }: ResizableTerminalPanelProps) {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { data: sessionData } = useAggregatedSession(sessionId ?? "");
@@ -288,7 +291,7 @@ export function ResizableTerminalPanel({
         {isCliSession ? (
           <Terminal daemonId={daemonId} terminalId={isStandaloneTerminal ? undefined : (terminalId ?? sessionId)} onClose={handleDetach} />
         ) : (
-          <CopilotConversation sessionId={sessionId!} sessionType={resolvedSessionType} />
+          <CopilotConversation sessionId={sessionId!} sessionType={resolvedSessionType} onAgentChange={onAgentChange} />
         )}
       </div>
     </div>

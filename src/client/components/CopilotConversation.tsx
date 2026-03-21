@@ -49,6 +49,8 @@ export interface CopilotConversationProps {
   sessionId: string;
   sessionType?: string;
   controlPanelOpen?: boolean;
+  /** Called when the user changes the agent in the dropdown. */
+  onAgentChange?: (agentId: string | null) => void;
 }
 
 // ── Individual message components (memoized) ───────────
@@ -812,6 +814,7 @@ export function CopilotConversation({
   sessionId,
   sessionType: _sessionType,
   controlPanelOpen,
+  onAgentChange,
 }: CopilotConversationProps) {
   const { selectedProject } = useSelectedProject();
   const owner = selectedProject?.owner;
@@ -946,6 +949,7 @@ export function CopilotConversation({
         sessionId,
         agentId: nextAgentId === DEFAULT_SESSION_AGENT_ID ? null : nextAgentId,
       });
+      onAgentChange?.(nextAgentId === DEFAULT_SESSION_AGENT_ID ? null : nextAgentId);
     },
     [currentAgentId, sessionId, setSessionAgent],
   );
