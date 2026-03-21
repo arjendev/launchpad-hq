@@ -48,11 +48,7 @@ Prefer native Copilot SDK custom-agent coordination if it already supports deleg
 
 **Hub-and-spoke model:** launchpad-hq is the central dashboard (hub). Each project devcontainer runs a launchpad-daemon (spoke). Daemons initiate bidirectional WebSocket connections outbound to HQ. HQ never reaches into daemons. Dev Tunnels for remote/Codespaces support.
 
-**Project lifecycle:** When a project is added, the user specifies the runtime target. Each project has lifecycle states: initialized (yes/no), daemon status (online/offline), work state (working/awaiting/stopped). Daemons are started explicitly, not auto-spawned.
-
-**Daemon is the Copilot SDK bridge:** The daemon discovers local Copilot sessions via the SDK, relays conversation state and session status to HQ, and executes HQ commands (prompt injection, session attach) locally. HQ only aggregates. Defined 10 daemon responsibilities mapped to the real SDK: lifecycle manager, session discovery, session creation/resume, full event firehose, prompt injection, custom HQ-aware tools (`report_progress`, `request_human_review`, `report_blocker`), system message injection, project state (git status), terminal PTY (node-pty).
-
-**Copilot SDK confirmed (2026-03-13):** `@github/copilot-sdk` exists in technical preview. Provides CopilotClient (JSON-RPC to CLI), session management, event streaming, session hooks, and custom tools. Daemon uses SDK directly. Adapter layer was deleted in favor of using SDK types as wire types (~400 lines removed).
+**Daemon is the Copilot SDK bridge:** The daemon discovers local Copilot sessions via the SDK, relays conversation state and session status to HQ, and executes HQ commands (prompt injection, session attach) locally. HQ only aggregates — never talks to SDK directly.
 
 **Single binary:** `launchpad-hq --daemon` starts daemon; `launchpad-hq` starts HQ server. Dynamic imports keep HQ deps out of daemon memory and vice versa.
 
@@ -60,58 +56,25 @@ Prefer native Copilot SDK custom-agent coordination if it already supports deleg
 
 ---
 
-## Work Phasing
+## Code Architecture Principles
 
-> By Cooper. Updated 2026-03-14.
+> Established 2026-03-21 during #76 refactor. All agents must follow these.
 
-Phases 0–1 complete. Daemon architecture pivot re-scoped the backlog.
-
-| Wave | Status | Issues |
-|------|--------|--------|
-| **Wave 1** | ✅ Done | WS protocol #36, theme #25, daemon core #30, daemon registry #34 |
-| **Wave 2** | ✅ Done | project model #31, Copilot forwarding #29, self-registration #32, terminal relay #20, SDK integration #37, custom tools #38 |
-| **Wave 3** | ✅ Done | Docker removal #33, xterm.js #19, conversation viewer #22, prompt injection #21, Dev Tunnels #23 |
-| **Wave 4** | 📋 Next | attention badges #24, daemon health #35, error handling #26, e2e tests #27, API tests #28 |
-| **Onboarding** | 📋 Groomed | #39–#45: local state, onboarding wizard, copilot/model/tunnel config steps |
-
-### Onboarding Wizard (2026-03-15, Cooper)
-
-7 issues (#39–#45) groomed. Key architectural decisions:
-- **LaunchpadConfig layer:** `~/.launchpad/config.json` persists user choices (machine-local, distinct from ServerConfig and ProjectConfig)
-- **Wizard intercepts in `src/cli.ts`** before server boot. Runs in terminal, collects choices, writes config.
-- **LocalStateManager** needed as second `StateService` implementation for filesystem-only state.
-- **Dependency graph:** #45 (tunnel crash fix) is independent. #39 + #40 parallel. #41–#44 after #40.
-
----
-
-## Established Patterns
-
-> These are implemented and the **code is the source of truth**. See `decisions-archive.md` for full details.
-
-| Domain | Pattern | Key files |
-|--------|---------|-----------|
-| Build | ESM-only, TypeScript bundler moduleResolution, flat ESLint v9, Vite | `tsconfig.*.json`, `eslint.config.js`, `vite.config.ts` |
-| Server | Fastify plugins (`FastifyPluginAsync`), centralized `loadConfig()` | `src/server/routes/`, `src/server/config.ts` |
-| Client | Mantine AppShell, Flex layout, `useMediaQuery` responsive | `src/client/layouts/`, `src/client/components/` |
-| Auth | `gh auth token` via `execFile`, Fastify plugin decorator | `src/shared/auth.ts` |
-| Tests | Vitest workspace projects (server=Node, client=jsdom), split test-utils | `vitest.config.ts`, `src/test-utils/` |
-| E2E | Playwright, Chromium only, `webServer` auto-start | `playwright.config.ts`, `tests/e2e/` |
-| GitHub API | `graphql-request`, batched alias queries | `src/server/github/` |
-| State | Three-layer: GitHubStateClient → LocalCache → StateManager | `src/server/state/` |
-| WebSocket | `ws` + `noServer: true`, ConnectionManager, channel subscriptions | `src/server/ws/` |
-| WS Client | WebSocketManager in React context, `useSubscription(channel)` | `src/client/hooks/`, `src/client/contexts/` |
-| Attention | Rule engine, in-memory manager, SHA-256 deterministic IDs | `src/server/attention/` |
-| Theme | ThemeContext wrapping Mantine, `--lp-*` CSS vars, dark default | `src/client/contexts/ThemeContext.tsx`, `src/client/styles/theme.css` |
-| Tunnel | TunnelManager singleton wrapping `devtunnel` CLI, `fp` plugin pattern | `src/server/tunnel.ts`, `src/server/routes/tunnel.ts` |
-| Tunnel UI | REST polling (5s via TanStack Query), not WebSocket | `src/client/components/TunnelButton.tsx` |
-| Kanban | Client-side classification: CLOSED→Done, OPEN+assigned→In Progress, else→Todo | `src/client/components/BacklogList.tsx` |
-| SDK sessions | Disconnect-before-resume pattern, CopilotManager dedup guards, tombstone-based resurrection prevention | `src/daemon/copilot/manager.ts`, `src/server/copilot-aggregator/` |
-| Agent selection | SDK native `customAgents` + `session.rpc.agent.select()`, per-project preference via `defaultCopilotSdkAgent` | `src/daemon/copilot/manager.ts`, `src/server/routes/daemons.ts` |
+1. **Route files are thin** — request validation → service call → response. No business logic, no event wiring, no service instantiation.
+2. **One message router per boundary** — daemon has one central router, server has one central handler. No scattered `on('message')` handlers.
+3. **Typed events only** — no `as never`, no `emit(string, any)`. Every event has a typed map entry.
+4. **Broadcasts from consumers** — the daemon handler emits events to the bus; consumer plugins decide what to broadcast to browsers.
+5. **No module-level mutable state** — all state in classes, registered as Fastify decorators (server) or class instances (daemon).
+6. **No meaningless abstraction** — every extraction must make a specific file easier to work with. Don't add interfaces for the sake of it.
+7. **Single definition for shared types** — types used across multiple files live in `src/shared/`. No duplicating type definitions.
+8. **Plugins own their services** — Fastify plugins create and decorate their services. Routes consume decorated services, never instantiate them.
+9. **Hooks are single-responsibility** — one hook per concern. Don't bundle data fetching + WebSocket subscriptions + business logic in one hook.
+10. **Deprecated code gets removed** — don't leave deprecated modules running. Remove them promptly when superseded.
 
 ---
 
 ## Governance
 
 - All meaningful changes require team consensus
-- Document architectural decisions here
+- Document architectural decisions here — not implementation details (code is the source of truth for those)
 - Keep history focused on work, decisions focused on direction
