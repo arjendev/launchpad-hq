@@ -12,7 +12,7 @@ import { WS_CLOSE_AUTH_REJECTED, WS_CLOSE_AUTH_TIMEOUT, AUTH_HANDSHAKE_TIMEOUT_M
 import type { DaemonRegistry } from "./registry.js";
 import type { TerminalRelay } from "../terminal-relay/relay.js";
 import { getTracer, isTracingEnabled } from "../observability/tracing.js";
-import { SpanStatusCode, propagation, context } from "@opentelemetry/api";
+import { SpanStatusCode, propagation, context, trace } from "@opentelemetry/api";
 import { sanitize } from "../observability/logger.js";
 import { sanitizeForSpan } from "../observability/sanitize.js";
 
@@ -178,8 +178,12 @@ export class DaemonWsHandler {
       // Attach the full sanitized payload as a span event
       span.addEvent("daemon.message.payload", sanitizeForSpan(msg));
 
+      // Run dispatch inside the span's context so downstream listeners inherit it
+      const spanCtx = trace.setSpan(parentCtx ?? context.active(), span);
       try {
-        this.dispatchMessage(ws, msg);
+        context.with(spanCtx, () => {
+          this.dispatchMessage(ws, msg);
+        });
         span.setStatus({ code: SpanStatusCode.OK });
       } catch (err) {
         span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });

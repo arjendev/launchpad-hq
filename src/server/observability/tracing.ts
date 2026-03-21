@@ -55,13 +55,20 @@ export async function setupTracing(config?: OtelConfig): Promise<boolean> {
     logRecordProcessors: [new BatchLogRecordProcessor(logExporter)],
     instrumentations: [
       getNodeAutoInstrumentations({
-        // Only enable instrumentations we care about
+        // Enable useful instrumentations
         "@opentelemetry/instrumentation-http": { enabled: true },
         "@opentelemetry/instrumentation-fastify": { enabled: true },
-        // Disable noisy/unnecessary ones
+        "@opentelemetry/instrumentation-pino": { enabled: true },
+        "@opentelemetry/instrumentation-undici": { enabled: true },
+        // Disable noisy/low-value ones
         "@opentelemetry/instrumentation-fs": { enabled: false },
         "@opentelemetry/instrumentation-dns": { enabled: false },
         "@opentelemetry/instrumentation-net": { enabled: false },
+        "@opentelemetry/instrumentation-express": { enabled: false },
+        "@opentelemetry/instrumentation-connect": { enabled: false },
+        "@opentelemetry/instrumentation-koa": { enabled: false },
+        "@opentelemetry/instrumentation-hapi": { enabled: false },
+        "@opentelemetry/instrumentation-restify": { enabled: false },
       }),
     ],
   });
