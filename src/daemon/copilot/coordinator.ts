@@ -228,14 +228,6 @@ export class CoordinatorSessionManager {
       agentId,
     });
 
-    // Send an initial message so the SDK persists the session to disk.
-    // Without this, the session won't survive a client restart.
-    await this.copilotManager.sendToSession(sessionId,
-      'You are now active as the autonomous coordinator. Acknowledge readiness briefly.'
-    ).catch(() => {
-      logSdk('Coordinator initial ping failed (non-fatal)');
-    });
-
     return sessionId;
   }
 

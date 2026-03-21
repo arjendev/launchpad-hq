@@ -197,15 +197,15 @@ function CoordinatorCard({ owner, repo }: { owner: string; repo: string }) {
             )}
           </Group>
 
-          {/* Second row: uptime/status + start/stop button */}
+          {/* Second row: uptime/status + action buttons (same line) */}
           <Group gap={4} wrap="nowrap" justify="space-between">
-            <Text size="xs" c="dimmed">
-              {status === "active" && uptime ? `▶ Started ${uptime}` : null}
+            <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
+              {status === "active" && uptime ? `▶ ${uptime}` : null}
               {status === "starting" ? "⏳ Starting…" : null}
               {status === "idle" ? "⏸ Idle" : null}
               {status === "crashed" ? "💥 Crashed" : null}
             </Text>
-            <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+            <Group gap={2} wrap="nowrap" style={{ flexShrink: 0 }}>
               {coordinatorSessionId && (
                 <Tooltip label={isAttached ? "Detach" : "Attach"}>
                   <Button
@@ -213,24 +213,13 @@ function CoordinatorCard({ owner, repo }: { owner: string; repo: string }) {
                     size="compact-xs"
                     color={isAttached ? "violet" : "gray"}
                     onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleClick(); }}
+                    px={4}
                   >
-                    {isAttached ? "⏏ Detach" : "👁 Attach"}
+                    {isAttached ? "⏏" : "👁"}
                   </Button>
                 </Tooltip>
               )}
-              <Tooltip label={isRunning ? "Stop coordinator" : "Start coordinator"}>
-                <Button
-                  variant="subtle"
-                  size="compact-xs"
-                  color={isRunning ? "red" : "green"}
-                  onClick={handleStartStop}
-                  loading={startCoordinator.isPending || stopCoordinator.isPending}
-                  style={{ flexShrink: 0 }}
-                >
-                  {isRunning ? "⏹" : "▶"}
-                </Button>
-              </Tooltip>
-              <Tooltip label="New session (clears history)">
+              <Tooltip label="New session">
                 <Button
                   variant="subtle"
                   size="compact-xs"
@@ -240,9 +229,21 @@ function CoordinatorCard({ owner, repo }: { owner: string; repo: string }) {
                     resetCoordinator.mutate({ owner, repo });
                   }}
                   loading={resetCoordinator.isPending}
-                  style={{ flexShrink: 0 }}
+                  px={4}
                 >
                   🔄
+                </Button>
+              </Tooltip>
+              <Tooltip label={isRunning ? "Stop" : "Start"}>
+                <Button
+                  variant="subtle"
+                  size="compact-xs"
+                  color={isRunning ? "red" : "green"}
+                  onClick={handleStartStop}
+                  loading={startCoordinator.isPending || stopCoordinator.isPending}
+                  px={4}
+                >
+                  {isRunning ? "⏹" : "▶"}
                 </Button>
               </Tooltip>
             </Group>
