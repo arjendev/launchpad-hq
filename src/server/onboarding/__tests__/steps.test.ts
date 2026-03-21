@@ -33,8 +33,8 @@ describe("onboarding steps", () => {
 
   // ── Registration ──────────────────────────────────────────────────────────
 
-  it("registers 4 default steps", () => {
-    expect(defaultSteps).toHaveLength(4);
+  it("registers 5 default steps", () => {
+    expect(defaultSteps).toHaveLength(5);
   });
 
   it("each step has required properties", () => {
@@ -47,9 +47,9 @@ describe("onboarding steps", () => {
     }
   });
 
-  it("step ids are state-mode, copilot-pref, model, devtunnel", () => {
+  it("step ids are state-mode, copilot-pref, model, devtunnel, otel", () => {
     const ids = defaultSteps.map((s) => s.id);
-    expect(ids).toEqual(["state-mode", "copilot-pref", "model", "devtunnel"]);
+    expect(ids).toEqual(["state-mode", "copilot-pref", "model", "devtunnel", "otel"]);
   });
 
   // ── Step 1: State storage mode (#41) ──────────────────────────────────────

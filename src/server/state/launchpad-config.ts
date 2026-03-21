@@ -37,6 +37,7 @@ export async function loadLaunchpadConfig(
         ...defaults.tunnel,
         ...(parsed.tunnel ?? {}),
       },
+      ...(parsed.otel ? { otel: parsed.otel } : {}),
     };
   } catch {
     return defaultLaunchpadConfig();

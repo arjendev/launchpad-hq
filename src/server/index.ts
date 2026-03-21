@@ -8,6 +8,8 @@ import helmet from "@fastify/helmet";
 import fastifyStatic from "@fastify/static";
 
 import { loadConfig } from "./config.js";
+import { setupTracing } from "./observability/tracing.js";
+import { loadLaunchpadConfig } from "./state/launchpad-config.js";
 import healthRoutes from "./routes/health.js";
 import projectRoutes from "./routes/projects.js";
 import githubDataRoutes from "./routes/github-data.js";
@@ -34,8 +36,22 @@ import previewRoutes from "./routes/preview.js";
 import workflowPlugin from "./workflow/plugin.js";
 import workflowRoutes from "./routes/workflow.js";
 import authPlugin from "./auth/plugin.js";
+import otelPlugin from "./observability/plugin.js";
 
 const config = loadConfig();
+
+// --- OpenTelemetry (must init BEFORE Fastify) ---
+// CLI flags (--otel, --otel-endpoint) override config.json settings
+const launchpadConfig = await loadLaunchpadConfig();
+const otelConfig = {
+  enabled: config.otel || launchpadConfig.otel?.enabled || false,
+  endpoint: config.otelEndpoint ?? launchpadConfig.otel?.endpoint ?? "http://localhost:4317",
+  serviceName: launchpadConfig.otel?.serviceName ?? "launchpad-hq",
+};
+const otelStarted = await setupTracing(otelConfig);
+if (otelStarted) {
+  console.log(`📡 OpenTelemetry tracing enabled → ${otelConfig.endpoint}`);
+}
 
 // Log level: --verbose → debug, default → warn
 const logLevel = process.argv.includes("--verbose") ? "debug" : "warn";
@@ -113,6 +129,10 @@ if (!config.isDev && existsSync(config.clientDistPath)) {
 // --- WebSocket ---
 
 await server.register(websocket, { isDev: config.isDev });
+
+// --- OpenTelemetry request tracing (after websocket, before routes) ---
+
+await server.register(otelPlugin);
 
 // --- Auth (depends on websocket for sessionToken) ---
 

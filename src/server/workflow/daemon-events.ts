@@ -28,6 +28,25 @@ import type {
   WorkflowElicitationRequestedPayload,
   WorkflowDispatchStartedPayload,
 } from "../daemon-registry/event-bus.js";
+import { getTracer, isTracingEnabled } from "../observability/tracing.js";
+import { SpanStatusCode } from "@opentelemetry/api";
+
+/**
+ * Run a callback inside an OTEL span (no-op when tracing is disabled).
+ */
+function traceEvent(name: string, attrs: Record<string, string | number>, fn: () => void): void {
+  if (!isTracingEnabled()) { fn(); return; }
+  const span = getTracer("workflow-daemon-events").startSpan(name, { attributes: attrs });
+  try {
+    fn();
+    span.setStatus({ code: SpanStatusCode.OK });
+  } catch (err) {
+    span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
+    throw err;
+  } finally {
+    span.end();
+  }
+}
 
 /**
  * Wire up all daemon event listeners for workflow.
@@ -83,11 +102,14 @@ export function registerWorkflowDaemonEvents(server: FastifyInstance): void {
   });
 
   server.daemonRegistry.on("workflow:coordinator-started", (payload: WorkflowCoordinatorStartedPayload) => {
+    traceEvent("workflow:coordinator-started", { "workflow.projectId": payload.projectId, "workflow.sessionId": payload.sessionId }, () => {
     const [owner, repo] = payload.projectId.split("/");
     if (!owner || !repo) return;
     const coord = store.getCoordinator(owner, repo);
     const updated = coordinatorStarted(coord, payload.sessionId);
     store.setCoordinator(owner, repo, updated);
+
+    server.log.info({ projectId: payload.projectId, sessionId: payload.sessionId }, "Coordinator transitioned to active");
 
     // Browser broadcast (moved from handler.ts)
     server.ws.broadcast("workflow", {
@@ -103,6 +125,7 @@ export function registerWorkflowDaemonEvents(server: FastifyInstance): void {
       projectRepo: repo,
       message: `Coordinator started (session ${payload.sessionId.slice(0, 8)}…)`,
       severity: "info",
+    });
     });
   });
 
@@ -139,6 +162,7 @@ export function registerWorkflowDaemonEvents(server: FastifyInstance): void {
   });
 
   server.daemonRegistry.on("workflow:progress", (payload: WorkflowProgressPayload) => {
+    traceEvent("workflow:progress", { "workflow.projectId": payload.projectId, "workflow.issueNumber": payload.issueNumber }, () => {
     const [owner, repo] = payload.projectId.split("/");
     if (!owner || !repo) return;
 
@@ -153,6 +177,8 @@ export function registerWorkflowDaemonEvents(server: FastifyInstance): void {
     const coord = store.getCoordinator(owner, repo);
     const updated = updateDispatchStatus(coord, payload.issueNumber, "in-progress");
     store.setCoordinator(owner, repo, updated);
+
+    server.log.debug({ projectId: payload.projectId, issueNumber: payload.issueNumber, commits: payload.commits?.length ?? 0 }, "Workflow progress update");
 
     // Browser broadcast (moved from handler.ts)
     server.ws.broadcast("workflow", {
@@ -170,6 +196,7 @@ export function registerWorkflowDaemonEvents(server: FastifyInstance): void {
       issueNumber: payload.issueNumber,
       message: `Progress on issue #${payload.issueNumber}${payload.commits?.length ? ` (${payload.commits.length} commit(s))` : ""}`,
       severity: "info",
+    });
     });
   });
 
@@ -197,6 +224,7 @@ export function registerWorkflowDaemonEvents(server: FastifyInstance): void {
   });
 
   server.daemonRegistry.on("workflow:issue-completed", (payload: WorkflowIssueCompletedPayload) => {
+    traceEvent("workflow:issue-completed", { "workflow.projectId": payload.projectId, "workflow.issueNumber": payload.issueNumber }, () => {
     const [owner, repo] = payload.projectId.split("/");
     if (!owner || !repo) return;
 
@@ -213,9 +241,12 @@ export function registerWorkflowDaemonEvents(server: FastifyInstance): void {
       try {
         const updated = stateMachine.transition(issue, "ready-for-review", payload.summary ?? "Completed by coordinator");
         store.updateIssue(owner, repo, updated);
+        server.log.debug({ issueNumber: payload.issueNumber, from: "in-progress", to: "ready-for-review" }, "Issue state transition");
       } catch {
-        // Transition may be invalid if issue was already moved — ignore
+        server.log.debug({ issueNumber: payload.issueNumber, currentState: issue.state }, "Issue transition skipped — invalid from current state");
       }
+    } else {
+      server.log.debug({ issueNumber: payload.issueNumber, currentState: issue?.state ?? "not-found" }, "Issue completion skipped — not in-progress");
     }
 
     // Update dispatch record
@@ -239,6 +270,7 @@ export function registerWorkflowDaemonEvents(server: FastifyInstance): void {
       issueNumber: payload.issueNumber,
       message: `Issue #${payload.issueNumber} completed${payload.summary ? `: ${payload.summary}` : ""}`,
       severity: "info",
+    });
     });
   });
 

@@ -11,6 +11,9 @@ import { validateDaemonToken } from "../../shared/auth.js";
 import { WS_CLOSE_AUTH_REJECTED, WS_CLOSE_AUTH_TIMEOUT, AUTH_HANDSHAKE_TIMEOUT_MS } from "../../shared/constants.js";
 import type { DaemonRegistry } from "./registry.js";
 import type { TerminalRelay } from "../terminal-relay/relay.js";
+import { getTracer, isTracingEnabled } from "../observability/tracing.js";
+import { SpanStatusCode } from "@opentelemetry/api";
+import { sanitize } from "../observability/logger.js";
 
 /** Per-connection state machine for the auth handshake */
 interface PendingConnection {
@@ -152,6 +155,39 @@ export class DaemonWsHandler {
 
   /** Route an authenticated daemon message */
   private routeMessage(ws: WebSocket, msg: DaemonToHqMessage): void {
+    const daemonId = this.wsToDaemonId.get(ws);
+
+    // Create a span for each incoming daemon message
+    if (isTracingEnabled()) {
+      const tracer = getTracer("daemon-ws-handler");
+      const span = tracer.startSpan(`daemon:${msg.type}`, {
+        attributes: {
+          "daemon.message.type": msg.type,
+          "daemon.id": daemonId ?? "unknown",
+        },
+      });
+      try {
+        this.dispatchMessage(ws, msg);
+        span.setStatus({ code: SpanStatusCode.OK });
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
+        throw err;
+      } finally {
+        span.end();
+      }
+    } else {
+      this.dispatchMessage(ws, msg);
+    }
+
+    // Log every WS message received from daemon (strip auth tokens)
+    this.log.debug(
+      sanitize({ type: msg.type, daemonId: daemonId ?? "unknown" }),
+      `Daemon message received: ${msg.type}`,
+    );
+  }
+
+  /** Dispatch message to the appropriate handler */
+  private dispatchMessage(ws: WebSocket, msg: DaemonToHqMessage): void {
     switch (msg.type) {
       case "register": {
         const daemonId = msg.payload.projectId;

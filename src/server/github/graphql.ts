@@ -19,6 +19,8 @@ import type {
   RawPullRequestNode,
   RawRepoNode,
 } from "./graphql-types.js";
+import { getTracer, isTracingEnabled } from "../observability/tracing.js";
+import { SpanStatusCode } from "@opentelemetry/api";
 
 const GITHUB_GRAPHQL_ENDPOINT = "https://api.github.com/graphql";
 const USER_AGENT = "launchpad-hq";
@@ -355,10 +357,34 @@ export class GitHubGraphQL {
     query: string,
     variables: Record<string, unknown>,
   ): Promise<T> {
+    // Extract operation name from query for span naming
+    const opMatch = query.match(/(?:query|mutation)\s+(\w+)/);
+    const opName = opMatch?.[1] ?? "anonymous";
+
+    if (!isTracingEnabled()) {
+      try {
+        return await this.client.request<T>(query, variables);
+      } catch (err) {
+        throw this.wrapError(err);
+      }
+    }
+
+    const span = getTracer("github-graphql").startSpan(`graphql:${opName}`, {
+      attributes: {
+        "github.api": "graphql",
+        "graphql.operation": opName,
+        "http.url": GITHUB_GRAPHQL_ENDPOINT,
+      },
+    });
     try {
-      return await this.client.request<T>(query, variables);
+      const result = await this.client.request<T>(query, variables);
+      span.setStatus({ code: SpanStatusCode.OK });
+      return result;
     } catch (err) {
+      span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
       throw this.wrapError(err);
+    } finally {
+      span.end();
     }
   }
 

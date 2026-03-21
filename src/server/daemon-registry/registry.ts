@@ -2,6 +2,7 @@ import type { WebSocket } from "ws";
 import type { DaemonInfo, HqToDaemonMessage } from "../../shared/protocol.js";
 import { HEARTBEAT_TIMEOUT_MS } from "../../shared/constants.js";
 import { DaemonEventBus } from "./event-bus.js";
+import { getTraceparent } from "../observability/tracing.js";
 
 /** Connection state of a tracked daemon */
 export type DaemonConnectionState = "authenticating" | "connected" | "disconnected";
@@ -111,15 +112,21 @@ export class DaemonRegistry extends DaemonEventBus {
   sendToDaemon(daemonId: string, message: HqToDaemonMessage): boolean {
     const daemon = this.daemons.get(daemonId);
     if (!daemon?.ws || daemon.ws.readyState !== daemon.ws.OPEN) return false;
-    daemon.ws.send(JSON.stringify(message));
+    // Inject W3C traceparent if OTEL is active
+    const traceparent = getTraceparent();
+    const msg = traceparent ? { ...message, traceparent } : message;
+    daemon.ws.send(JSON.stringify(msg));
     return true;
   }
 
   /** Broadcast a message to every connected daemon */
   broadcastToDaemons(message: HqToDaemonMessage): void {
+    const traceparent = getTraceparent();
+    const msg = traceparent ? { ...message, traceparent } : message;
+    const serialized = JSON.stringify(msg);
     for (const daemon of this.daemons.values()) {
       if (daemon.ws && daemon.ws.readyState === daemon.ws.OPEN) {
-        daemon.ws.send(JSON.stringify(message));
+        daemon.ws.send(serialized);
       }
     }
   }

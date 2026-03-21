@@ -12,6 +12,8 @@ import type {
   SessionType,
 } from "../../shared/protocol.js";
 import { CopilotSessionAggregator } from "./aggregator.js";
+import { getTracer, isTracingEnabled } from "../observability/tracing.js";
+import { SpanStatusCode } from "@opentelemetry/api";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -50,6 +52,9 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
   registry.on("copilot:session-event", (daemonId, payload) => {
     const event = payload.event as SessionEvent;
     const sessionType = payload.sessionType as SessionType | undefined;
+
+    // Trace each session event processing
+    const doProcess = () => {
     aggregator.handleSessionEvent(daemonId ?? "", payload.sessionId, event);
 
     // Track session type if provided
@@ -123,6 +128,28 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
     const requestId = (event as SessionEvent & { data?: Record<string, unknown> })?.data?.requestId;
     if (requestId && typeof requestId === "string") {
       aggregator.resolveRequest(requestId, { sessionId: payload.sessionId });
+    }
+    };
+
+    if (isTracingEnabled()) {
+      const span = getTracer("copilot-aggregator").startSpan(`copilot:session-event:${event.type}`, {
+        attributes: {
+          "copilot.sessionId": payload.sessionId,
+          "copilot.event.type": event.type,
+          "copilot.daemonId": daemonId ?? "unknown",
+        },
+      });
+      try {
+        doProcess();
+        span.setStatus({ code: SpanStatusCode.OK });
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
+        throw err;
+      } finally {
+        span.end();
+      }
+    } else {
+      doProcess();
     }
   });
 
