@@ -79,7 +79,7 @@ const VALID_TRANSITIONS: ReadonlyMap<WorkflowState, ReadonlySet<WorkflowState>> 
   ["needs-input-blocking", new Set<WorkflowState>(["in-progress", "done", "rejected"])],
   ["needs-input-async", new Set<WorkflowState>(["in-progress", "done", "rejected"])],
   ["ready-for-review", new Set<WorkflowState>(["done", "in-progress", "rejected"])],
-  ["done", new Set<WorkflowState>()],
+  ["done", new Set<WorkflowState>(["in-progress"])],
   ["rejected", new Set<WorkflowState>()],
 ]);
 

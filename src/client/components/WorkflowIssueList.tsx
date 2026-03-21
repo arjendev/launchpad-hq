@@ -368,6 +368,15 @@ function RowActions({
     );
   }
 
+  // Done — allow re-dispatch
+  if (issue.state === "done") {
+    return (
+      <Group gap={4} wrap="nowrap">
+        <DispatchButton issue={issue} owner={owner} repo={repo} />
+      </Group>
+    );
+  }
+
   return <Text size="xs" c="dimmed">—</Text>;
 }
 

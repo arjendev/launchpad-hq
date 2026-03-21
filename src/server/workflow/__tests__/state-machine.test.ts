@@ -76,7 +76,6 @@ describe("isValidTransition", () => {
     ["backlog", "ready-for-review"],
     ["in-progress", "backlog"],
     ["done", "backlog"],
-    ["done", "in-progress"],
     ["done", "rejected"],
     ["rejected", "backlog"],
     ["rejected", "in-progress"],
@@ -109,8 +108,8 @@ describe("getValidTransitions", () => {
     expect(transitions).toContain("rejected");
   });
 
-  it("returns empty array for done", () => {
-    expect(getValidTransitions("done")).toEqual([]);
+  it("returns in-progress for done (re-dispatch)", () => {
+    expect(getValidTransitions("done")).toEqual(["in-progress"]);
   });
 
   it("returns empty array for rejected", () => {

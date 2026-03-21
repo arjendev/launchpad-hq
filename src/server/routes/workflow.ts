@@ -603,10 +603,10 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
         });
       }
 
-      if (issue.state !== "backlog" && issue.state !== "in-progress") {
+      if (issue.state !== "backlog" && issue.state !== "in-progress" && issue.state !== "done") {
         return reply.status(422).send({
           error: "invalid_state",
-          message: `Issue #${issueNumber} is in '${issue.state}', must be 'backlog' or 'in-progress' to dispatch`,
+          message: `Issue #${issueNumber} is in '${issue.state}', cannot dispatch`,
         });
       }
 
