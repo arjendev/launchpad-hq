@@ -216,15 +216,15 @@ export class DaemonWsHandler {
         break;
 
       case "copilot-session-list":
-        this.registry.emit("copilot:session-list" as never, this.wsToDaemonId.get(ws), msg.payload);
+        this.registry.emit("copilot:session-list", this.wsToDaemonId.get(ws), msg.payload);
         break;
 
       case "copilot-session-event":
-        this.registry.emit("copilot:session-event" as never, this.wsToDaemonId.get(ws), msg.payload);
+        this.registry.emit("copilot:session-event", this.wsToDaemonId.get(ws), msg.payload);
         break;
 
       case "copilot-agent-catalog":
-        this.registry.emit("copilot:agent-catalog" as never, this.wsToDaemonId.get(ws), msg.payload);
+        this.registry.emit("copilot:agent-catalog", this.wsToDaemonId.get(ws), msg.payload);
         this.broadcast("copilot", {
           type: "copilot:agent-catalog",
           projectId: msg.payload.projectId,
@@ -233,11 +233,11 @@ export class DaemonWsHandler {
         break;
 
       case "copilot-sdk-state":
-        this.registry.emit("copilot:sdk-state" as never, this.wsToDaemonId.get(ws), msg.payload);
+        this.registry.emit("copilot:sdk-state", this.wsToDaemonId.get(ws), msg.payload);
         break;
 
       case "copilot-tool-invocation":
-        this.registry.emit("copilot:tool-invocation" as never, this.wsToDaemonId.get(ws), {
+        this.registry.emit("copilot:tool-invocation", this.wsToDaemonId.get(ws), {
           sessionId: msg.sessionId,
           projectId: msg.projectId,
           tool: msg.tool,
@@ -247,7 +247,7 @@ export class DaemonWsHandler {
         break;
 
       case "copilot-conversation":
-        this.registry.emit("copilot:conversation" as never, msg.payload.projectId, msg.payload);
+        this.registry.emit("copilot:conversation", msg.payload.projectId, msg.payload);
         this.broadcast("copilot", {
           type: "copilot:conversation",
           projectId: msg.payload.projectId,
@@ -265,19 +265,19 @@ export class DaemonWsHandler {
         break;
 
       case "copilot-models-list":
-        this.registry.emit("copilot:models-list" as never, this.wsToDaemonId.get(ws), msg.payload);
+        this.registry.emit("copilot:models-list", this.wsToDaemonId.get(ws), msg.payload);
         break;
 
       case "copilot-mode-response":
-        this.registry.emit("copilot:mode-response" as never, this.wsToDaemonId.get(ws), msg.payload);
+        this.registry.emit("copilot:mode-response", this.wsToDaemonId.get(ws), msg.payload);
         break;
 
       case "copilot-agent-response":
-        this.registry.emit("copilot:agent-response" as never, this.wsToDaemonId.get(ws), msg.payload);
+        this.registry.emit("copilot:agent-response", this.wsToDaemonId.get(ws), msg.payload);
         break;
 
       case "copilot-plan-response":
-        this.registry.emit("copilot:plan-response" as never, this.wsToDaemonId.get(ws), msg.payload);
+        this.registry.emit("copilot:plan-response", this.wsToDaemonId.get(ws), msg.payload);
         break;
 
       case "preview-config": {
@@ -303,91 +303,51 @@ export class DaemonWsHandler {
       }
 
       case "preview-proxy-response":
-        this.registry.emit("preview:proxy-response" as never, msg.payload);
+        this.registry.emit("preview:proxy-response", msg.payload);
         break;
 
       case "preview-ws-data":
-        this.registry.emit("preview:ws-data" as never, msg.payload);
+        this.registry.emit("preview:ws-data", msg.payload);
         break;
 
       case "preview-ws-close":
-        this.registry.emit("preview:ws-close" as never, msg.payload);
+        this.registry.emit("preview:ws-close", msg.payload);
         break;
 
       // --- Workflow coordinator messages ---
+      // Only emit to the event bus; browser broadcasts are owned by
+      // workflow/daemon-events.ts to avoid duplicate broadcasts.
 
       case "workflow:coordinator-started":
-        this.registry.emit("workflow:coordinator-started" as never, msg.payload);
-        this.broadcast("workflow", {
-          type: "workflow:coordinator-status-changed",
-          projectId: msg.payload.projectId,
-          status: "active",
-          sessionId: msg.payload.sessionId,
-        });
+        this.registry.emit("workflow:coordinator-started", msg.payload);
         this.log.info({ projectId: msg.payload.projectId, sessionId: msg.payload.sessionId }, "Coordinator started");
         break;
 
       case "workflow:coordinator-crashed":
-        this.registry.emit("workflow:coordinator-crashed" as never, msg.payload);
-        this.broadcast("workflow", {
-          type: "workflow:coordinator-status-changed",
-          projectId: msg.payload.projectId,
-          status: "crashed",
-          error: msg.payload.error,
-        });
+        this.registry.emit("workflow:coordinator-crashed", msg.payload);
         this.log.error({ projectId: msg.payload.projectId, error: msg.payload.error }, "Coordinator crashed");
         break;
 
       case "workflow:coordinator-health":
-        this.registry.emit("workflow:coordinator-health" as never, msg.payload);
+        this.registry.emit("workflow:coordinator-health", msg.payload);
         break;
 
       case "workflow:progress":
-        this.registry.emit("workflow:progress" as never, msg.payload);
-        this.broadcast("workflow", {
-          type: "workflow:progress",
-          projectId: msg.payload.projectId,
-          sessionId: msg.payload.sessionId,
-          issueNumber: msg.payload.issueNumber,
-          eventType: msg.payload.event.type,
-        });
+        this.registry.emit("workflow:progress", msg.payload);
         break;
 
       case "workflow:dispatch-started":
-        this.registry.emit("workflow:dispatch-started" as never, msg.payload);
-        this.broadcast("workflow", {
-          type: "workflow:dispatch-started",
-          projectId: msg.payload.projectId,
-          sessionId: msg.payload.sessionId,
-          issueNumber: msg.payload.issueNumber,
-          title: msg.payload.title,
-        });
+        this.registry.emit("workflow:dispatch-started", msg.payload);
         this.log.info({ projectId: msg.payload.projectId, issueNumber: msg.payload.issueNumber }, "Issue dispatched");
         break;
 
       case "workflow:issue-completed":
-        this.registry.emit("workflow:issue-completed" as never, msg.payload);
-        this.broadcast("workflow", {
-          type: "workflow:issue-completed",
-          projectId: msg.payload.projectId,
-          sessionId: msg.payload.sessionId,
-          issueNumber: msg.payload.issueNumber,
-          summary: msg.payload.summary,
-        });
+        this.registry.emit("workflow:issue-completed", msg.payload);
         this.log.info({ projectId: msg.payload.projectId, issueNumber: msg.payload.issueNumber }, "Issue completed");
         break;
 
       case "workflow:elicitation-requested":
-        this.registry.emit("workflow:elicitation-requested" as never, msg.payload);
-        this.broadcast("workflow", {
-          type: "workflow:elicitation",
-          projectId: msg.payload.projectId,
-          sessionId: msg.payload.sessionId,
-          elicitationId: msg.payload.elicitationId,
-          issueNumber: msg.payload.issueNumber,
-          message: msg.payload.message,
-          requestedSchema: msg.payload.requestedSchema,
-        });
+        this.registry.emit("workflow:elicitation-requested", msg.payload);
         this.log.info(
           { projectId: msg.payload.projectId, elicitationId: msg.payload.elicitationId },
           "Elicitation requested",

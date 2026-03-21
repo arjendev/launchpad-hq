@@ -3,6 +3,10 @@
  *
  * Registered as a Fastify plugin. All routes are under /api/workflow/.
  * Auth is applied globally by the auth plugin for /api/* routes.
+ *
+ * Service instances (workflowStore, workflowStateMachine, etc.) are
+ * provided by the workflow plugin (workflow/plugin.ts), which must
+ * be registered before this routes plugin.
  */
 
 import type { FastifyPluginAsync } from "fastify";
@@ -21,7 +25,6 @@ import {
 } from "../workflow/coordinator-state.js";
 import type { ActivityEventType, ActivityQuery } from "../workflow/activity-store.js";
 import { computeProjectStatus, type ProjectStatusBadge } from "../workflow/status-badge.js";
-import type { CoordinatorProjectState, TrackedCommit } from "../../shared/protocol.js";
 
 /** Build project key from route params */
 function pk(params: { owner: string; repo: string }): string {
@@ -29,8 +32,10 @@ function pk(params: { owner: string; repo: string }): string {
 }
 
 const workflowRoutes: FastifyPluginAsync = async (server) => {
-  // Services provided by workflow/plugin.ts (must be registered first)
-  const { workflowStore: store, workflowStateMachine: stateMachine, elicitationStore, activityStore } = server;
+  const store = server.workflowStore;
+  const stateMachine = server.workflowStateMachine;
+  const elicitationStore = server.elicitationStore;
+  const activityStore = server.activityStore;
 
   // Helper: get gh token from the auth plugin decorator
   function getGhToken(): string {

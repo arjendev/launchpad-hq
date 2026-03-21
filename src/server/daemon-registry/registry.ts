@@ -1,7 +1,7 @@
-import { EventEmitter } from "node:events";
 import type { WebSocket } from "ws";
 import type { DaemonInfo, HqToDaemonMessage } from "../../shared/protocol.js";
 import { HEARTBEAT_TIMEOUT_MS } from "../../shared/constants.js";
+import { DaemonEventBus } from "./event-bus.js";
 
 /** Connection state of a tracked daemon */
 export type DaemonConnectionState = "authenticating" | "connected" | "disconnected";
@@ -37,17 +37,11 @@ export interface DaemonSummary {
   previewDetectedFrom?: string;
 }
 
-export interface DaemonRegistryEvents {
-  "daemon:connected": (daemon: DaemonSummary) => void;
-  "daemon:disconnected": (daemon: DaemonSummary) => void;
-  "daemon:status-update": (daemon: DaemonSummary, payload: unknown) => void;
-}
-
 /**
  * In-memory registry tracking all connected daemons.
- * Emits events on connect / disconnect for other server components.
+ * Emits typed events (see DaemonEventMap in event-bus.ts) for other server components.
  */
-export class DaemonRegistry extends EventEmitter {
+export class DaemonRegistry extends DaemonEventBus {
   private daemons = new Map<string, TrackedDaemon>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private tokens = new Map<string, string>();
