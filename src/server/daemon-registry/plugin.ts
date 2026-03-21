@@ -62,14 +62,14 @@ async function daemonRegistryPlugin(fastify: FastifyInstance) {
 
   // Broadcast daemon lifecycle events to browser clients on "daemon" channel
   registry.on("daemon:connected", (summary) => {
-    fastify.ws.broadcast("daemon" as never, {
+    fastify.ws.broadcast("daemon", {
       type: "daemon:connected",
       daemon: summary,
     });
   });
 
   registry.on("daemon:disconnected", (summary) => {
-    fastify.ws.broadcast("daemon" as never, {
+    fastify.ws.broadcast("daemon", {
       type: "daemon:disconnected",
       daemon: summary,
     });

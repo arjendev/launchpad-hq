@@ -40,7 +40,7 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
   // ── Daemon copilot message routing ────────────────────
   // Events emitted by DaemonWsHandler.routeMessage() with signature (daemonId, payload)
 
-  registry.on("copilot:session-list" as never, (daemonId: string, payload: { projectId: string; requestId?: string; sessions: SessionMetadata[] }) => {
+  registry.on("copilot:session-list", (daemonId: string, payload: { projectId: string; requestId?: string; sessions: SessionMetadata[] }) => {
     aggregator.updateSessions(daemonId, payload.projectId, payload.sessions);
 
     // Resolve any pending request-response (e.g. from the resume-picker endpoint)
@@ -49,7 +49,7 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
     }
   });
 
-  registry.on("copilot:session-event" as never, (daemonId: string, payload: { projectId: string; sessionId: string; sessionType?: SessionType; event: SessionEvent }) => {
+  registry.on("copilot:session-event", (daemonId: string, payload: { projectId: string; sessionId: string; sessionType?: SessionType; event: SessionEvent }) => {
     aggregator.handleSessionEvent(daemonId, payload.sessionId, payload.event);
 
     // Track session type if provided
@@ -126,15 +126,15 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
     }
   });
 
-  registry.on("copilot:sdk-state" as never, (daemonId: string, payload: { projectId: string; state: ConnectionState; error?: string }) => {
+  registry.on("copilot:sdk-state", (daemonId: string, payload: { projectId: string; state: ConnectionState; error?: string }) => {
     aggregator.handleSdkStateChange(daemonId, payload.state, payload.error);
   });
 
-  registry.on("copilot:conversation" as never, (_daemonId: string, payload: { sessionId: string; messages: CopilotMessage[] }) => {
+  registry.on("copilot:conversation", (_daemonId: string, payload: { sessionId: string; messages: CopilotMessage[] }) => {
     aggregator.appendMessages(payload.sessionId, payload.messages);
   });
 
-  registry.on("copilot:tool-invocation" as never, (_daemonId: string, payload: {
+  registry.on("copilot:tool-invocation", (_daemonId: string, payload: {
     sessionId: string;
     projectId: string;
     tool: CopilotHqToolName;
@@ -152,18 +152,18 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
 
   // ── Request-response handlers (resolve pending REST requests) ──
 
-  registry.on("copilot:models-list" as never, (_daemonId: string, payload: { requestId?: string; models: ModelInfo[] }) => {
+  registry.on("copilot:models-list", (_daemonId: string, payload: { requestId?: string; models: ModelInfo[] }) => {
     if (payload.requestId) {
       aggregator.resolveRequest(payload.requestId, { models: payload.models });
     }
   });
 
-  registry.on("copilot:mode-response" as never, (_daemonId: string, payload: { requestId: string; sessionId: string; mode: string }) => {
+  registry.on("copilot:mode-response", (_daemonId: string, payload: { requestId: string; sessionId: string; mode: string }) => {
     aggregator.resolveRequest(payload.requestId, { mode: payload.mode });
   });
 
   registry.on(
-    "copilot:agent-response" as never,
+    "copilot:agent-response",
     (
       _daemonId: string,
       payload: {
@@ -183,7 +183,7 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
     },
   );
 
-  registry.on("copilot:plan-response" as never, (_daemonId: string, payload: { requestId: string; sessionId: string; plan: { exists: boolean; content: string | null; path: string | null } }) => {
+  registry.on("copilot:plan-response", (_daemonId: string, payload: { requestId: string; sessionId: string; plan: { exists: boolean; content: string | null; path: string | null } }) => {
     aggregator.resolveRequest(payload.requestId, { plan: payload.plan });
   });
 

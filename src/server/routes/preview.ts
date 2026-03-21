@@ -120,15 +120,15 @@ async function previewPlugin(fastify: FastifyInstance) {
   const registry = fastify.daemonRegistry;
 
   // Wire up registry events for preview responses and WS relay
-  registry.on("preview:proxy-response" as never, (payload: PreviewProxyResponseMessage["payload"]) => {
+  registry.on("preview:proxy-response", (payload: PreviewProxyResponseMessage["payload"]) => {
     resolvePreviewResponse(payload.requestId, payload);
   });
 
-  registry.on("preview:ws-data" as never, (payload: PreviewWsDataMessage["payload"]) => {
+  registry.on("preview:ws-data", (payload: PreviewWsDataMessage["payload"]) => {
     forwardPreviewWsData(payload.channelId, payload.data);
   });
 
-  registry.on("preview:ws-close" as never, (payload: PreviewWsCloseMessage["payload"]) => {
+  registry.on("preview:ws-close", (payload: PreviewWsCloseMessage["payload"]) => {
     closePreviewWsChannel(payload.channelId, payload.code, payload.reason);
   });
 

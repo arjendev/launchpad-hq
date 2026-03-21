@@ -8,26 +8,18 @@
 import type { FastifyPluginAsync } from "fastify";
 import { randomUUID } from "node:crypto";
 import {
-  WorkflowStateMachine,
   InvalidTransitionError,
   isValidState,
   type WorkflowIssue,
-  type WorkflowEvent,
   type FeedbackEntry,
 } from "../workflow/state-machine.js";
 import { GitHubSyncService } from "../workflow/github-sync.js";
-import { WorkflowStore } from "../workflow/store.js";
-import { ElicitationStore } from "../workflow/elicitation-store.js";
 import {
   coordinatorStarting,
-  coordinatorStarted,
-  coordinatorCrashed,
   coordinatorStopped,
-  coordinatorHealthPing,
   addDispatch,
-  updateDispatchStatus,
 } from "../workflow/coordinator-state.js";
-import { ActivityStore, type ActivityEventType, type ActivityQuery } from "../workflow/activity-store.js";
+import type { ActivityEventType, ActivityQuery } from "../workflow/activity-store.js";
 import { computeProjectStatus, type ProjectStatusBadge } from "../workflow/status-badge.js";
 import type { CoordinatorProjectState, TrackedCommit } from "../../shared/protocol.js";
 
@@ -36,97 +28,9 @@ function pk(params: { owner: string; repo: string }): string {
   return `${params.owner}/${params.repo}`;
 }
 
-declare module "fastify" {
-  interface FastifyInstance {
-    workflowStore: WorkflowStore;
-    workflowStateMachine: WorkflowStateMachine;
-    elicitationStore: ElicitationStore;
-    activityStore: ActivityStore;
-  }
-}
-
 const workflowRoutes: FastifyPluginAsync = async (server) => {
-  // --- Initialize workflow subsystem ---
-
-  const stateMachine = new WorkflowStateMachine();
-  const store = new WorkflowStore(
-    server.stateService ?? null,
-    30_000,
-  );
-
-  // Load persisted state
-  await store.load();
-
-  // Elicitation store (in-memory only — not persisted)
-  const elicitationStore = new ElicitationStore();
-
-  // Activity feed store (in-memory ring buffer)
-  const activityStore = new ActivityStore();
-
-  // Decorate server
-  server.decorate("workflowStore", store);
-  server.decorate("workflowStateMachine", stateMachine);
-  server.decorate("elicitationStore", elicitationStore);
-  server.decorate("activityStore", activityStore);
-
-  // Broadcast workflow events to WebSocket clients
-  stateMachine.on((event: WorkflowEvent) => {
-    server.ws.broadcast("workflow", event);
-  });
-
-  // Broadcast activity events to WebSocket clients in real time
-  activityStore.onEvent((event) => {
-    server.ws.broadcast("workflow", {
-      type: "workflow:activity",
-      event,
-    });
-  });
-
-  // Elicitation timeout handler: notify clients and transition issue back
-  elicitationStore.onTimeout((elicitation) => {
-    const [owner, repo] = elicitation.projectId.split("/");
-
-    server.ws.broadcast("workflow", {
-      type: "workflow:elicitation-timeout",
-      projectId: elicitation.projectId,
-      elicitationId: elicitation.id,
-      sessionId: elicitation.sessionId,
-      issueNumber: elicitation.issueNumber,
-    });
-
-    // Emit activity event
-    if (owner && repo) {
-      activityStore.emit({
-        type: "elicitation-timeout",
-        projectOwner: owner,
-        projectRepo: repo,
-        issueNumber: elicitation.issueNumber,
-        message: `Elicitation timed out${elicitation.issueNumber ? ` for issue #${elicitation.issueNumber}` : ""}`,
-        severity: "warning",
-      });
-    }
-
-    // Transition issue back to in-progress if it was in needs-input-blocking
-    if (elicitation.issueNumber) {
-      if (owner && repo) {
-        const issue = store.getIssue(owner, repo, elicitation.issueNumber);
-        if (issue && issue.state === "needs-input-blocking") {
-          try {
-            const updated = stateMachine.transition(issue, "in-progress", "Elicitation timed out");
-            store.updateIssue(owner, repo, updated);
-          } catch {
-            // Transition may be invalid — ignore
-          }
-        }
-      }
-    }
-  });
-
-  // Flush on shutdown
-  server.addHook("onClose", async () => {
-    elicitationStore.close();
-    await store.close();
-  });
+  // Services provided by workflow/plugin.ts (must be registered first)
+  const { workflowStore: store, workflowStateMachine: stateMachine, elicitationStore, activityStore } = server;
 
   // Helper: get gh token from the auth plugin decorator
   function getGhToken(): string {
@@ -973,211 +877,8 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
 
   // ==========================================================================
   // Daemon event listeners for coordinator messages
+  // (Moved to workflow/daemon-events.ts — registered by workflow/plugin.ts)
   // ==========================================================================
-
-  if (server.daemonRegistry) {
-    // Auto-start coordinator when a daemon connects (HQ-driven, with resume)
-    server.daemonRegistry.on("daemon:connected", (summary: { daemonId: string }) => {
-      const [owner, repo] = summary.daemonId.split("/");
-      if (!owner || !repo) return;
-
-      const coord = store.getCoordinator(owner, repo);
-      if (coord.status === "active" || coord.status === "starting") return;
-
-      const updated = coordinatorStarting(coord);
-      store.setCoordinator(owner, repo, updated);
-
-      // Look up preferred agent (async, wrapped in void IIFE)
-      void (async () => {
-        let agentId: string | null = null;
-        if (server.stateService) {
-          try {
-            agentId = await server.stateService.getProjectAutonomousCopilotAgent(owner, repo) ?? null;
-          } catch { /* state service may not be ready */ }
-        }
-
-        const sent = server.daemonRegistry!.sendToDaemon(summary.daemonId, {
-          type: "workflow:start-coordinator",
-          timestamp: Date.now(),
-          payload: {
-            projectId: summary.daemonId,
-            ...(coord.sessionId ? { sessionId: coord.sessionId } : {}),
-            ...(agentId ? { agentId } : {}),
-          },
-        });
-
-        if (sent) {
-          server.log.info({ projectId: summary.daemonId, resume: !!coord.sessionId }, "Auto-starting coordinator for daemon");
-          server.ws.broadcast("workflow", {
-            type: "workflow:coordinator-status-changed",
-            projectId: summary.daemonId,
-            status: "starting",
-          });
-        } else {
-          const reverted = coordinatorStopped(updated);
-          store.setCoordinator(owner, repo, reverted);
-        }
-      })();
-    });
-
-    server.daemonRegistry.on("workflow:coordinator-started" as never, (payload: { projectId: string; sessionId: string }) => {
-      const [owner, repo] = payload.projectId.split("/");
-      if (!owner || !repo) return;
-      const coord = store.getCoordinator(owner, repo);
-      const updated = coordinatorStarted(coord, payload.sessionId);
-      store.setCoordinator(owner, repo, updated);
-
-      activityStore.emit({
-        type: "coordinator-started",
-        projectOwner: owner,
-        projectRepo: repo,
-        message: `Coordinator started (session ${payload.sessionId.slice(0, 8)}…)`,
-        severity: "info",
-      });
-    });
-
-    server.daemonRegistry.on("workflow:coordinator-crashed" as never, (payload: { projectId: string; error: string }) => {
-      const [owner, repo] = payload.projectId.split("/");
-      if (!owner || !repo) return;
-      const coord = store.getCoordinator(owner, repo);
-      const updated = coordinatorCrashed(coord, payload.error);
-      store.setCoordinator(owner, repo, updated);
-
-      activityStore.emit({
-        type: "coordinator-crashed",
-        projectOwner: owner,
-        projectRepo: repo,
-        message: `Coordinator crashed: ${payload.error}`,
-        severity: "urgent",
-      });
-    });
-
-    server.daemonRegistry.on("workflow:coordinator-health" as never, (payload: { projectId: string; sessionId: string }) => {
-      const [owner, repo] = payload.projectId.split("/");
-      if (!owner || !repo) return;
-      const coord = store.getCoordinator(owner, repo);
-      const updated = coordinatorHealthPing(coord);
-      store.setCoordinator(owner, repo, updated);
-    });
-
-    server.daemonRegistry.on("workflow:progress" as never, (payload: {
-      projectId: string;
-      issueNumber: number;
-      commits?: Array<{ sha: string; message: string; author?: string }>;
-    }) => {
-      const [owner, repo] = payload.projectId.split("/");
-      if (!owner || !repo) return;
-
-      // Track commits reported in progress events
-      if (payload.commits) {
-        for (const c of payload.commits) {
-          store.commitTracker.addCommit(owner, repo, c.sha, c.message, c.author ?? null);
-        }
-      }
-
-      // Update dispatch status to in-progress
-      const coord = store.getCoordinator(owner, repo);
-      const updated = updateDispatchStatus(coord, payload.issueNumber, "in-progress");
-      store.setCoordinator(owner, repo, updated);
-
-      activityStore.emit({
-        type: "progress",
-        projectOwner: owner,
-        projectRepo: repo,
-        issueNumber: payload.issueNumber,
-        message: `Progress on issue #${payload.issueNumber}${payload.commits?.length ? ` (${payload.commits.length} commit(s))` : ""}`,
-        severity: "info",
-      });
-    });
-
-    server.daemonRegistry.on("workflow:issue-completed" as never, (payload: {
-      projectId: string;
-      issueNumber: number;
-      summary?: string;
-      commits?: Array<{ sha: string; message: string; author?: string }>;
-    }) => {
-      const [owner, repo] = payload.projectId.split("/");
-      if (!owner || !repo) return;
-
-      // Track final commits
-      if (payload.commits) {
-        for (const c of payload.commits) {
-          store.commitTracker.addCommit(owner, repo, c.sha, c.message, c.author ?? null);
-        }
-      }
-
-      // Transition issue to ready-for-review
-      const issue = store.getIssue(owner, repo, payload.issueNumber);
-      if (issue && issue.state === "in-progress") {
-        try {
-          const updated = stateMachine.transition(issue, "ready-for-review", payload.summary ?? "Completed by coordinator");
-          store.updateIssue(owner, repo, updated);
-        } catch {
-          // Transition may be invalid if issue was already moved — ignore
-        }
-      }
-
-      // Update dispatch record
-      const coord = store.getCoordinator(owner, repo);
-      const updatedCoord = updateDispatchStatus(coord, payload.issueNumber, "completed");
-      store.setCoordinator(owner, repo, updatedCoord);
-
-      activityStore.emit({
-        type: "issue-completed",
-        projectOwner: owner,
-        projectRepo: repo,
-        issueNumber: payload.issueNumber,
-        message: `Issue #${payload.issueNumber} completed${payload.summary ? `: ${payload.summary}` : ""}`,
-        severity: "info",
-      });
-    });
-
-    // --- Elicitation relay ---
-
-    server.daemonRegistry.on("workflow:elicitation-requested" as never, (payload: {
-      projectId: string;
-      sessionId: string;
-      elicitationId: string;
-      issueNumber?: number;
-      message: string;
-      requestedSchema?: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
-    }) => {
-      const [owner, repo] = payload.projectId.split("/");
-      if (!owner || !repo) return;
-
-      // Store the pending elicitation
-      elicitationStore.add({
-        id: payload.elicitationId,
-        sessionId: payload.sessionId,
-        projectId: payload.projectId,
-        message: payload.message,
-        requestedSchema: payload.requestedSchema ?? { type: 'object', properties: {} },
-        issueNumber: payload.issueNumber,
-      });
-
-      // Transition associated issue to needs-input-blocking
-      if (payload.issueNumber) {
-        const issue = store.getIssue(owner, repo, payload.issueNumber);
-        if (issue && issue.state === "in-progress") {
-          try {
-            const updated = stateMachine.transition(issue, "needs-input-blocking", "Elicitation requested");
-            store.updateIssue(owner, repo, updated);
-          } catch {
-            // Transition may be invalid — ignore
-          }
-        }
-      }
-
-      activityStore.emit({
-        type: "elicitation-requested",
-        projectOwner: owner,
-        projectRepo: repo,
-        issueNumber: payload.issueNumber,
-        message: `Elicitation requested${payload.issueNumber ? ` for issue #${payload.issueNumber}` : ""}: ${payload.message.slice(0, 100)}`,
-        severity: "warning",
-      });
-    });
-  }
 };
 
 export default workflowRoutes;

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTestServer, type FastifyInstance } from "../../../test-utils/server.js";
+import workflowPlugin from "../plugin.js";
 import workflowRoutes from "../../routes/workflow.js";
 import { ActivityStore } from "../../workflow/activity-store.js";
 
@@ -93,6 +94,7 @@ async function buildTestServer(): Promise<FastifyInstance> {
   // seed events via inject routes instead.
   sharedActivityStore = new ActivityStore();
 
+  await server.register(workflowPlugin);
   await server.register(workflowRoutes);
   return server;
 }

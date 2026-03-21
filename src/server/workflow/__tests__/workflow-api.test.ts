@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTestServer, type FastifyInstance } from "../../../test-utils/server.js";
+import workflowPlugin from "../plugin.js";
 import workflowRoutes from "../../routes/workflow.js";
 
 // Mock the GitHubSyncService used inside the route
@@ -106,6 +107,7 @@ async function buildTestServer(): Promise<FastifyInstance> {
   server.decorate("stateService", fakeStateService());
   server.decorate("ws", fakeWs());
 
+  await server.register(workflowPlugin);
   await server.register(workflowRoutes);
   return server;
 }
