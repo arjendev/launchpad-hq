@@ -17,6 +17,7 @@ import {
   coordinatorStopped,
   coordinatorHealthPing,
   updateDispatchStatus,
+  getActiveDispatches,
 } from "./coordinator-state.js";
 import type {
   WorkflowCoordinatorStartedPayload,
@@ -288,6 +289,54 @@ export function registerWorkflowDaemonEvents(server: FastifyInstance): void {
       issueNumber: payload.issueNumber,
       message: `Elicitation requested${payload.issueNumber ? ` for issue #${payload.issueNumber}` : ""}: ${payload.message.slice(0, 100)}`,
       severity: "warning",
+    });
+  });
+
+  // ── Tool invocation: report_progress(completed) → mark issue done ──
+
+  server.daemonRegistry.on("copilot:tool-invocation", (_daemonId, payload) => {
+    if (payload.tool !== "report_progress") return;
+    const args = payload.args as Record<string, unknown>;
+    if (args.status !== "completed") return;
+
+    const [owner, repo] = (payload.projectId ?? "").split("/");
+    if (!owner || !repo) return;
+
+    const coord = store.getCoordinator(owner, repo);
+    const active = getActiveDispatches(coord);
+    if (active.length === 0) return;
+
+    // Complete the most recent active dispatch
+    const dispatch = active[active.length - 1];
+    const updatedCoord = updateDispatchStatus(coord, dispatch.issueNumber, "completed");
+    store.setCoordinator(owner, repo, updatedCoord);
+
+    // Transition issue to done
+    const issue = store.getIssue(owner, repo, dispatch.issueNumber);
+    if (issue && issue.state !== "done" && issue.state !== "rejected") {
+      try {
+        const updated = stateMachine.transition(issue, "done", (args.summary as string) ?? "Completed by coordinator");
+        store.updateIssue(owner, repo, updated);
+      } catch {
+        // Transition may be invalid — ignore
+      }
+    }
+
+    // Broadcast
+    server.ws.broadcast("workflow", {
+      type: "workflow:issue-completed",
+      projectId: payload.projectId,
+      issueNumber: dispatch.issueNumber,
+      summary: args.summary,
+    });
+
+    activityStore.emit({
+      type: "issue-completed",
+      projectOwner: owner,
+      projectRepo: repo,
+      issueNumber: dispatch.issueNumber,
+      message: `Issue #${dispatch.issueNumber} completed: ${(args.summary as string)?.slice(0, 100) ?? "done"}`,
+      severity: "info",
     });
   });
 }
