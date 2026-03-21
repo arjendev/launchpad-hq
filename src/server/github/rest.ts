@@ -8,6 +8,7 @@ const API_VERSION = "2022-11-28";
 
 import { getTracer, isTracingEnabled } from "../observability/tracing.js";
 import { SpanStatusCode } from "@opentelemetry/api";
+import { sanitizeToJsonAttr } from "../observability/sanitize.js";
 
 /**
  * Wrap a fetch call with an OTEL span for GitHub REST API tracing.
@@ -22,9 +23,24 @@ async function tracedFetch(spanName: string, url: string, init: RequestInit): Pr
       "github.api": "rest",
     },
   });
+
+  // Attach request details as a span event
+  span.addEvent("github.request", { url, method: (init.method ?? "GET").toUpperCase() });
+
   try {
     const res = await fetch(url, init);
     span.setAttribute("http.status_code", res.status);
+
+    // Clone response to read body for span event without consuming the original
+    const cloned = res.clone();
+    try {
+      const text = await cloned.text();
+      span.addEvent("github.response", {
+        "http.status_code": String(res.status),
+        "response.body": sanitizeToJsonAttr(text.length > 2048 ? text.slice(0, 2048) + "...(truncated)" : text),
+      });
+    } catch { /* body read failed — skip event */ }
+
     span.setStatus({ code: res.ok ? SpanStatusCode.OK : SpanStatusCode.ERROR });
     return res;
   } catch (err) {

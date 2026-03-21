@@ -9,6 +9,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import fp from "fastify-plugin";
 import { trace, context, propagation, SpanStatusCode } from "@opentelemetry/api";
 import { isTracingEnabled, getTracer } from "./tracing.js";
+import { sanitizeForSpan, sanitizeToJsonAttr } from "./sanitize.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -48,8 +49,33 @@ async function otelPlugin(fastify: FastifyInstance) {
     // Expose trace ID on request for route handlers
     request.traceId = span.spanContext().traceId;
 
+    // Attach request body for mutating methods
+    const method = request.method.toUpperCase();
+    if ((method === "POST" || method === "PUT" || method === "PATCH") && request.body) {
+      const sanitized = sanitizeForSpan(request.body);
+      // Strip Authorization headers from the flattened attributes
+      const cleaned: Record<string, string> = {};
+      for (const [k, v] of Object.entries(sanitized)) {
+        if (!/authorization/i.test(k)) cleaned[k] = v;
+      }
+      span.addEvent("http.request.body", cleaned);
+    }
+
     // Store span reference for onResponse hook
     (request as unknown as Record<string, unknown>).__otelSpan = span;
+  });
+
+  // Capture serialized response payload for span event
+  fastify.addHook("onSend", async (request: FastifyRequest, _reply: FastifyReply, payload: unknown) => {
+    if (!isTracingEnabled()) return payload;
+    if (payload && typeof payload === "string" && payload.length <= 2048) {
+      try {
+        (request as unknown as Record<string, unknown>).__otelResPayload = JSON.parse(payload);
+      } catch {
+        // Not JSON — skip
+      }
+    }
+    return payload;
   });
 
   fastify.addHook("onResponse", async (request: FastifyRequest, reply: FastifyReply) => {
@@ -65,6 +91,12 @@ async function otelPlugin(fastify: FastifyInstance) {
       otelSpan.setStatus({ code: SpanStatusCode.ERROR, message: `HTTP ${statusCode}` });
     } else {
       otelSpan.setStatus({ code: SpanStatusCode.OK });
+    }
+
+    // Attach response body if captured
+    const resPayload = (request as unknown as Record<string, unknown>).__otelResPayload;
+    if (resPayload) {
+      otelSpan.addEvent("http.response.body", { "response.body": sanitizeToJsonAttr(resPayload) });
     }
 
     otelSpan.end();

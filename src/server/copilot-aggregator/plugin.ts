@@ -13,7 +13,8 @@ import type {
 } from "../../shared/protocol.js";
 import { CopilotSessionAggregator } from "./aggregator.js";
 import { getTracer, isTracingEnabled } from "../observability/tracing.js";
-import { SpanStatusCode } from "@opentelemetry/api";
+import { SpanStatusCode, propagation, context } from "@opentelemetry/api";
+import { sanitizeForSpan } from "../observability/sanitize.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -132,13 +133,23 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
     };
 
     if (isTracingEnabled()) {
+      // Extract traceparent from daemon message if present for distributed trace continuity
+      const msgTraceparent = (payload as Record<string, unknown>).traceparent;
+      const parentCtx = typeof msgTraceparent === "string"
+        ? propagation.extract(context.active(), { traceparent: msgTraceparent })
+        : undefined;
+
       const span = getTracer("copilot-aggregator").startSpan(`copilot:session-event:${event.type}`, {
         attributes: {
           "copilot.sessionId": payload.sessionId,
           "copilot.event.type": event.type,
           "copilot.daemonId": daemonId ?? "unknown",
         },
-      });
+      }, parentCtx);
+
+      // Attach the SDK event data as a span event
+      span.addEvent("copilot.session.event", sanitizeForSpan(event));
+
       try {
         doProcess();
         span.setStatus({ code: SpanStatusCode.OK });

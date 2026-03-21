@@ -30,13 +30,18 @@ import type {
 } from "../daemon-registry/event-bus.js";
 import { getTracer, isTracingEnabled } from "../observability/tracing.js";
 import { SpanStatusCode } from "@opentelemetry/api";
+import { sanitizeForSpan } from "../observability/sanitize.js";
 
 /**
  * Run a callback inside an OTEL span (no-op when tracing is disabled).
+ * Attaches the full event payload as a span event for observability.
  */
-function traceEvent(name: string, attrs: Record<string, string | number>, fn: () => void): void {
+function traceEvent(name: string, attrs: Record<string, string | number>, fn: () => void, payload?: unknown): void {
   if (!isTracingEnabled()) { fn(); return; }
   const span = getTracer("workflow-daemon-events").startSpan(name, { attributes: attrs });
+  if (payload) {
+    span.addEvent(`${name}.payload`, sanitizeForSpan(payload));
+  }
   try {
     fn();
     span.setStatus({ code: SpanStatusCode.OK });
@@ -64,7 +69,18 @@ export function registerWorkflowDaemonEvents(server: FastifyInstance): void {
     if (!owner || !repo) return;
 
     const coord = store.getCoordinator(owner, repo);
-    if (coord.status === "active" || coord.status === "starting") return;
+    if (coord.status === "active" || coord.status === "starting") {
+      // Decision point: coordinator already running, skip auto-start
+      if (isTracingEnabled()) {
+        const span = getTracer("workflow-daemon-events").startSpan("workflow:auto-start-skipped", {
+          attributes: { "workflow.projectId": summary.daemonId, "workflow.coordinator.status": coord.status },
+        });
+        span.addEvent("decision.skipped", { reason: "coordinator already " + coord.status, "current.status": coord.status });
+        span.setStatus({ code: SpanStatusCode.OK });
+        span.end();
+      }
+      return;
+    }
 
     const updated = coordinatorStarting(coord);
     store.setCoordinator(owner, repo, updated);
@@ -126,7 +142,7 @@ export function registerWorkflowDaemonEvents(server: FastifyInstance): void {
       message: `Coordinator started (session ${payload.sessionId.slice(0, 8)}…)`,
       severity: "info",
     });
-    });
+    }, payload);
   });
 
   server.daemonRegistry.on("workflow:coordinator-crashed", (payload: WorkflowCoordinatorCrashedPayload) => {
@@ -197,7 +213,7 @@ export function registerWorkflowDaemonEvents(server: FastifyInstance): void {
       message: `Progress on issue #${payload.issueNumber}${payload.commits?.length ? ` (${payload.commits.length} commit(s))` : ""}`,
       severity: "info",
     });
-    });
+    }, payload);
   });
 
   server.daemonRegistry.on("workflow:dispatch-started", (payload: WorkflowDispatchStartedPayload) => {
@@ -271,7 +287,7 @@ export function registerWorkflowDaemonEvents(server: FastifyInstance): void {
       message: `Issue #${payload.issueNumber} completed${payload.summary ? `: ${payload.summary}` : ""}`,
       severity: "info",
     });
-    });
+    }, payload);
   });
 
   // --- Elicitation relay ---

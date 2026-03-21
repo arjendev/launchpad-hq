@@ -12,8 +12,9 @@ import { WS_CLOSE_AUTH_REJECTED, WS_CLOSE_AUTH_TIMEOUT, AUTH_HANDSHAKE_TIMEOUT_M
 import type { DaemonRegistry } from "./registry.js";
 import type { TerminalRelay } from "../terminal-relay/relay.js";
 import { getTracer, isTracingEnabled } from "../observability/tracing.js";
-import { SpanStatusCode } from "@opentelemetry/api";
+import { SpanStatusCode, propagation, context } from "@opentelemetry/api";
 import { sanitize } from "../observability/logger.js";
+import { sanitizeForSpan } from "../observability/sanitize.js";
 
 /** Per-connection state machine for the auth handshake */
 interface PendingConnection {
@@ -160,12 +161,23 @@ export class DaemonWsHandler {
     // Create a span for each incoming daemon message
     if (isTracingEnabled()) {
       const tracer = getTracer("daemon-ws-handler");
+
+      // Extract traceparent from daemon message if present for distributed trace continuity
+      const msgAny = msg as unknown as Record<string, unknown>;
+      const parentCtx = typeof msgAny.traceparent === "string"
+        ? propagation.extract(context.active(), { traceparent: msgAny.traceparent })
+        : undefined;
+
       const span = tracer.startSpan(`daemon:${msg.type}`, {
         attributes: {
           "daemon.message.type": msg.type,
           "daemon.id": daemonId ?? "unknown",
         },
-      });
+      }, parentCtx);
+
+      // Attach the full sanitized payload as a span event
+      span.addEvent("daemon.message.payload", sanitizeForSpan(msg));
+
       try {
         this.dispatchMessage(ws, msg);
         span.setStatus({ code: SpanStatusCode.OK });

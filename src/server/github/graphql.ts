@@ -21,6 +21,7 @@ import type {
 } from "./graphql-types.js";
 import { getTracer, isTracingEnabled } from "../observability/tracing.js";
 import { SpanStatusCode } from "@opentelemetry/api";
+import { sanitizeForSpan, sanitizeToJsonAttr } from "../observability/sanitize.js";
 
 const GITHUB_GRAPHQL_ENDPOINT = "https://api.github.com/graphql";
 const USER_AGENT = "launchpad-hq";
@@ -376,11 +377,20 @@ export class GitHubGraphQL {
         "http.url": GITHUB_GRAPHQL_ENDPOINT,
       },
     });
+
+    // Attach request details as a span event (strip Authorization from variables)
+    span.addEvent("github.request", {
+      "graphql.operation": opName,
+      ...sanitizeForSpan(variables),
+    });
+
     try {
       const result = await this.client.request<T>(query, variables);
+      span.addEvent("github.response", { "response.status": "200", "response.body": sanitizeToJsonAttr(result) });
       span.setStatus({ code: SpanStatusCode.OK });
       return result;
     } catch (err) {
+      span.addEvent("github.response", { "response.error": err instanceof Error ? err.message : String(err) });
       span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
       throw this.wrapError(err);
     } finally {

@@ -2,7 +2,8 @@ import type { WebSocket } from "ws";
 import type { DaemonInfo, HqToDaemonMessage } from "../../shared/protocol.js";
 import { HEARTBEAT_TIMEOUT_MS } from "../../shared/constants.js";
 import { DaemonEventBus } from "./event-bus.js";
-import { getTraceparent } from "../observability/tracing.js";
+import { getTraceparent, getTracer, isTracingEnabled } from "../observability/tracing.js";
+import { sanitizeForSpan } from "../observability/sanitize.js";
 
 /** Connection state of a tracked daemon */
 export type DaemonConnectionState = "authenticating" | "connected" | "disconnected";
@@ -115,6 +116,18 @@ export class DaemonRegistry extends DaemonEventBus {
     // Inject W3C traceparent if OTEL is active
     const traceparent = getTraceparent();
     const msg = traceparent ? { ...message, traceparent } : message;
+
+    // Attach span event with the outgoing message payload
+    if (isTracingEnabled()) {
+      const span = getTracer("daemon-registry").startSpan("daemon:sendToDaemon");
+      span.addEvent("message.sent_to_daemon", {
+        "daemon.id": daemonId,
+        "message.type": message.type,
+        ...sanitizeForSpan(message),
+      });
+      span.end();
+    }
+
     daemon.ws.send(JSON.stringify(msg));
     return true;
   }
