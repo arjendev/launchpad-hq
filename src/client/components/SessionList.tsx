@@ -26,6 +26,7 @@ import type { SessionActivity } from "../services/types.js";
 import { authFetch } from "../services/authFetch.js";
 import { DaemonInfoBar } from "./DaemonInfoBar.js";
 import { CoordinatorCard } from "./CoordinatorCard.js";
+import { useCoordinatorStatus } from "../services/workflow-hooks.js";
 
 // ── Helpers ────────────────────────────────────────────
 
