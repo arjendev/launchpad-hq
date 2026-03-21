@@ -17,6 +17,7 @@ import { useDashboard, useRemoveProject, useRegenerateDaemonToken, useGetProject
 import { useSelectedProject } from "../contexts/ProjectContext.js";
 import { AddProjectWizard } from "./AddProjectWizard.js";
 import { DaemonSetupInstructions } from "./DaemonSetupInstructions.js";
+import { useOtelSettings } from "../services/settings-hooks.js";
 import type { DashboardProject } from "../services/types.js";
 import { useWorkflowIssues, useCoordinatorStatus } from "../services/workflow-hooks.js";
 
@@ -255,6 +256,7 @@ export function ProjectList() {
   const removeProject = useRemoveProject();
   const regenerateToken = useRegenerateDaemonToken();
   const getProjectDetail = useGetProjectDetail();
+  const { data: otelSettings } = useOtelSettings();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [daemonModal, setDaemonModal] = useState<{
     owner: string;
@@ -393,6 +395,7 @@ export function ProjectList() {
               owner={daemonModal.owner}
               repo={daemonModal.repo}
               token={daemonModal.token}
+              otel={otelSettings}
               warning={daemonModal.isRenewed
                 ? "This invalidates the previous token. Any running daemon for this project will need to reconnect with the new token."
                 : undefined}

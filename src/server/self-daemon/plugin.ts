@@ -13,6 +13,7 @@ import {
   detectProjectId,
   type SelfDaemonConfig,
 } from "./spawner.js";
+import { isTracingEnabled } from "../observability/tracing.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -43,11 +44,17 @@ async function selfDaemonPlugin(
   // At registration time we don't know the port yet, so we defer.
   let spawner: SelfDaemonSpawner;
 
+  // Resolve OTEL config for daemon — if HQ has tracing, daemon should too
+  const otelEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+    ?? (fastify as unknown as { launchpadConfig?: { otel?: { endpoint?: string } } }).launchpadConfig?.otel?.endpoint
+    ?? "http://localhost:4317";
+
   const config: SelfDaemonConfig = {
     hqUrl: "", // resolved on 'listening'
     token,
     projectId,
     enabled,
+    ...(isTracingEnabled() ? { otel: { enabled: true, endpoint: otelEndpoint } } : {}),
   };
 
   spawner = new SelfDaemonSpawner({ config, logger: fastify.log });

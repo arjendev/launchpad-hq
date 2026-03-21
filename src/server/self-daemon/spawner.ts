@@ -26,6 +26,8 @@ export interface SelfDaemonConfig {
   token: string;
   projectId: string;
   enabled: boolean;
+  /** OTEL config to propagate to daemon (opt-in) */
+  otel?: { enabled: boolean; endpoint: string };
 }
 
 export interface SelfDaemonSpawnerOptions {
@@ -139,6 +141,11 @@ export class SelfDaemonSpawner {
         LAUNCHPAD_HQ_URL: this.config.hqUrl,
         LAUNCHPAD_DAEMON_TOKEN: this.config.token,
         LAUNCHPAD_PROJECT_ID: this.config.projectId,
+        // Propagate OTEL config so daemon traces connect to HQ traces
+        ...(this.config.otel?.enabled ? {
+          OTEL_ENABLED: "true",
+          OTEL_EXPORTER_OTLP_ENDPOINT: this.config.otel.endpoint,
+        } : {}),
       },
       stdio: ["ignore", "pipe", "pipe", "ipc"],
       execArgv,

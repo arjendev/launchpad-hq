@@ -136,6 +136,14 @@ if (isDaemon && isWatch) {
 
     if (cliPreviewPort !== undefined) configOverrides.previewPort = cliPreviewPort;
 
+    // OTEL flags (same as HQ: --otel, --otel-endpoint)
+    if (args.includes('--otel') || getArgValue('--otel-endpoint')) {
+      (configOverrides as Record<string, unknown>).otel = {
+        enabled: true,
+        endpoint: getArgValue('--otel-endpoint') ?? 'http://localhost:4317',
+      };
+    }
+
     // Dynamic import keeps HQ-only dependencies out of daemon memory
     const { startDaemon } = await import('./daemon/index.js');
     const daemon = startDaemon(Object.keys(configOverrides).length > 0 ? configOverrides : undefined);

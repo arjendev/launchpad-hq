@@ -15,6 +15,8 @@ interface DaemonSetupInstructionsProps {
   token: string;
   /** Optional warning banner shown above the instructions */
   warning?: string;
+  /** OTEL config — if set, includes --otel flags in daemon command */
+  otel?: { enabled: boolean; endpoint?: string };
 }
 
 export function DaemonSetupInstructions({
@@ -22,9 +24,15 @@ export function DaemonSetupInstructions({
   repo,
   token,
   warning,
+  otel,
 }: DaemonSetupInstructionsProps) {
   const hqPort = window.location.port || "4321";
-  const daemonArgs = `--daemon --hq-url ws://localhost:${hqPort} --token ${token} --project-id ${owner}/${repo}`;
+  const otelArgs = otel?.enabled
+    ? otel.endpoint && otel.endpoint !== "http://localhost:4317"
+      ? ` --otel-endpoint ${otel.endpoint}`
+      : " --otel"
+    : "";
+  const daemonArgs = `--daemon --hq-url ws://localhost:${hqPort} --token ${token} --project-id ${owner}/${repo}${otelArgs}`;
   const npxCommand = `npx launchpad-hq ${daemonArgs}`;
   const globalCommand = `launchpad-hq ${daemonArgs}`;
 
