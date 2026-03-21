@@ -435,3 +435,28 @@ Test suite: 1022 tests passing. No regressions.
 - **fp() dependency declarations vs test reality**: Declaring `dependencies: ["websocket"]` in fp() options causes failures in tests that decorate `server.ws` directly without registering a named "websocket" plugin. Only declare dependencies on plugins that are formally registered in ALL environments (prod + test).
 - **Declaration merging for typed EventEmitter**: Define an interface and class with the same name. The interface provides typed `on`/`emit` overloads; the class extends EventEmitter for runtime behavior. Requires `// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging`.
 - **Broadcast ownership principle**: When extracting event handlers from a monolith, browser broadcasts should move with the event listener (to daemon-events.ts), NOT stay in the message router (handler.ts). This prevents duplicate broadcasts and makes the broadcast logic testable alongside the business logic it serves.
+
+### Phase 4: Deprecated Module Removal & Code Consolidation
+
+**Scope:** Remove deprecated attention/ and inbox modules, encapsulate terminal state, centralize GitHub REST calls, deduplicate shared helpers.
+
+**Files deleted:** `src/server/attention/` (5 files), `src/server/routes/inbox.ts`, `src/server/__tests__/attention.test.ts`, `src/client/components/InboxPanel.tsx`, `src/client/services/inbox-hooks.ts`
+
+**Files created:**
+- `src/server/github/rest.ts` — Centralized GitHub REST API helpers (checkRepo, searchRepos, listUserRepos, searchUsers). Used by routes/projects.ts and routes/settings.ts.
+- `src/server/utils/validation.ts` — Shared validation helpers (isValidOwnerRepo, OWNER_REPO_REGEX, deriveDaemonInfo, deriveDaemonStatus). Used by routes/projects.ts and routes/github-data.ts.
+
+**Key changes:**
+- Removed "attention" and "inbox" from WS Channel types (server + client), VALID_CHANNELS sets, shared protocol union types
+- Removed getInbox/saveInbox from StateService interface and both implementations (LocalStateManager, GitStateManager)
+- Cleaned copilot-aggregator plugin: removed attention broadcast logic, inbox message creation on tool-invocation
+- Removed attention-item case from daemon-registry handler
+- Cleaned all test mocks (9 test files) of stale getInbox/saveInbox stubs
+- TerminalTracker class encapsulates terminal module-level state as Fastify decorator (server.terminalTracker)
+
+**Stats:** 50 files changed, -4437/+2649 lines. Typecheck: 0 errors. Tests: 64 files, 1124 tests pass.
+
+#### Learnings
+- **Removal scope is fractal:** Removing a module (attention/inbox) touches protocol types, WS channel types, daemon handler, aggregator plugin, state service interface, state implementations, route registrations, client hooks, client types, client components, and 9+ test mock objects. Always grep comprehensively after removals.
+- **Test mock cleanup matters:** Even when StateService interface no longer has getInbox/saveInbox, test mocks with those methods still compile (TypeScript allows extra properties on object literals in some contexts). Clean them to avoid confusion.
+- **Centralization payoff:** Moving 4 inline GitHub fetch calls to github/rest.ts and 5 duplicated helpers to utils/validation.ts reduced routes/projects.ts by ~100 lines and eliminated copy-paste drift risk between routes/projects.ts and routes/github-data.ts.
