@@ -495,3 +495,25 @@ Test suite: 1022 tests passing. No regressions. Ready for next wave.
 - **WebSocket integration** — Added `"workflow"` to `ws-types.ts` Channel union.
 - **Tests:** Component tested, hooks tested, integration verified. Total: 1022 passing.
 - **Pattern note:** authFetch/authFetchJson pattern ensures all API calls include auth headers. REST + WebSocket merge: initial fetch + subscribe pattern keeps UI in sync with server events. Mantine Table uses string-based column keys for proper sorting/filtering.
+
+### 2026-03-21: SRP/SoC Frontend Refactor (#76)
+- **hooks.ts god-file split** — Replaced 1514-line monolith with 21-line barrel re-export + 6 domain-specific hook files:
+  - `dashboard-hooks.ts` (159 lines) — useDashboard, useAddProject, useRemoveProject, useRegenerateDaemonToken, useGetProjectDetail, useDiscoverUsers, useDiscoverRepos, useIssues
+  - `daemon-hooks.ts` (50 lines) — useDaemons, useDaemonForProject
+  - `session-hooks.ts` (516 lines) — All copilot session CRUD, SDK control, agent, plan, model hooks (~30 hooks)
+  - `conversation-hooks.ts` (550 lines) — formatEventContent, RawSessionEvent, useConversationEntries
+  - `tunnel-hooks.ts` (56 lines) — useTunnelStatus, useTunnelQr, useStartTunnel, useStopTunnel
+  - `settings-hooks.ts` (58 lines) — useSettings, useUpdateSettings, useValidateRepo, useResetOnboarding
+- **Barrel re-export pattern** — hooks.ts re-exports from all domain files. Zero import changes needed across consumers. Every component importing from `../services/hooks.js` continues to work unchanged.
+- **CopilotConversation.tsx split** (1220 → 459 lines):
+  - `ConversationMessageRenderers.tsx` (675 lines) — All 15+ memo'd message renderer sub-components + ConversationMessage dispatcher + HIDDEN_EVENT_TYPES constant
+  - `SdkControlPanel.tsx` (114 lines) — Model selector, mode control, plan viewer
+- **SessionList.tsx split** (609 → 431 lines):
+  - `CoordinatorCard.tsx` (204 lines) — Autonomous coordinator status, start/stop/reset, session attachment
+- **Key learnings:**
+  - Barrel re-export is the safest pattern for splitting god files — zero consumer changes needed
+  - Cross-domain hook dependencies are fine (conversation-hooks imports from session-hooks) — they represent real data flow
+  - When extracting sub-components, check if the parent also uses shared hooks — may need duplicate imports
+  - Mantine v7 requires string size props ("xs", "sm"), not numeric
+  - React 18 batching can cause event loss — useConversationEntries subscribes directly via `subscribe()` callback
+- **Typecheck:** 0 errors on both server and client configs.

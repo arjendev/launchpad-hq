@@ -846,3 +846,26 @@ GitHub Issue #73 filed with comprehensive analysis across 5 areas:
 
 #### Next Steps
 Phase 1 is ready to proceed when priorities allow. Builds naturally on Issue #60 (MCP injection) and Issue #72 (workflow system — coordinator sessions would benefit from context injection). No code changes in this research phase.
+
+## Frontend Architecture Decisions (Brand)
+
+### 2026-03-21: SRP Refactor — Barrel Re-export Pattern for Hook Splitting
+**By:** Brand (Frontend Dev) — Issue #76
+
+Split `hooks.ts` (1514 lines, 50+ hooks) into 6 domain-specific files, keeping `hooks.ts` as a barrel re-export. Zero consumer changes needed — all imports from `../services/hooks.js` continue to work.
+
+**Domain files:** dashboard-hooks, daemon-hooks, session-hooks, conversation-hooks, tunnel-hooks, settings-hooks.
+
+**Alternatives rejected:**
+- Direct imports to domain files — requires ~30 component changes for zero benefit
+- Namespace exports — adds verbosity without modularity gain
+
+### 2026-03-21: SRP Refactor — ConversationMessageRenderers as Single File
+**By:** Brand (Frontend Dev) — Issue #76
+
+All 15+ memo'd message renderers stay in one `ConversationMessageRenderers.tsx` (675 lines) rather than one file per renderer. Rationale: shared concern (rendering `ConversationEntry` variants), shared prop type, only `ConversationMessage` dispatcher is consumed externally. 15 separate files would add overhead without real modularity benefit.
+
+### 2026-03-21: SRP Refactor — Cross-Domain Hook Dependencies
+**By:** Brand (Frontend Dev) — Issue #76
+
+`conversation-hooks.ts` imports from `session-hooks.ts` (useSessionMessages, useSessionTools, useAggregatedSession). This one-way dependency is intentional — conversation entries are derived from session data. Dependency direction: conversation → session (never reverse).
