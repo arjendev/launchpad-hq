@@ -549,7 +549,6 @@ export interface WorkflowCoordinatorHealthMessage extends BaseMessage<'workflow:
     state: CoordinatorStatus;
     uptimeMs: number;
     dispatched: number;
-    completed: number;
   };
 }
 

@@ -19,4 +19,4 @@ export { ElicitationRelay } from './elicitation.js';
 export { CoordinatorSessionManager } from './coordinator.js';
 export type { CoordinatorOptions, CoordinatorSnapshot } from './coordinator.js';
 export { IssueDispatcher } from './dispatch.js';
-export type { DispatchResult, DispatchedIssue } from './dispatch.js';
+export type { DispatchResult } from './dispatch.js';

@@ -2,12 +2,13 @@
  * ElicitationRelay — manages the lifecycle of SDK elicitation requests.
  *
  * Captures `elicitation.requested` events from the SDK, relays structured
- * data to HQ, tracks pending requests with timeouts, and handles HQ responses.
+ * data to HQ, tracks pending requests, and handles HQ responses.
+ * The elicitation waits indefinitely for HQ to respond — it only blocks
+ * that specific SDK session, not the daemon.
  */
 
 import type { SessionEvent } from '@github/copilot-sdk';
 import type { SendToHq } from '../../shared/protocol.js';
-import { ELICITATION_TIMEOUT_MS } from '../../shared/constants.js';
 import { logSdk } from '../logger.js';
 
 // ---------------------------------------------------------------------------
@@ -16,7 +17,6 @@ import { logSdk } from '../logger.js';
 
 interface PendingElicitation {
   sessionId: string;
-  timer: ReturnType<typeof setTimeout>;
 }
 
 export interface ElicitationRelayOptions {
@@ -56,7 +56,7 @@ export class ElicitationRelay {
 
   /**
    * Capture an elicitation.requested SDK event and relay structured data to HQ.
-   * Starts a timeout timer — if HQ doesn't respond, the elicitation expires.
+   * The elicitation waits indefinitely for HQ to respond.
    */
   handleElicitationRequested(sessionId: string, event: SessionEvent): void {
     const data = event.data as Record<string, unknown>;
@@ -82,22 +82,7 @@ export class ElicitationRelay {
       },
     });
 
-    // Start timeout timer
-    const timer = setTimeout(() => {
-      this.pendingElicitations.delete(elicitationId);
-      this.sendToHq({
-        type: 'workflow:elicitation-timeout',
-        timestamp: Date.now(),
-        payload: {
-          projectId: this.projectId,
-          sessionId,
-          elicitationId,
-        },
-      });
-      logSdk(`Elicitation ${elicitationId} timed out (session ${sessionId})`);
-    }, ELICITATION_TIMEOUT_MS);
-
-    this.pendingElicitations.set(elicitationId, { sessionId, timer });
+    this.pendingElicitations.set(elicitationId, { sessionId });
     logSdk(`Elicitation ${elicitationId} captured (session ${sessionId})`);
   }
 
@@ -120,8 +105,7 @@ export class ElicitationRelay {
       return;
     }
 
-    // Clear timeout
-    clearTimeout(pending.timer);
+    // Clear from pending map
     this.pendingElicitations.delete(elicitationId);
 
     if (!isSessionActive(sessionId)) {
@@ -159,11 +143,8 @@ export class ElicitationRelay {
     logSdk(`Elicitation ${elicitationId} resolved (session ${sessionId})`);
   }
 
-  /** Clear all pending elicitation timers (used during shutdown) */
+  /** Clear all pending elicitations (used during shutdown) */
   clearAll(): void {
-    for (const [, pending] of this.pendingElicitations) {
-      clearTimeout(pending.timer);
-    }
     this.pendingElicitations.clear();
   }
 }

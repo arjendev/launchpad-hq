@@ -302,17 +302,15 @@ describe('CoordinatorSessionManager', () => {
   });
 
   describe('status snapshot', () => {
-    it('reports correct dispatch/completion counts', async () => {
+    it('reports correct dispatch counts', async () => {
       const { coordinator } = createCoordinator();
       await coordinator.start();
 
       coordinator.recordDispatch();
       coordinator.recordDispatch();
-      coordinator.recordCompletion();
 
       const status = coordinator.status;
       expect(status.dispatched).toBe(2);
-      expect(status.completed).toBe(1);
       expect(status.state).toBe('active');
 
       await coordinator.stop();
@@ -435,59 +433,6 @@ describe('IssueDispatcher', () => {
       const result = await dispatcher.dispatchIssue(sampleIssue());
       expect(result.success).toBe(false);
       expect(result.error).toContain('Session disconnected');
-    });
-  });
-
-  describe('markCompleted()', () => {
-    it('marks issue as completed and sends workflow:issue-completed', async () => {
-      await dispatcher.dispatchIssue(sampleIssue());
-      sent.length = 0;
-
-      dispatcher.markCompleted(42, 'Auth timeout fixed by extending token TTL');
-
-      const completed = sent.find((m) => m.type === 'workflow:issue-completed');
-      expect(completed).toBeDefined();
-      expect(completed!.payload.issueNumber).toBe(42);
-      expect(completed!.payload.summary).toContain('extending token TTL');
-
-      const status = dispatcher.getDispatchStatus(42);
-      expect(status?.status).toBe('completed');
-    });
-  });
-
-  describe('markFailed()', () => {
-    it('marks issue as failed', async () => {
-      await dispatcher.dispatchIssue(sampleIssue());
-
-      dispatcher.markFailed(42);
-
-      const status = dispatcher.getDispatchStatus(42);
-      expect(status?.status).toBe('failed');
-    });
-  });
-
-  describe('tracking', () => {
-    it('tracks active dispatch count', async () => {
-      const issue1 = sampleIssue({ issueNumber: 1, title: 'Issue 1' });
-      const issue2 = sampleIssue({ issueNumber: 2, title: 'Issue 2' });
-
-      await dispatcher.dispatchIssue(issue1);
-      await dispatcher.dispatchIssue(issue2);
-
-      expect(dispatcher.activeCount).toBe(2);
-
-      dispatcher.markCompleted(1, 'Done');
-      expect(dispatcher.activeCount).toBe(1);
-    });
-
-    it('returns all dispatched issues', async () => {
-      await dispatcher.dispatchIssue(sampleIssue({ issueNumber: 10, title: 'A' }));
-      await dispatcher.dispatchIssue(sampleIssue({ issueNumber: 20, title: 'B' }));
-
-      const all = dispatcher.getAllDispatched();
-      expect(all.size).toBe(2);
-      expect(all.has(10)).toBe(true);
-      expect(all.has(20)).toBe(true);
     });
   });
 });

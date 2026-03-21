@@ -7,7 +7,6 @@
  */
 
 import type {
-  DispatchStatus,
   SendToHq,
   WorkflowIssuePayload,
 } from '../../shared/protocol.js';
@@ -20,16 +19,6 @@ import { logSdk } from '../logger.js';
 // ---------------------------------------------------------------------------
 
 export type { SendToHq } from '../../shared/protocol.js';
-
-export type { DispatchStatus } from '../../shared/protocol.js';
-
-export interface DispatchedIssue {
-  issue: WorkflowIssuePayload;
-  sessionId: string;
-  status: DispatchStatus;
-  dispatchedAt: number;
-  completedAt?: number;
-}
 
 export interface DispatchResult {
   success: boolean;
@@ -47,9 +36,6 @@ export class IssueDispatcher {
   private copilotManager: CopilotManager;
   private coordinator: CoordinatorSessionManager;
   private projectId: string;
-
-  /** Map of issueNumber → dispatch tracking info */
-  private dispatched = new Map<number, DispatchedIssue>();
 
   constructor(opts: {
     sendToHq: SendToHq;
@@ -99,14 +85,6 @@ export class IssueDispatcher {
         };
       }
 
-      const entry: DispatchedIssue = {
-        issue,
-        sessionId,
-        status: 'dispatched',
-        dispatchedAt: Date.now(),
-      };
-      this.dispatched.set(issue.issueNumber, entry);
-
       this.coordinator.recordDispatch();
 
       this.sendToHq({
@@ -137,62 +115,6 @@ export class IssueDispatcher {
         error,
       };
     }
-  }
-
-  /**
-   * Mark an issue as completed by the coordinator.
-   */
-  markCompleted(issueNumber: number, summary: string): void {
-    const entry = this.dispatched.get(issueNumber);
-    if (entry) {
-      entry.status = 'completed';
-      entry.completedAt = Date.now();
-    }
-
-    this.coordinator.recordCompletion();
-
-    const sessionId = this.coordinator.sessionId;
-    if (sessionId) {
-      this.sendToHq({
-        type: 'workflow:issue-completed',
-        timestamp: Date.now(),
-        payload: {
-          projectId: this.projectId,
-          sessionId,
-          issueNumber,
-          summary,
-        },
-      });
-    }
-  }
-
-  /**
-   * Mark an issue dispatch as failed.
-   */
-  markFailed(issueNumber: number): void {
-    const entry = this.dispatched.get(issueNumber);
-    if (entry) {
-      entry.status = 'failed';
-    }
-  }
-
-  /** Get the status of a dispatched issue */
-  getDispatchStatus(issueNumber: number): DispatchedIssue | undefined {
-    return this.dispatched.get(issueNumber);
-  }
-
-  /** Get all dispatched issues */
-  getAllDispatched(): ReadonlyMap<number, DispatchedIssue> {
-    return this.dispatched;
-  }
-
-  /** Get count of currently dispatched (in-flight) issues */
-  get activeCount(): number {
-    let count = 0;
-    for (const entry of this.dispatched.values()) {
-      if (entry.status === 'dispatched') count += 1;
-    }
-    return count;
   }
 
   // -----------------------------------------------------------------------

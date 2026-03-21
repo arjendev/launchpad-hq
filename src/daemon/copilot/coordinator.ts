@@ -40,7 +40,6 @@ export interface CoordinatorSnapshot {
   sessionId: string | null;
   startedAt: number | null;
   dispatched: number;
-  completed: number;
   restartCount: number;
 }
 
@@ -83,7 +82,6 @@ export class CoordinatorSessionManager {
   private _agentId: string | null = null;
   private _startedAt: number | null = null;
   private _dispatched = 0;
-  private _completed = 0;
   private _restartCount = 0;
   private _consecutiveFailures = 0;
 
@@ -118,7 +116,6 @@ export class CoordinatorSessionManager {
       sessionId: this._sessionId,
       startedAt: this._startedAt,
       dispatched: this._dispatched,
-      completed: this._completed,
       restartCount: this._restartCount,
     };
   }
@@ -202,11 +199,6 @@ export class CoordinatorSessionManager {
     this.setState('stopped');
   }
 
-  /** Record that a dispatched issue was completed */
-  recordCompletion(): void {
-    this._completed += 1;
-  }
-
   /** Record that a new issue was dispatched */
   recordDispatch(): void {
     this._dispatched += 1;
@@ -274,7 +266,6 @@ export class CoordinatorSessionManager {
           state: this._state,
           uptimeMs: this._startedAt ? Date.now() - this._startedAt : 0,
           dispatched: this._dispatched,
-          completed: this._completed,
         },
       });
     }, this.healthIntervalMs);

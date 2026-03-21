@@ -1969,7 +1969,7 @@ describe('CopilotManager', () => {
       expect(completedEvent).toBeUndefined();
     });
 
-    it('times out pending elicitations and sends timeout message', async () => {
+    it('elicitations wait indefinitely — no timeout message is sent', async () => {
       vi.useFakeTimers();
 
       const timerManager = new CopilotManager({
@@ -2002,13 +2002,11 @@ describe('CopilotManager', () => {
 
         sent = [];
 
-        // Fast-forward past the timeout (10 minutes, matching ELICITATION_TIMEOUT_MS)
-        vi.advanceTimersByTime(10 * 60_000 + 1);
+        // Fast-forward well past old timeout — no timeout message should be sent
+        vi.advanceTimersByTime(60 * 60_000);
 
         const timeoutMsg = sent.find((m) => m.type === 'workflow:elicitation-timeout');
-        expect(timeoutMsg).toBeDefined();
-        expect(timeoutMsg!.payload.elicitationId).toBe('elicit-timeout-001');
-        expect(timeoutMsg!.payload.sessionId).toBe(sessionId);
+        expect(timeoutMsg).toBeUndefined();
       } finally {
         await timerManager.stop();
         vi.useRealTimers();
@@ -2047,12 +2045,10 @@ describe('CopilotManager', () => {
 
         sent = [];
 
-        // Stop the manager — should clean up pending elicitations without firing timeout
+        // Stop the manager — should clean up pending elicitations
         await timerManager.stop();
 
-        // Advance time — timeout should NOT fire because it was cleared
-        vi.advanceTimersByTime(10 * 60_000 + 1);
-
+        // No timeout messages should appear
         const timeoutMsg = sent.find((m) => m.type === 'workflow:elicitation-timeout');
         expect(timeoutMsg).toBeUndefined();
       } finally {
