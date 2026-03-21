@@ -14,7 +14,6 @@ import type {
 import type { CopilotManager } from './manager.js';
 import { logSdk, logDecision } from '../logger.js';
 import { startSpan, SpanStatusCode } from '../observability/tracing.js';
-import { sanitize } from '../observability/sanitize.js';
 
 // ---------------------------------------------------------------------------
 // Types

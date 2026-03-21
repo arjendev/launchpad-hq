@@ -14,7 +14,7 @@ import type { CoordinatorSessionManager } from './coordinator.js';
 import type { CopilotManager } from './manager.js';
 import { logSdk, logDecision } from '../logger.js';
 import { withSpan } from '../observability/tracing.js';
-import { sanitize } from '../observability/sanitize.js';
+import { sanitizeToString } from '../observability/sanitize.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,7 +57,7 @@ export class IssueDispatcher {
    */
   async dispatchIssue(issue: WorkflowIssuePayload): Promise<DispatchResult> {
     return withSpan('dispatch.issue', { 'issue.number': issue.issueNumber }, async (span) => {
-    span.addEvent('issue.details', sanitize({ issueNumber: issue.issueNumber, title: issue.title, labels: issue.labels }) as Record<string, string>);
+    span.addEvent('issue.details', { issueNumber: issue.issueNumber, title: issue.title, labels: sanitizeToString(issue.labels) });
     const sessionId = this.coordinator.sessionId;
 
     if (!sessionId) {

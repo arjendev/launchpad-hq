@@ -42,7 +42,7 @@ import { logIncoming, logOutgoing, logSdk, logSdkCall, logSdkEvent, logDecision 
 import { AgentResolver } from './agent-resolver.js';
 import { ElicitationRelay } from './elicitation.js';
 import { withSpan, startSpan, SpanStatusCode, makeSpanContext, injectTraceContextFrom, type Context } from '../observability/tracing.js';
-import { sanitize } from '../observability/sanitize.js';
+import { sanitizeToString } from '../observability/sanitize.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -370,7 +370,7 @@ export class CopilotManager {
     config?: SessionConfigWire,
   ): Promise<void> {
     await withSpan('copilot.create_session', { 'request.id': requestId }, async (span) => {
-    span.addEvent('session.config', sanitize({ requestId, agentId: config?.agentId, model: config?.model }) as Record<string, string>);
+    span.addEvent('session.config', { data: sanitizeToString({ requestId, agentId: config?.agentId, model: config?.model }) });
     try {
       const selectedAgent = this.agentResolver.resolveRequestedAgent(config?.agentId);
       const sdkConfig: SessionConfig = this.buildSharedSdkConfig(config);
@@ -420,7 +420,7 @@ export class CopilotManager {
     config?: Partial<SessionConfigWire>,
   ): Promise<void> {
     await withSpan('copilot.resume_session', { 'request.id': requestId, 'session.id': sessionId }, async (span) => {
-    span.addEvent('session.config', sanitize({ requestId, sessionId, agentId: config?.agentId, model: config?.model }) as Record<string, string>);
+    span.addEvent('session.config', { data: sanitizeToString({ requestId, sessionId, agentId: config?.agentId, model: config?.model }) });
     try {
       const trackedSession = this.activeSessions.get(sessionId);
       logSdkCall('resumeSession', { requestId, sessionId });
@@ -932,7 +932,7 @@ export class CopilotManager {
       // children of the copilot.send_prompt span that triggered this turn.
       const turnCtx = this.activeTurnContexts.get(session.sessionId);
       const span = startSpan('copilot.forward_event', { 'event.type': event.type, 'session.id': session.sessionId }, turnCtx);
-      span.addEvent('sdk.event', sanitize(event) as Record<string, string>);
+      span.addEvent('sdk.event', { 'event.type': event.type, data: sanitizeToString(event) });
 
       // Inject traceparent so HQ can continue the distributed trace
       const traceparent = turnCtx ? injectTraceContextFrom(turnCtx) : undefined;
