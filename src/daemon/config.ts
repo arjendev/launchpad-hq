@@ -8,6 +8,11 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DEFAULT_HQ_PORT } from '../shared/constants.js';
 
+export interface OtelConfig {
+  enabled: boolean;
+  endpoint: string;
+}
+
 export interface DaemonConfig {
   hqUrl: string;
   token: string;
@@ -15,6 +20,7 @@ export interface DaemonConfig {
   projectName: string;
   projectPath: string;
   previewPort?: number;
+  otel?: OtelConfig;
 }
 
 interface ConfigFile {
@@ -27,6 +33,10 @@ interface ConfigFile {
   };
   preview?: {
     port?: number;
+  };
+  otel?: {
+    enabled?: boolean;
+    endpoint?: string;
   };
 }
 
@@ -93,6 +103,21 @@ export function loadDaemonConfig(overrides?: Partial<DaemonConfig>): DaemonConfi
     file?.preview?.port;
   const previewPort = previewPortRaw && Number.isFinite(previewPortRaw) ? previewPortRaw : undefined;
 
+  // --- OTEL config (opt-in) ---
+  const otelEnabled =
+    overrides?.otel?.enabled ??
+    (process.env.OTEL_ENABLED === 'true' ? true : undefined) ??
+    file?.otel?.enabled ??
+    false;
+  const otelEndpoint =
+    overrides?.otel?.endpoint ??
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT ??
+    file?.otel?.endpoint ??
+    'http://localhost:4317';
+  const otel: OtelConfig | undefined = otelEnabled
+    ? { enabled: true, endpoint: otelEndpoint }
+    : undefined;
+
   if (!token) {
     throw new Error(
       'Daemon token is required. Set LAUNCHPAD_DAEMON_TOKEN or add "token" to .launchpad/daemon.json',
@@ -105,7 +130,7 @@ export function loadDaemonConfig(overrides?: Partial<DaemonConfig>): DaemonConfi
     );
   }
 
-  return { hqUrl, token, projectId, projectName, projectPath, previewPort };
+  return { hqUrl, token, projectId, projectName, projectPath, previewPort, otel };
 }
 
 /** Derive a project name from the current directory basename */

@@ -10,6 +10,7 @@
 import type { SessionEvent } from '@github/copilot-sdk';
 import type { SendToHq } from '../../shared/protocol.js';
 import { logSdk } from '../logger.js';
+import { startSpan, SpanStatusCode } from '../observability/tracing.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,6 +62,7 @@ export class ElicitationRelay {
   handleElicitationRequested(sessionId: string, event: SessionEvent): void {
     const data = event.data as Record<string, unknown>;
     const elicitationId = (data.requestId as string) ?? event.id;
+    const span = startSpan('elicitation.relay', { 'elicitation.id': elicitationId, 'session.id': sessionId });
     const message = (data.message as string) ?? '';
     const mode = (data.mode as 'form' | undefined) ?? undefined;
     const requestedSchema = (data.requestedSchema as { type: 'object'; properties: Record<string, unknown>; required?: string[] }) ?? {
@@ -84,6 +86,8 @@ export class ElicitationRelay {
 
     this.pendingElicitations.set(elicitationId, { sessionId });
     logSdk(`Elicitation ${elicitationId} captured (session ${sessionId})`);
+    span.setStatus({ code: SpanStatusCode.OK });
+    span.end();
   }
 
   /**

@@ -12,7 +12,8 @@ import type {
 } from '../../shared/protocol.js';
 import type { CoordinatorSessionManager } from './coordinator.js';
 import type { CopilotManager } from './manager.js';
-import { logSdk } from '../logger.js';
+import { logSdk, logDecision } from '../logger.js';
+import { withSpan } from '../observability/tracing.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,9 +55,11 @@ export class IssueDispatcher {
    * Sends a formatted prompt with the issue details.
    */
   async dispatchIssue(issue: WorkflowIssuePayload): Promise<DispatchResult> {
+    return withSpan('dispatch.issue', { 'issue.number': issue.issueNumber }, async () => {
     const sessionId = this.coordinator.sessionId;
 
     if (!sessionId) {
+      logDecision('dispatch', 'rejected', { reason: 'no-active-coordinator-session', issueNumber: issue.issueNumber });
       return {
         success: false,
         issueNumber: issue.issueNumber,
@@ -65,6 +68,7 @@ export class IssueDispatcher {
     }
 
     if (this.coordinator.state !== 'active' && this.coordinator.state !== 'idle') {
+      logDecision('dispatch', 'rejected', { reason: `coordinator-state-${this.coordinator.state}`, issueNumber: issue.issueNumber });
       return {
         success: false,
         issueNumber: issue.issueNumber,
@@ -77,6 +81,7 @@ export class IssueDispatcher {
     try {
       const sent = await this.copilotManager.sendToSession(sessionId, prompt);
       if (!sent) {
+        logDecision('dispatch', 'rejected', { reason: 'session-not-found', issueNumber: issue.issueNumber, sessionId });
         return {
           success: false,
           issueNumber: issue.issueNumber,
@@ -99,6 +104,7 @@ export class IssueDispatcher {
       });
 
       logSdk(`Issue #${issue.issueNumber} dispatched to session ${sessionId}`);
+      logDecision('dispatch', 'accepted', { issueNumber: issue.issueNumber, sessionId });
 
       return {
         success: true,
@@ -115,6 +121,7 @@ export class IssueDispatcher {
         error,
       };
     }
+    });
   }
 
   // -----------------------------------------------------------------------

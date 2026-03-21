@@ -212,6 +212,8 @@ export type CommandAction =
 interface BaseMessage<T extends string> {
   type: T;
   timestamp: number;
+  /** W3C Trace Context propagation header (injected by HQ when OTEL is active) */
+  traceparent?: string;
 }
 
 // ---------------------------------------------------------------------------

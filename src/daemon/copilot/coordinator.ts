@@ -12,7 +12,8 @@ import type {
   SessionEvent,
 } from '../../shared/protocol.js';
 import type { CopilotManager } from './manager.js';
-import { logSdk } from '../logger.js';
+import { logSdk, logDecision } from '../logger.js';
+import { startSpan, SpanStatusCode } from '../observability/tracing.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -133,6 +134,7 @@ export class CoordinatorSessionManager {
       return; // already running
     }
 
+    const span = startSpan('coordinator.start', { 'coordinator.resume': !!resumeSessionId });
     this.stopped = false;
     // Remember agentId for crash recovery restarts
     if (agentId !== undefined) this._agentId = agentId ?? null;
@@ -177,14 +179,19 @@ export class CoordinatorSessionManager {
 
       this.startHealthMonitor();
       logSdk(`Coordinator session started: ${sessionId}`);
+      span.setStatus({ code: SpanStatusCode.OK });
+      span.end();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      span.setStatus({ code: SpanStatusCode.ERROR, message });
+      span.end();
       this.handleCrash(message);
     }
   }
 
   /** Stop the coordinator session cleanly */
   async stop(): Promise<void> {
+    const span = startSpan('coordinator.stop', { 'session.id': this._sessionId ?? 'none' });
     this.stopped = true;
     this.clearTimers();
 
@@ -197,6 +204,8 @@ export class CoordinatorSessionManager {
     // Preserve _sessionId for resume — don't null it
     this._startedAt = null;
     this.setState('stopped');
+    span.setStatus({ code: SpanStatusCode.OK });
+    span.end();
   }
 
   /** Record that a new issue was dispatched */
@@ -276,6 +285,7 @@ export class CoordinatorSessionManager {
   // -----------------------------------------------------------------------
 
   private handleCrash(error: string): void {
+    const span = startSpan('coordinator.crash', { 'error.message': error });
     this._consecutiveFailures += 1;
     this.setState('crashed');
 
@@ -293,10 +303,16 @@ export class CoordinatorSessionManager {
     });
 
     logSdk(`Coordinator crashed (attempt ${this._consecutiveFailures}): ${error}`);
+    logDecision('coordinator', willRetry ? 'restart' : 'stop', {
+      reason: willRetry ? 'auto-recovery' : 'stopped-by-operator',
+      attempt: this._consecutiveFailures,
+    });
 
     if (willRetry) {
       this.scheduleRestart();
     }
+    span.setStatus({ code: SpanStatusCode.ERROR, message: error });
+    span.end();
   }
 
   private scheduleRestart(): void {
@@ -307,8 +323,11 @@ export class CoordinatorSessionManager {
 
     logSdk(`Coordinator restart scheduled in ${delay}ms`);
     this.restartTimer = setTimeout(() => {
+      const span = startSpan('coordinator.restart', { 'restart.attempt': this._restartCount + 1, 'backoff.ms': delay });
       this._restartCount += 1;
       void this.start(this._sessionId ?? undefined, this._agentId);
+      span.setStatus({ code: SpanStatusCode.OK });
+      span.end();
     }, delay);
   }
 

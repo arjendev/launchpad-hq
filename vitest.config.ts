@@ -2,6 +2,10 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
+  // OTEL packages have native bindings (gRPC) that Vite's import analysis can't handle
+  ssr: {
+    external: [/^@opentelemetry\//, /^@grpc\//],
+  },
   test: {
     projects: [
       {

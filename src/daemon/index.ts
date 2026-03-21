@@ -15,7 +15,8 @@ import { DaemonState } from './state.js';
 import { setupDaemonTerminal, DaemonTerminalManager } from './terminal/index.js';
 import { CopilotManager, discoverCopilotAgents } from './copilot/index.js';
 import { CliSessionManager } from './copilot-cli/index.js';
-import { logOutgoing } from './logger.js';
+import { logOutgoing, logError, logSdk } from './logger.js';
+import { setupTracing, shutdownTracing } from './observability/tracing.js';
 import { PreviewManager } from './preview-manager.js';
 import { MessageRouter } from './message-router.js';
 
@@ -34,6 +35,17 @@ export interface DaemonProcess {
  */
 export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProcess {
   const config = loadDaemonConfig(configOverrides);
+
+  // --- OTEL tracing (opt-in, must be early) ---
+  if (config.otel?.enabled) {
+    void setupTracing({
+      endpoint: config.otel.endpoint,
+      serviceVersion: '0.1.0',
+    }).catch((err) => {
+      logError('otel', `Tracing setup failed: ${err}`);
+    });
+  }
+
   const discoveredAgents = discoverCopilotAgents(process.cwd());
 
   const client = new DaemonWebSocketClient({
@@ -133,11 +145,11 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
   // --- Connection lifecycle ---
 
   client.on('connected', () => {
-    console.log(`🔌 Connected to HQ at ${config.hqUrl}`);
+    logSdk(`Connected to HQ at ${config.hqUrl}`);
   });
 
   client.on('authenticated', () => {
-    console.log('✅ Authenticated with HQ');
+    logSdk('Authenticated with HQ');
     logOutgoing('register', daemonInfo);
     client.sendRegistration(daemonInfo);
     if (daemonInfo.agentCatalog?.length) {
@@ -157,23 +169,23 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     state.update({ daemonOnline: true, initialized: true });
 
     void copilot.start().catch((err) => {
-      console.error(`⚠ Copilot SDK start failed: ${err}`);
+      logError('copilot', `Copilot SDK start failed: ${err}`);
     });
 
     previewManager.start();
   });
 
   client.on('auth-rejected', (reason) => {
-    console.error(`❌ Auth rejected: ${reason}`);
+    logError('auth', `Auth rejected: ${reason}`);
   });
 
   client.on('disconnected', (_code, reason) => {
-    console.log(`🔌 Disconnected from HQ: ${reason || 'unknown'}`);
+    logSdk(`Disconnected from HQ: ${reason || 'unknown'}`);
     state.setOnline(false);
   });
 
   client.on('error', (err) => {
-    console.error(`⚠ WebSocket error: ${err.message}`);
+    logError('ws', `WebSocket error: ${err.message}`);
   });
 
   // --- Single message handler ---
@@ -190,7 +202,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
 
   // --- Start connection ---
 
-  console.log(`🚀 Daemon starting (project=${config.projectId}, hq=${config.hqUrl})`);
+  console.log(`🚀 Daemon starting (project=${config.projectId}, hq=${config.hqUrl}${config.otel?.enabled ? ', otel=on' : ''})`);
   client.connect();
 
   // --- Shutdown ---
@@ -204,6 +216,7 @@ export function startDaemon(configOverrides?: Partial<DaemonConfig>): DaemonProc
     terminalCleanup();
     state.setOnline(false);
     client.disconnect();
+    void shutdownTracing().catch(() => {});
     console.log('👋 Daemon stopped.');
   }
 

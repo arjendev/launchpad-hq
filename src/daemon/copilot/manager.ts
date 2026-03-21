@@ -38,9 +38,10 @@ import type {
 } from '../../shared/protocol.js';
 import { createHqTools } from './hq-tools.js';
 import { buildSystemMessage } from './system-message.js';
-import { logIncoming, logOutgoing, logSdk } from '../logger.js';
+import { logIncoming, logOutgoing, logSdk, logSdkCall, logSdkEvent, logDecision } from '../logger.js';
 import { AgentResolver } from './agent-resolver.js';
 import { ElicitationRelay } from './elicitation.js';
+import { withSpan, startSpan, SpanStatusCode } from '../observability/tracing.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -360,9 +361,11 @@ export class CopilotManager {
     requestId: string,
     config?: SessionConfigWire,
   ): Promise<void> {
+    await withSpan('copilot.create_session', { 'request.id': requestId }, async () => {
     try {
       const selectedAgent = this.agentResolver.resolveRequestedAgent(config?.agentId);
       const sdkConfig: SessionConfig = this.buildSharedSdkConfig(config);
+      logSdkCall('createSession', { requestId, agentId: config?.agentId });
       const session = await this.client.createSession(sdkConfig);
       logSdk(`Session created: ${session.sessionId}`);
       this.trackSession(session, true);
@@ -397,6 +400,7 @@ export class CopilotManager {
         },
       });
     }
+    });
   }
 
   private async handleResumeSession(
@@ -404,8 +408,10 @@ export class CopilotManager {
     sessionId: string,
     config?: Partial<SessionConfigWire>,
   ): Promise<void> {
+    await withSpan('copilot.resume_session', { 'request.id': requestId, 'session.id': sessionId }, async () => {
     try {
       const trackedSession = this.activeSessions.get(sessionId);
+      logSdkCall('resumeSession', { requestId, sessionId });
       const session =
         trackedSession ??
         await this.getOrAttachSession(sessionId, config, {
@@ -456,6 +462,7 @@ export class CopilotManager {
         },
       });
     }
+    });
   }
 
   private async handleSendPrompt(
@@ -464,6 +471,7 @@ export class CopilotManager {
     attachments?: MessageOptions['attachments'],
     mode?: PromptDeliveryMode,
   ): Promise<void> {
+    await withSpan('copilot.send_prompt', { 'session.id': sessionId }, async () => {
     const session = await this.getOrAttachSession(sessionId, undefined, {
       skipInitialStart: true,
     });
@@ -479,6 +487,8 @@ export class CopilotManager {
       });
       return;
     }
+
+    logSdkCall('session.send', { sessionId, promptLength: prompt.length, mode });
 
     try {
       await session.send({
@@ -497,9 +507,11 @@ export class CopilotManager {
         },
       });
     }
+    });
   }
 
   private async handleAbort(sessionId: string): Promise<void> {
+    await withSpan('copilot.abort_session', { 'session.id': sessionId }, async () => {
     const session = this.activeSessions.get(sessionId);
     if (session) {
       await session.abort();
@@ -517,6 +529,7 @@ export class CopilotManager {
           reason: 'aborted',
         }),
       },
+    });
     });
   }
 
@@ -893,6 +906,10 @@ export class CopilotManager {
         this.elicitationRelay.handleElicitationRequested(session.sessionId, event);
       }
 
+      logSdkEvent(session.sessionId, event.type);
+
+      // Fire-and-forget span for each forwarded event
+      const span = startSpan('copilot.forward_event', { 'event.type': event.type, 'session.id': session.sessionId });
       this.sendToHq({
         type: 'copilot-session-event',
         timestamp: Date.now(),
@@ -902,6 +919,8 @@ export class CopilotManager {
           event,
         },
       });
+      span.setStatus({ code: SpanStatusCode.OK });
+      span.end();
     });
 
     this.sessionUnsubscribers.set(session.sessionId, unsub);
