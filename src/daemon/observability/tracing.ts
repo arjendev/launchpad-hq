@@ -162,20 +162,23 @@ export async function withSpan<T>(
   parentContext?: Context,
 ): Promise<T> {
   const span = startSpan(name, attributes, parentContext);
-  try {
-    const result = await fn(span);
-    span.setStatus({ code: SpanStatusCode.OK });
-    return result;
-  } catch (err) {
-    span.setStatus({
-      code: SpanStatusCode.ERROR,
-      message: err instanceof Error ? err.message : String(err),
-    });
-    span.recordException(err instanceof Error ? err : new Error(String(err)));
-    throw err;
-  } finally {
-    span.end();
-  }
+  const spanCtx = trace.setSpan(parentContext ?? context.active(), span);
+  return context.with(spanCtx, async () => {
+    try {
+      const result = await fn(span);
+      span.setStatus({ code: SpanStatusCode.OK });
+      return result;
+    } catch (err) {
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      span.recordException(err instanceof Error ? err : new Error(String(err)));
+      throw err;
+    } finally {
+      span.end();
+    }
+  });
 }
 
 /**

@@ -41,7 +41,7 @@ import { buildSystemMessage } from './system-message.js';
 import { logIncoming, logOutgoing, logSdk, logSdkCall, logSdkEvent, logDecision } from '../logger.js';
 import { AgentResolver } from './agent-resolver.js';
 import { ElicitationRelay } from './elicitation.js';
-import { withSpan, startSpan, SpanStatusCode, makeSpanContext, injectTraceContextFrom, type Context } from '../observability/tracing.js';
+import { withSpan, startSpan, SpanStatusCode, makeSpanContext, injectTraceContext, injectTraceContextFrom, type Context } from '../observability/tracing.js';
 import { trace } from '@opentelemetry/api';
 import { sanitizeToString } from '../observability/sanitize.js';
 
@@ -382,9 +382,11 @@ export class CopilotManager {
       await this.agentResolver.applyAgentSelection(session, selectedAgent);
       const currentAgent = await this.agentResolver.getCurrentSessionAgent(session);
 
+      const traceparent = injectTraceContextFrom(makeSpanContext(span));
       this.sendToHq({
         type: 'copilot-session-event',
         timestamp: Date.now(),
+        ...(traceparent ? { traceparent } : {}),
         payload: {
           projectId: this.projectId,
           sessionId: session.sessionId,
@@ -397,9 +399,11 @@ export class CopilotManager {
       });
       span.addEvent('message.sent_to_hq', { 'message.type': 'copilot-session-event', 'event.type': 'session.start' });
     } catch (err) {
+      const traceparent = injectTraceContextFrom(makeSpanContext(span));
       this.sendToHq({
         type: 'copilot-session-event',
         timestamp: Date.now(),
+        ...(traceparent ? { traceparent } : {}),
         payload: {
           projectId: this.projectId,
           sessionId: 'unknown',
@@ -447,9 +451,11 @@ export class CopilotManager {
       }
       const currentAgent = await this.agentResolver.getCurrentSessionAgent(session);
 
+      const traceparent = injectTraceContextFrom(makeSpanContext(span));
       this.sendToHq({
         type: 'copilot-session-event',
         timestamp: Date.now(),
+        ...(traceparent ? { traceparent } : {}),
         payload: {
           projectId: this.projectId,
           sessionId: session.sessionId,
@@ -462,9 +468,11 @@ export class CopilotManager {
       });
       span.addEvent('message.sent_to_hq', { 'message.type': 'copilot-session-event', 'event.type': 'session.start' });
     } catch (err) {
+      const traceparent = injectTraceContextFrom(makeSpanContext(span));
       this.sendToHq({
         type: 'copilot-session-event',
         timestamp: Date.now(),
+        ...(traceparent ? { traceparent } : {}),
         payload: {
           projectId: this.projectId,
           sessionId,
@@ -498,9 +506,11 @@ export class CopilotManager {
       skipInitialStart: true,
     });
     if (!session) {
+      const traceparent = injectTraceContextFrom(makeSpanContext(turnSpan));
       this.sendToHq({
         type: 'copilot-session-event',
         timestamp: Date.now(),
+        ...(traceparent ? { traceparent } : {}),
         payload: {
           projectId: this.projectId,
           sessionId,
@@ -524,9 +534,11 @@ export class CopilotManager {
       // NOTE: Do NOT end turnSpan here. SDK events will fire asynchronously.
       // The span is ended in trackSession() when session.idle fires.
     } catch (err) {
+      const traceparent = injectTraceContextFrom(makeSpanContext(turnSpan));
       this.sendToHq({
         type: 'copilot-session-event',
         timestamp: Date.now(),
+        ...(traceparent ? { traceparent } : {}),
         payload: {
           projectId: this.projectId,
           sessionId,
@@ -540,16 +552,18 @@ export class CopilotManager {
   }
 
   private async handleAbort(sessionId: string): Promise<void> {
-    await withSpan('copilot.abort_session', { 'session.id': sessionId }, async () => {
+    await withSpan('copilot.abort_session', { 'session.id': sessionId }, async (span) => {
     const session = this.activeSessions.get(sessionId);
     if (session) {
       await session.abort();
       logSdk(`Session aborted (turn cancelled): ${sessionId}`);
     }
 
+    const traceparent = injectTraceContextFrom(makeSpanContext(span));
     this.sendToHq({
       type: 'copilot-session-event',
       timestamp: Date.now(),
+      ...(traceparent ? { traceparent } : {}),
       payload: {
         projectId: this.projectId,
         sessionId,
@@ -733,9 +747,11 @@ export class CopilotManager {
     this.activeSessions.delete(sessionId);
     logSdk(`Session removed: ${sessionId}`);
 
+    const traceparent = injectTraceContext();
     this.sendToHq({
       type: 'copilot-session-event',
       timestamp: Date.now(),
+      ...(traceparent ? { traceparent } : {}),
       payload: {
         projectId: this.projectId,
         sessionId,
@@ -782,9 +798,11 @@ export class CopilotManager {
       }
     }
 
+    const traceparent = injectTraceContext();
     this.sendToHq({
       type: 'copilot-session-event',
       timestamp: Date.now(),
+      ...(traceparent ? { traceparent } : {}),
       payload: {
         projectId: this.projectId,
         sessionId,
@@ -801,11 +819,13 @@ export class CopilotManager {
   // Internal helpers
   // -----------------------------------------------------------------------
 
-  /** Send a session error event to HQ */
+  /** Send a session error event to HQ (propagates active trace context) */
   private sendSessionError(sessionId: string, message: string): void {
+    const traceparent = injectTraceContext();
     this.sendToHq({
       type: 'copilot-session-event',
       timestamp: Date.now(),
+      ...(traceparent ? { traceparent } : {}),
       payload: {
         projectId: this.projectId,
         sessionId,

@@ -21,12 +21,15 @@ case "$ACTION" in
     docker run --rm -d \
       -p 18888:18888 \
       -p 4317:18889 \
+      -p 18891:18891 \
       -e DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true \
+      -e DOTNET_DASHBOARD_MCP_ENDPOINT_URL=http://+:18891 \
       --name aspire-dashboard \
       mcr.microsoft.com/dotnet/aspire-dashboard:latest
 
     echo "Aspire Dashboard: http://localhost:18888"
     echo "OTLP gRPC endpoint: http://localhost:4317"
+    echo "MCP endpoint: http://localhost:18891"
     ;;
 
   stop)
