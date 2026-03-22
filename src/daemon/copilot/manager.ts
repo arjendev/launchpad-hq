@@ -1040,9 +1040,11 @@ export class CopilotManager {
     requestId: string;
     systemMessage: { mode: 'append' | 'replace'; content: string };
     agentId?: string | null;
+    model?: string;
   }): Promise<string> {
     const sdkConfig: SharedSdkConfig = this.buildSharedSdkConfig({
       systemMessage: opts.systemMessage,
+      ...(opts.model ? { model: opts.model } : {}),
     });
     const session = await this.client.createSession(sdkConfig as SessionConfig);
     this.trackSession(session, true);
@@ -1069,12 +1071,19 @@ export class CopilotManager {
     sessionId: string;
     systemMessage: { mode: 'append' | 'replace'; content: string };
     agentId?: string | null;
+    model?: string;
   }): Promise<void> {
     const sdkConfig = this.buildSharedSdkConfig({
       systemMessage: opts.systemMessage,
+      ...(opts.model ? { model: opts.model } : {}),
     });
     const session = await this.client.resumeSession(opts.sessionId, sdkConfig as ResumeSessionConfig);
     this.trackSession(session, true);
+
+    // Explicitly set model after resume (SDK may not apply config.model on resume)
+    if (opts.model) {
+      await session.setModel(opts.model);
+    }
 
     if (opts.agentId) {
       try {

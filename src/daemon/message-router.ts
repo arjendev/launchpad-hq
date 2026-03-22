@@ -98,8 +98,8 @@ export class MessageRouter {
 
     // --- Coordinator lifecycle ---
     if (msg.type === 'workflow:start-coordinator') {
-      const payload = msg.payload as { projectId: string; sessionId?: string; agentId?: string | null };
-      void this.coordinator.start(payload.sessionId, payload.agentId).catch((err) => {
+      const payload = msg.payload as { projectId: string; sessionId?: string; agentId?: string | null; model?: string };
+      void this.coordinator.start(payload.sessionId, payload.agentId, payload.model).catch((err) => {
         logError('coordinator', `Coordinator start failed: ${err}`);
       });
       return;

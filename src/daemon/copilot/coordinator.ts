@@ -129,13 +129,13 @@ export class CoordinatorSessionManager {
    * Start a new coordinator session, or resume an existing one.
    * @param resumeSessionId — optional sessionId to resume instead of creating new
    */
-  async start(resumeSessionId?: string, agentId?: string | null): Promise<void> {
+  async start(resumeSessionId?: string, agentId?: string | null, model?: string): Promise<void> {
     if (this._state === 'active' || this._state === 'starting') {
       return; // already running
     }
 
     const span = startSpan('coordinator.start', { 'coordinator.resume': !!resumeSessionId });
-    span.addEvent('coordinator.config', { resumeSessionId: resumeSessionId ?? 'none', agentId: agentId ?? 'none' });
+    span.addEvent('coordinator.config', { resumeSessionId: resumeSessionId ?? 'none', agentId: agentId ?? 'none', model: model ?? 'none' });
     this.stopped = false;
     // Remember agentId for crash recovery restarts
     if (agentId !== undefined) this._agentId = agentId ?? null;
@@ -154,13 +154,13 @@ export class CoordinatorSessionManager {
       let sessionId: string;
       if (resumeSessionId) {
         try {
-          sessionId = await this.resumeSession(resumeSessionId, agentId);
+          sessionId = await this.resumeSession(resumeSessionId, agentId, model);
         } catch (err) {
           logSdk(`Resume failed for ${resumeSessionId}, creating new session: ${err}`);
-          sessionId = await this.createSession(agentId);
+          sessionId = await this.createSession(agentId, model);
         }
       } else {
-        sessionId = await this.createSession(agentId);
+        sessionId = await this.createSession(agentId, model);
       }
 
       this._sessionId = sessionId;
@@ -221,7 +221,7 @@ export class CoordinatorSessionManager {
   // Internal — session creation
   // -----------------------------------------------------------------------
 
-  private async createSession(agentId?: string | null): Promise<string> {
+  private async createSession(agentId?: string | null, model?: string): Promise<string> {
     const requestId = `coordinator-${Date.now()}`;
 
     const sessionId = await this.copilotManager.createCoordinatorSession({
@@ -231,12 +231,13 @@ export class CoordinatorSessionManager {
         content: this.buildSystemMessage(),
       },
       agentId,
+      model,
     });
 
     return sessionId;
   }
 
-  private async resumeSession(sessionId: string, agentId?: string | null): Promise<string> {
+  private async resumeSession(sessionId: string, agentId?: string | null, model?: string): Promise<string> {
     const requestId = `coordinator-resume-${Date.now()}`;
 
     await this.copilotManager.resumeCoordinatorSession({
@@ -247,6 +248,7 @@ export class CoordinatorSessionManager {
         content: this.buildSystemMessage(),
       },
       agentId,
+      model,
     });
 
     return sessionId;

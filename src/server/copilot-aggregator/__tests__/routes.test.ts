@@ -5,6 +5,7 @@ import terminalRelayPlugin from "../../terminal-relay/plugin.js";
 import daemonRegistryPlugin from "../../daemon-registry/plugin.js";
 import copilotAggregatorPlugin from "../plugin.js";
 import copilotSessionRoutes from "../../routes/copilot-sessions.js";
+import { defaultLaunchpadConfig } from "../../state/types.js";
 
 function createMockSocket() {
   const sent: string[] = [];
@@ -57,6 +58,7 @@ describe("Copilot session routes", () => {
   beforeEach(async () => {
     server = await createTestServer();
     server.decorate("stateService", createMockStateService());
+    server.decorate("launchpadConfig", defaultLaunchpadConfig());
     await server.register(websocket);
     await server.register(terminalRelayPlugin);
     await server.register(daemonRegistryPlugin);
@@ -357,7 +359,7 @@ describe("Copilot session routes", () => {
       await new Promise((r) => setTimeout(r, 10));
 
       const sentMsg = JSON.parse(ws.sent[0]);
-      expect(sentMsg.payload.config).toEqual({ agentId: "planner" });
+      expect(sentMsg.payload.config).toEqual({ model: "claude-opus-4.6", agentId: "planner" });
 
       server.copilotAggregator.resolveRequest(sentMsg.payload.requestId, { sessionId: "new-sess-agent" });
 
@@ -379,7 +381,7 @@ describe("Copilot session routes", () => {
       await new Promise((r) => setTimeout(r, 10));
 
       const sentMsg = JSON.parse(ws.sent[0]);
-      expect(sentMsg.payload.config).toBeUndefined();
+      expect(sentMsg.payload.config).toEqual({ model: "claude-opus-4.6" });
 
       server.copilotAggregator.resolveRequest(sentMsg.payload.requestId, {
         sessionId: "new-sess-default",

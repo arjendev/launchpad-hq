@@ -415,6 +415,9 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
         } catch { /* ignore */ }
       }
 
+      // Use the HQ default model so resumed sessions don't fall back to SDK default
+      const defaultModel = server.launchpadConfig.copilot.defaultModel;
+
       // Send start message to daemon (include sessionId for resume + agentId)
       const sent = server.daemonRegistry.sendToDaemon(projectId, {
         type: "workflow:start-coordinator",
@@ -423,6 +426,7 @@ const workflowRoutes: FastifyPluginAsync = async (server) => {
           projectId,
           ...(coord.sessionId ? { sessionId: coord.sessionId } : {}),
           ...(agentId ? { agentId } : {}),
+          ...(defaultModel ? { model: defaultModel } : {}),
         },
       }, request.otelContext);
 

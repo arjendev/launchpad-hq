@@ -233,10 +233,16 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
         return reply.status(404).send(notFound);
       }
 
+      // Inject HQ's default model when no model is explicitly specified
+      const effectiveConfig: Partial<SessionConfigWire> = { ...config };
+      if (!effectiveConfig.model) {
+        effectiveConfig.model = server.launchpadConfig.copilot.defaultModel;
+      }
+
       const sent = server.daemonRegistry.sendToDaemon(internal.daemonId, {
         type: "copilot-resume-session",
         timestamp: Date.now(),
-        payload: { requestId, sessionId, sessionType, config },
+        payload: { requestId, sessionId, sessionType, config: effectiveConfig },
       }, request.otelContext);
       if (!sent) {
         return reply.status(502).send(sendFailed);
@@ -657,6 +663,9 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
     const config: CreateSessionConfig = {};
     if (model) {
       config.model = model;
+    } else {
+      // Inject HQ's default model when no model is explicitly specified
+      config.model = server.launchpadConfig.copilot.defaultModel;
     }
     if (effectiveSessionType === "copilot-sdk") {
       if (explicitAgentId !== undefined) {

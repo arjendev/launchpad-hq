@@ -3,6 +3,7 @@ import { createTestServer, type FastifyInstance } from "../../../test-utils/serv
 import workflowPlugin from "../plugin.js";
 import workflowRoutes from "../../routes/workflow.js";
 import { EventEmitter } from "node:events";
+import { defaultLaunchpadConfig } from "../../state/types.js";
 
 // Mock the GitHubSyncService
 vi.mock("../../workflow/github-sync.js", () => {
@@ -108,6 +109,7 @@ async function buildTestServer(): Promise<FastifyInstance> {
   const server = await createTestServer();
   server.decorate("githubToken", "mock-gh-token");
   server.decorate("stateService", fakeStateService());
+  server.decorate("launchpadConfig", defaultLaunchpadConfig());
   server.decorate("ws", fakeWs());
   server.decorate("daemonRegistry", fakeDaemonRegistry());
   await server.register(workflowPlugin);

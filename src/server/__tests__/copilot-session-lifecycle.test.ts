@@ -9,6 +9,7 @@ import daemonRegistryPlugin from "../daemon-registry/plugin.js";
 import copilotAggregatorPlugin from "../copilot-aggregator/plugin.js";
 import { CopilotSessionAggregator } from "../copilot-aggregator/aggregator.js";
 import copilotSessionRoutes from "../routes/copilot-sessions.js";
+import { defaultLaunchpadConfig } from "../state/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -78,6 +79,7 @@ function createMockStateService() {
 async function buildServer() {
   const server = await createTestServer();
   server.decorate("stateService", createMockStateService());
+  server.decorate("launchpadConfig", defaultLaunchpadConfig());
   await server.register(websocket);
   await server.register(terminalRelayPlugin);
   await server.register(daemonRegistryPlugin);
@@ -155,7 +157,7 @@ describe("Copilot session lifecycle — integration", () => {
       expect(res.json()).toEqual({ ok: true, sessionId: "model-sess", sessionType: "copilot-sdk" });
     });
 
-    it("does not inject agent config when none is provided", async () => {
+    it("injects the HQ default model even when no agent is provided", async () => {
       const ws = createMockSocket();
       server.daemonRegistry.register("acme/widget", ws as never, makeDaemonInfo("acme/widget"));
 
@@ -168,7 +170,7 @@ describe("Copilot session lifecycle — integration", () => {
       await new Promise((r) => setTimeout(r, 10));
 
       const msg = JSON.parse(ws.sent[0]);
-      expect(msg.payload.config).toBeUndefined();
+      expect(msg.payload.config).toEqual({ model: "claude-opus-4.6" });
 
       server.copilotAggregator.resolveRequest(msg.payload.requestId, { sessionId: "agent-sess" });
 
