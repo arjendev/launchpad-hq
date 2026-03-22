@@ -224,26 +224,25 @@ export function processSessionEvent(
   switch (event.type) {
     // ── User message ──────────────────────────────────
     case "user.message": {
+      const content = (event.data as { content?: string }).content ?? "";
       if (mode === "live") {
         callbacks.setQueuedMessage?.(null);
         callbacks.invalidateQueries?.([
           ["session-messages", sessionId],
           ["aggregated-session", sessionId],
         ]);
-      } else {
-        // Batch: produce user entry directly
-        const content = (event.data as { content?: string }).content ?? "";
-        if (content.trim()) {
-          callbacks.updateEntries((prev) => [
-            ...prev,
-            {
-              id: `evt-user-${ts}-${event.id ?? ""}`,
-              type: "user" as const,
-              content: content.trim(),
-              timestamp: ts,
-            },
-          ]);
-        }
+      }
+      // Always produce a user entry (live + batch) so it's never lost to dedup
+      if (content.trim()) {
+        callbacks.updateEntries((prev) => [
+          ...prev,
+          {
+            id: `evt-user-${ts}-${event.id ?? ""}`,
+            type: "user" as const,
+            content: content.trim(),
+            timestamp: ts,
+          },
+        ]);
       }
       break;
     }
