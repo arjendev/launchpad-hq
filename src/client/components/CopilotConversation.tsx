@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActionIcon,
   Badge,
   Box,
   Button,
@@ -13,6 +14,7 @@ import {
   Stack,
   Text,
   TextInput,
+  Transition,
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import {
@@ -47,6 +49,8 @@ export interface CopilotConversationProps {
 
 const DEFAULT_SESSION_AGENT_ID = "builtin:default";
 const DEFAULT_SESSION_AGENT_LABEL = "Default";
+const WINDOW_SIZE = 100;
+const SCROLL_BOTTOM_THRESHOLD = 100;
 
 function truncateMessage(msg: string, maxLen = 80): string {
   return msg.length > maxLen ? msg.slice(0, maxLen) + "…" : msg;
@@ -109,7 +113,7 @@ export function CopilotConversation({
   const { selectedProject } = useSelectedProject();
   const owner = selectedProject?.owner;
   const repo = selectedProject?.repo;
-  const { entries, rawEvents, isLoading, isError, error, sessionStatus, queuedMessage, setQueuedMessage, steeringMessage, clearSteeringMessage } =
+  const { entries, rawEvents, isLoading, isError, error, sessionStatus, queuedMessage, setQueuedMessage, steeringMessage, clearSteeringMessage, hasMoreHistory, fetchMoreHistory, isFetchingMoreHistory } =
     useConversationEntries(sessionId);
   const { data: sessionData } = useAggregatedSession(sessionId);
   const activity = sessionData?.activity ?? DEFAULT_SESSION_ACTIVITY;
@@ -135,29 +139,70 @@ export function CopilotConversation({
   const viewportRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
   const prevEntriesLenRef = useRef(0);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const newMessagesWhileScrolledRef = useRef(0);
+
+  // Windowed rendering: render last N entries; expand on scroll-up
+  const [renderCount, setRenderCount] = useState(WINDOW_SIZE);
 
   const handleScroll = useCallback(
     ({ y }: { x: number; y: number }) => {
       const viewport = viewportRef.current;
       if (!viewport) return;
       const atBottom =
-        viewport.scrollHeight - viewport.clientHeight - y < 40;
+        viewport.scrollHeight - viewport.clientHeight - y < SCROLL_BOTTOM_THRESHOLD;
       userScrolledUpRef.current = !atBottom;
+      if (atBottom) {
+        setShowScrollButton(false);
+        newMessagesWhileScrolledRef.current = 0;
+      }
+
+      // Load more on scroll to top
+      if (y < 50) {
+        const totalEntries = entries.length;
+        if (renderCount < totalEntries) {
+          // Expand the render window
+          setRenderCount((prev) => Math.min(prev + 50, totalEntries));
+        } else if (hasMoreHistory && !isFetchingMoreHistory) {
+          // All loaded entries are rendered — fetch older events from API
+          fetchMoreHistory();
+        }
+      }
     },
-    [],
+    [entries.length, renderCount, hasMoreHistory, isFetchingMoreHistory, fetchMoreHistory],
   );
+
+  const scrollToBottom = useCallback(() => {
+    const viewport = viewportRef.current;
+    if (viewport && typeof viewport.scrollTo === "function") {
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+    }
+    userScrolledUpRef.current = false;
+    setShowScrollButton(false);
+    newMessagesWhileScrolledRef.current = 0;
+  }, []);
 
   const isProcessing = sessionStatus === "active";
 
-  // All entries shown inline — noise is filtered by HIDDEN_EVENT_TYPES in the renderer
-  const conversationEntries = entries;
+  // Windowed entries — render from the tail of the full list
+  const conversationEntries = useMemo(
+    () => entries.slice(Math.max(0, entries.length - renderCount)),
+    [entries, renderCount],
+  );
 
-  // Auto-scroll to bottom when new entries arrive
+  // Auto-scroll to bottom when new entries arrive (only if user is near bottom)
   useEffect(() => {
-    if (conversationEntries.length > prevEntriesLenRef.current && !userScrolledUpRef.current) {
-      const viewport = viewportRef.current;
-      if (viewport && typeof viewport.scrollTo === "function") {
-        viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+    if (conversationEntries.length > prevEntriesLenRef.current) {
+      if (!userScrolledUpRef.current) {
+        const viewport = viewportRef.current;
+        if (viewport && typeof viewport.scrollTo === "function") {
+          viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+        }
+      } else {
+        // User is scrolled up — show the "scroll to bottom" button
+        newMessagesWhileScrolledRef.current +=
+          conversationEntries.length - prevEntriesLenRef.current;
+        setShowScrollButton(true);
       }
     }
     prevEntriesLenRef.current = conversationEntries.length;
@@ -337,9 +382,24 @@ export function CopilotConversation({
           ref={scrollAreaRef}
           viewportRef={viewportRef}
           onScrollPositionChange={handleScroll}
-          style={{ flex: 1 }}
+          style={{ flex: 1, position: "relative" }}
           p="xs"
         >
+        {/* Loading indicator for fetching older events */}
+        {isFetchingMoreHistory && (
+          <Stack align="center" py={4}>
+            <Loader size="xs" />
+            <Text size="xs" c="dimmed">Loading older events…</Text>
+          </Stack>
+        )}
+
+        {/* Hint that more entries can be loaded */}
+        {!isFetchingMoreHistory && (hasMoreHistory || renderCount < entries.length) && (
+          <Text size="xs" c="dimmed" ta="center" py={4}>
+            ↑ Scroll up for older messages
+          </Text>
+        )}
+
         {isLoading && (
           <Stack align="center" p="md">
             <Loader size="sm" />
@@ -363,6 +423,35 @@ export function CopilotConversation({
             <ConversationMessage key={entry.id} entry={entry} sessionId={sessionId} expanded={expandedView} />
           ))}
         </Stack>
+
+        {/* Scroll-to-bottom button */}
+        <Transition mounted={showScrollButton} transition="slide-up" duration={200}>
+          {(styles) => (
+            <ActionIcon
+              style={{
+                ...styles,
+                position: "sticky",
+                bottom: 8,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 10,
+              }}
+              variant="filled"
+              color="blue"
+              radius="xl"
+              size="lg"
+              onClick={scrollToBottom}
+              data-testid="scroll-to-bottom"
+              aria-label="Scroll to bottom"
+            >
+              <Text size="xs" fw={600}>
+                ↓ {newMessagesWhileScrolledRef.current > 0
+                  ? `${newMessagesWhileScrolledRef.current} new`
+                  : "Bottom"}
+              </Text>
+            </ActionIcon>
+          )}
+        </Transition>
         </ScrollArea>
       )}
 

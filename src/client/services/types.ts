@@ -497,6 +497,20 @@ export interface PreviewQrResponse {
   qrDataUrl: string;
 }
 
+// ── Session Events API (reverse-paginated event stream) ────
+
+export interface SessionEventsResponse {
+  events: Array<{
+    type: string;
+    data: Record<string, unknown>;
+    timestamp: string;
+    id?: string;
+    parentId?: string;
+  }>;
+  hasMore: boolean;
+  oldestTimestamp: string | null;
+}
+
 // ── Settings (LaunchpadConfig) ──────────────────────────────────────────────
 
 export interface LaunchpadConfig {

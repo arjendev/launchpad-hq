@@ -48,3 +48,15 @@
 
 ### WS Channels
 Current channels in `ws-types.ts`: daemon, copilot, devcontainer, workflow, preview, inbox
+
+## Learnings
+
+### Event processing extraction (2026-session-events)
+- The ~400-line WebSocket event switch in `conversation-hooks.ts` was extracted into `event-processor.ts` as `processSessionEvent()` and `processEventBatch()`.
+- Key refs (`toolStarts`, `subagentStack`, `subagentContent`, `currentIntent`, `lastUsage`, `subagentNames`, `mainAgentName`) are consolidated into a single `EventProcessorRefs` object. Both the batch loader and live WS handler share these refs through seeding.
+- `processSessionEvent()` supports two modes: `"live"` (for WebSocket — captures raw events, triggers query invalidation, drives streaming deltas) and `"batch"` (for REST replay — skips deltas, creates user entries directly, no side effects).
+- `useSessionEvents()` uses `useInfiniteQuery` with reverse cursor pagination (`before` param). Pages are fetched newest-first; flatten in reverse for chronological processing.
+- Historical event entries are authoritative for their time range — REST messages only fill timestamps BEFORE the historical coverage. This prevents duplicate user/assistant entries.
+- The test fetch mock for `CopilotConversation` must exclude `/events` in the session-detail URL matcher (alongside `/messages`, `/tools`, etc.).
+- Windowed rendering uses a `renderCount` approach (render from tail) rather than `visibleStartIndex` — simpler to reason about when entries grow at both ends.
+- Mantine's `Transition` component is used for the scroll-to-bottom button animation. `ActionIcon` with `position: sticky` inside `ScrollArea` gives a nice floating effect.

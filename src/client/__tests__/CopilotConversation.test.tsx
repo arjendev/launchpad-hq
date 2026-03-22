@@ -163,6 +163,7 @@ function setupFetchMock(overrides?: {
         !urlStr.includes("/disconnect") &&
         !urlStr.includes("/resume") &&
         !urlStr.includes("/set-model") &&
+        !urlStr.includes("/events") &&
         (!init || init.method === "GET" || !init.method)
       ) {
         if (!session) {
