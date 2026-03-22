@@ -276,13 +276,25 @@ export function useConversationEntries(sessionId: string | null): {
               }
 
               // Dedup: track subagent content; suppress parent echoes
-              const normalized = content.trim().replace(/\*\*/g, "").replace(/^[^\w]*/, "").trim();
+              // Aggressive normalization: strip markdown bold, emoji, agent name prefixes
+              const normalizeForDedup = (s: string) =>
+                s.trim()
+                  .replace(/\*\*/g, "")          // strip bold markers
+                  .replace(/\p{Emoji_Presentation}/gu, "")  // strip emoji
+                  .replace(/\p{Emoji}\uFE0F?/gu, "")        // strip text-style emoji
+                  .replace(/^[^a-zA-Z0-9]*/, "") // strip leading non-alphanumeric (—, ·, etc.)
+                  .trim();
+              const normalized = normalizeForDedup(content);
               if (isSubagentMsg) {
                 // Save subagent message content for echo detection
                 subagentContentRef.current.add(normalized);
                 // Also save a short prefix for fuzzy matching (parent may prefix with agent name)
                 if (normalized.length > 40) {
                   subagentContentRef.current.add(normalized.slice(0, 40));
+                }
+                // Save an even shorter prefix for very different prefixes
+                if (normalized.length > 20) {
+                  subagentContentRef.current.add(normalized.slice(0, 20));
                 }
               } else if (subagentContentRef.current.size > 0) {
                 // Check if parent message is echoing a subagent's content

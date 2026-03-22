@@ -325,12 +325,12 @@ export const TurnDivider = memo(function TurnDivider({ entry }: { entry: Convers
   );
 });
 
-/** Floating intent label — shows above tool call groups */
+/** Floating intent label — shows above tool call groups, visually leads into tool cards */
 export const IntentLabel = memo(function IntentLabel({ entry }: { entry: ConversationEntry }) {
   const intent = entry.content || (entry.eventData?.arguments as Record<string, unknown>)?.intent as string | undefined;
   if (!intent) return null;
   return (
-    <Text size="xs" c="dimmed" fs="italic" ml="sm" mt={4} mb={2} data-testid="intent-label">
+    <Text size="sm" c="dimmed" fs="italic" ml="sm" mt={8} mb={0} data-testid="intent-label">
       {intent}
     </Text>
   );
@@ -365,7 +365,7 @@ export const ToolCallCard = memo(function ToolCallCard({ entry, expanded: global
   return (
     <Paper
       ml="sm"
-      p={6}
+      p={4}
       radius="sm"
       data-testid="tool-call-card"
       withBorder={isDone || isFailed}
@@ -384,7 +384,7 @@ export const ToolCallCard = memo(function ToolCallCard({ entry, expanded: global
       }}
       onClick={() => setLocalExpanded((v) => !v)}
     >
-      {/* Header: indicator + description + tag */}
+      {/* Header: indicator + tag + description */}
       <Group gap={6} wrap="nowrap">
         <Text
           size="xs"
@@ -399,11 +399,12 @@ export const ToolCallCard = memo(function ToolCallCard({ entry, expanded: global
         >
           {indicator}
         </Text>
-        <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
-          {description}
+        <Text size="xs" c="dimmed" fw={600} tt="capitalize" style={{ flexShrink: 0 }}>
+          {tag}
         </Text>
-        <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
-          ({tag})
+        <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>·</Text>
+        <Text size="xs" fw={500} truncate style={{ flex: 1 }}>
+          {description}
         </Text>
         {isFailed && (
           <Badge size="xs" color="red" variant="light">failed</Badge>
@@ -417,7 +418,7 @@ export const ToolCallCard = memo(function ToolCallCard({ entry, expanded: global
 
       {/* Detail line — dimmed italic */}
       {shortDetail && description !== detail && (
-        <Text size="xs" c="dimmed" fs="italic" ml={18} truncate>
+        <Text size="xs" c="dimmed" fs="italic" ml={18} truncate lineClamp={1}>
           {showDetail ? detail : shortDetail}
         </Text>
       )}
@@ -591,7 +592,7 @@ export const SubagentContainer = memo(function SubagentContainer({
   );
 });
 
-/** Reasoning — collapsible, no emoji */
+/** Reasoning — collapsible, italic, slightly larger to group with tool calls below */
 export const InlineReasoning = memo(function InlineReasoning({ entry, expanded: globalExpanded }: { entry: ConversationEntry; expanded?: boolean }) {
   const [localExpanded, setLocalExpanded] = useState(false);
   const showDetail = globalExpanded || localExpanded;
@@ -612,7 +613,7 @@ export const InlineReasoning = memo(function InlineReasoning({ entry, expanded: 
   const preview = content.length > 150 ? content.slice(0, 150) + "…" : content;
 
   return (
-    <Box ml="sm" data-testid="inline-reasoning">
+    <Box ml="sm" mt={4} mb={0} data-testid="inline-reasoning">
       <Group
         gap={4}
         wrap="nowrap"
@@ -622,7 +623,7 @@ export const InlineReasoning = memo(function InlineReasoning({ entry, expanded: 
         <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
           {showDetail ? "▾" : "▸"}
         </Text>
-        <Text size="xs" c="dimmed" fs="italic" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        <Text size="sm" c="dimmed" fs="italic" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
           {showDetail ? content : preview}
         </Text>
         {entry.isStreaming && <Loader size={10} type="dots" />}
