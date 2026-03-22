@@ -473,8 +473,8 @@ export const SubagentContainer = memo(function SubagentContainer({
   const indicator = isRunning ? "◌" : "●";
   const indicatorColor = isFailed ? "red" : isDone ? "green" : "dimmed";
 
-  // Default: open when running, collapsed when done/failed (unless user toggled)
-  const showInner = userToggled ?? isRunning;
+  // Default: always open (user can click to collapse)
+  const showInner = userToggled ?? true;
 
   const handleKill = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -490,6 +490,11 @@ export const SubagentContainer = memo(function SubagentContainer({
     }
     setKilling(false);
   };
+
+  // Build meta parts: model · duration
+  const metaParts: string[] = [];
+  if (model) metaParts.push(model);
+  if (duration != null) metaParts.push(`${(duration / 1000).toFixed(1)}s`);
 
   return (
     <Paper
@@ -511,9 +516,9 @@ export const SubagentContainer = memo(function SubagentContainer({
           borderLeftWidth: 3,
         } : {}),
       }}
-      onClick={() => setUserToggled((v) => !(v ?? isRunning))}
+      onClick={() => setUserToggled((v) => !(v ?? true))}
     >
-      {/* Header */}
+      {/* Header: indicator · description · model · duration */}
       <Group gap={6} wrap="nowrap">
         <Text
           size="xs"
@@ -526,17 +531,16 @@ export const SubagentContainer = memo(function SubagentContainer({
         >
           {indicator}
         </Text>
-        <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
+        <Text size="xs" fw={600} c="dimmed" tt="capitalize" style={{ flexShrink: 0 }}>
+          Agent
+        </Text>
+        <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>·</Text>
+        <Text size="xs" fw={500} truncate style={{ flex: 1 }}>
           {description}
         </Text>
-        {model && (
+        {metaParts.length > 0 && (
           <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
-            {model}
-          </Text>
-        )}
-        {isDone && duration != null && (
-          <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
-            {(duration / 1000).toFixed(1)}s
+            · {metaParts.join(" · ")}
           </Text>
         )}
         {isFailed && (
@@ -580,12 +584,18 @@ export const SubagentContainer = memo(function SubagentContainer({
             {error}
           </Text>
         )}
+        {innerEntries.length === 0 && isRunning && (
+          <Text size="xs" c="dimmed" fs="italic" ml={18} mt={4}>
+            Waiting for agent output…
+          </Text>
+        )}
       </Collapse>
 
       {/* Collapsed summary for completed agents */}
       {!showInner && innerEntries.length > 0 && (
         <Text size="xs" c="dimmed" ml={18} mt={2}>
           {innerEntries.filter((e) => e.type === "tool").length} tool calls
+          {innerEntries.some((e) => e.type === "assistant") && " · response included"}
         </Text>
       )}
     </Paper>
