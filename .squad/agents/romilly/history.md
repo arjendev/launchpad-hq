@@ -64,3 +64,19 @@
 - Historical events are authoritative for their time range — REST messages only fill timestamps BEFORE event coverage
 - Windowed rendering with scroll-to-bottom button; expands window when scrolling up
 - Integrated successfully with commit 57d821d, consuming our `52b7d8b` endpoint
+
+### Event disk persistence (commit 391af12)
+- `EventPersistence` class in `src/server/copilot-aggregator/event-persistence.ts` handles all JSONL file I/O
+- Files stored at `~/.launchpad/session-events/{sessionId}.jsonl` — one JSON object per line
+- Buffered writes: events queue in memory, flushed every 100ms or 10 events (configurable)
+- `appendEvent()` is fire-and-forget (sync call queues to buffer), `flush()` / `flushAll()` are async
+- SessionId sanitized to `[a-zA-Z0-9_-]` to prevent path traversal
+- Aggregator accepts optional `EventPersistence` via constructor — no persistence = pure in-memory (backward compatible)
+- `getEvents()` is now async (returns `Promise<PaginatedEvents>`). Lazy hydration: first call per session loads from disk via `hydrateFromDisk()`, tracked by `hydratedSessions` Set
+- `storeEvent()` appends to both in-memory log AND disk (fire-and-forget)
+- `cleanupSessionEvents(sessionId)` immediately deletes the file; `scheduleEventCleanup()` delays 30s
+- `removeSession()` and `removeDaemon()` schedule cleanup with delay so clients can load final events
+- Plugin creates `EventPersistence` in production; skips in VITEST to avoid cross-test file leaks
+- `flushEvents()` called in onClose hook to flush pending writes on shutdown
+- 17 unit tests for EventPersistence, 2 integration tests for aggregator + disk round-trip
+
