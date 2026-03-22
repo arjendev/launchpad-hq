@@ -869,3 +869,75 @@ All 15+ memo'd message renderers stay in one `ConversationMessageRenderers.tsx` 
 **By:** Brand (Frontend Dev) — Issue #76
 
 `conversation-hooks.ts` imports from `session-hooks.ts` (useSessionMessages, useSessionTools, useAggregatedSession). This one-way dependency is intentional — conversation entries are derived from session data. Dependency direction: conversation → session (never reverse).
+
+## Feature Decisions
+
+### 2025-07-24: In-Memory Event Persistence for Copilot Sessions
+**By:** Romilly (Server/Aggregator)  
+**Status:** Implemented (commit 52b7d8b)
+
+#### Context
+Raw session events (tool calls, model changes, lifecycle events) were only available via live WebSocket. Clients that disconnected lost the full timeline.
+
+#### Decision
+- All SDK session events and tool invocations are stored in-memory per session (capped at 10,000 events)
+- A paginated REST endpoint (`GET /api/copilot/aggregated/sessions/:sessionId/events`) allows clients to reconstruct the full event timeline on reconnect
+- Events are stored as-is (raw format) — the client already knows how to process them
+- Backward pagination via `before` (ISO timestamp cursor), chronological order within each page
+
+#### Implications
+- Memory usage increases proportionally with active sessions × events. The 10K cap keeps this bounded (~5–10MB per active session worst case)
+- Clients can now re-attach and load historical events instead of only seeing live events from the moment of connection
+- The `StoredEvent` type is exported from the aggregator for any future consumers
+
+### 2026-03-22: Event Processing Extraction & Windowed Rendering
+**By:** Brand (Frontend Dev)  
+**Status:** Implemented (commit 57d821d)
+
+#### Context
+The ~400-line WebSocket event handler in `conversation-hooks.ts` was the only path for converting SDK events into `ConversationEntry[]`. When a client re-attached to a session, only basic REST messages were available — all rich events (tool calls, intents, subagent activity) were lost.
+
+#### Decision
+1. **Extracted event processing** into `src/client/services/event-processor.ts` with a dual-mode processor:
+   - `processSessionEvent()` — handles one event with `"live"` or `"batch"` mode
+   - `processEventBatch()` — replays an array of historical events into entries
+   - Both modes share the same `EventProcessorRefs` cross-event state
+
+2. **New REST hook `useSessionEvents()`** — uses TanStack `useInfiniteQuery` with reverse cursor pagination against `GET /api/copilot/aggregated/sessions/:id/events`. Gracefully degrades to empty when endpoint isn't available yet.
+
+3. **Historical events are authoritative** — when loaded, REST messages only fill timestamps BEFORE the events coverage. This prevents duplicates without complex dedup.
+
+4. **Windowed rendering** — `renderCount` approach (render from tail of entries array). Scroll-up expands window; when all loaded entries are shown and `hasMore` is true, fetches older events from API.
+
+5. **Scroll-to-bottom button** — appears when user scrolls up and new messages arrive. Shows count of new messages.
+
+#### Impact
+- `conversation-hooks.ts` dropped from ~920 to ~390 lines
+- Event processing is now testable independently of React
+- Re-attaching clients will see full event history when Romilly's endpoint ships
+- No changes to existing rendering — `ConversationEntry` type unchanged
+
+### 2026-03-22: Copilot CLI Session Attach Strategy
+**By:** TARS (Daemon/SDK)  
+**Status:** Proposal (needs Arjen review)
+
+#### Context
+Arjen asked whether our daemon could attach to or observe Copilot CLI sessions already running in the devcontainer terminal.
+
+#### Findings
+The SDK already supports this. `client.listSessions()` discovers all sessions (including terminal CLI sessions) from the shared `~/.copilot/session-state/` directory. `client.resumeSession(id)` works cross-client. The SDK also supports `cliUrl` for connecting multiple clients to a shared TCP server.
+
+#### Recommended Approach
+**Phase 1 (immediate):** Classify sessions from `listSessions()` as "daemon-managed" vs "external". Expose external sessions in HQ with metadata. Allow resuming them.
+
+**Phase 2 (if needed):** Tail `events.jsonl` for live read-only observation of active terminal sessions.
+
+**Phase 3 (if needed):** Shared CLI server via TCP for full bidirectional integration.
+
+#### Impact
+- No breaking changes — additive only
+- Minimal code changes for Phase 1 (classification + UI)
+- Full report: `COPILOT_CLI_RESEARCH.md`
+
+#### Decision Needed
+Which phase(s) to pursue and priority relative to other work.

@@ -53,3 +53,14 @@
 - REST endpoint: `GET /api/copilot/aggregated/sessions/:sessionId/events` with `?before=ISO&limit=N` query params.
 - SDK event timestamps can be technically invalid ISO strings (e.g. `17:52:60` — 60 seconds). Stored timestamps prefer the raw string to avoid `RangeError` from `new Date(NaN).toISOString()`. The `getEvents()` comparisons still work because lexicographic ISO comparison handles this.
 - Event logs are cleaned up in both `removeSession()` and `removeDaemon()`, mirroring conversation history and tool invocations.
+
+### Cross-Agent Notes (2026-03-22)
+
+#### Brand's Event Processing Integration (commit 57d821d)
+- Client extracted event processing into `src/client/services/event-processor.ts` with dual-mode processor
+- `processSessionEvent()` handles live or batch mode; `processEventBatch()` replays historical events
+- Both modes share `EventProcessorRefs` state for cross-event refs (toolStarts, subagentStack, etc.)
+- `useSessionEvents()` hook uses TanStack `useInfiniteQuery` with reverse cursor pagination against our REST endpoint
+- Historical events are authoritative for their time range — REST messages only fill timestamps BEFORE event coverage
+- Windowed rendering with scroll-to-bottom button; expands window when scrolling up
+- Integrated successfully with commit 57d821d, consuming our `52b7d8b` endpoint

@@ -65,3 +65,18 @@
 - **cliUrl option is key:** `CopilotClient({ cliUrl: "localhost:PORT" })` connects to existing server without spawning. Combined with `--headless --port N`, enables shared server architecture.
 - **Lock files indicate active sessions:** `inuse.{PID}.lock` files in session dirs map PIDs to sessions. Multiple PIDs can hold locks simultaneously.
 - **Research report:** Full findings in `COPILOT_CLI_RESEARCH.md` at repo root.
+
+### Cross-Agent Notes (2026-03-22)
+
+#### Romilly's Event Persistence Infrastructure (commit 52b7d8b)
+- Aggregator now stores all raw session events in-memory (`eventLogs: Map<string, StoredEvent[]>`)
+- Capped at 10,000 events per session (~5–10MB worst case)
+- REST endpoint: `GET /api/copilot/aggregated/sessions/:sessionId/events?before=ISO&limit=N`
+- Backward pagination via ISO timestamp cursor; chronological order within pages
+- Foundation for Phase 1 of CLI attach strategy: external sessions will be discoverable + resumable via same API
+
+#### Brand's Event Processing Integration (commit 57d821d)
+- Client-side `useSessionEvents()` hook consumes Romilly's REST API with reverse cursor pagination
+- Dual-mode event processor supports replaying historical events on client re-attachment
+- Windowed rendering with scroll-to-bottom for better UX during pagination
+- Ready to integrate Phase 1 external session discovery once approved

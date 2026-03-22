@@ -60,3 +60,13 @@ Current channels in `ws-types.ts`: daemon, copilot, devcontainer, workflow, prev
 - The test fetch mock for `CopilotConversation` must exclude `/events` in the session-detail URL matcher (alongside `/messages`, `/tools`, etc.).
 - Windowed rendering uses a `renderCount` approach (render from tail) rather than `visibleStartIndex` — simpler to reason about when entries grow at both ends.
 - Mantine's `Transition` component is used for the scroll-to-bottom button animation. `ActionIcon` with `position: sticky` inside `ScrollArea` gives a nice floating effect.
+
+### Cross-Agent Notes (2026-03-22)
+
+#### Romilly's Event Persistence API (commit 52b7d8b)
+- REST endpoint shape: `GET /api/copilot/aggregated/sessions/:sessionId/events?before=ISO&limit=N`
+- Returns events in chronological order within each page
+- Backward pagination via `before` (ISO timestamp cursor)
+- Events stored as-is in raw SDK format, capped at 10,000 per session (~5–10MB worst case)
+- `StoredEvent` type exported from aggregator
+- Cleanup happens on `removeSession()` and `removeDaemon()`
