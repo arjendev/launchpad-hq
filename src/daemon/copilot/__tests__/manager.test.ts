@@ -888,7 +888,7 @@ describe('CopilotManager', () => {
   // -----------------------------------------------------------------------
 
   describe('handleMessage: copilot-abort-session', () => {
-    it('aborts an active session and emits session.idle', async () => {
+    it('aborts an active session without sending a synthetic session.idle (SDK fires its own)', async () => {
       await manager.start();
 
       await manager.handleMessage({
@@ -911,13 +911,15 @@ describe('CopilotManager', () => {
         payload: { sessionId },
       });
 
+      // handleAbort must NOT send a synthetic session.idle — the SDK fires a
+      // natural one which trackSession() forwards.  Sending both caused the
+      // UI to render "idle" twice.
       const idleEvent = sent.find(
         (m) =>
           m.type === 'copilot-session-event' &&
           m.payload.event.type === 'session.idle',
       );
-      expect(idleEvent).toBeDefined();
-      expect(idleEvent!.payload.sessionId).toBe(sessionId);
+      expect(idleEvent).toBeUndefined();
     });
 
     it('keeps session in activeSessions after abort (resumable)', async () => {

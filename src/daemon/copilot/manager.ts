@@ -558,27 +558,17 @@ export class CopilotManager {
   }
 
   private async handleAbort(sessionId: string): Promise<void> {
-    await withSpan('copilot.abort_session', { 'session.id': sessionId }, async (span) => {
+    await withSpan('copilot.abort_session', { 'session.id': sessionId }, async () => {
     const session = this.activeSessions.get(sessionId);
     if (session) {
       await session.abort();
       logSdk(`Session aborted (turn cancelled): ${sessionId}`);
     }
-
-    const traceparent = injectTraceContextFrom(makeSpanContext(span));
-    this.sendToHq({
-      type: 'copilot-session-event',
-      timestamp: Date.now(),
-      ...(traceparent ? { traceparent } : {}),
-      payload: {
-        projectId: this.projectId,
-        sessionId,
-        event: syntheticEvent('session.idle', {
-          sessionId,
-          reason: 'aborted',
-        }),
-      },
-    });
+    // No synthetic session.idle here — the SDK fires a natural session.idle
+    // after abort which trackSession() forwards to HQ.  Sending a synthetic
+    // event on top of that caused the UI to render "idle" twice.
+    // (Compare with handleDisconnect which *does* need a synthetic event
+    // because it unsubscribes the listener before the SDK can fire.)
     });
   }
 
