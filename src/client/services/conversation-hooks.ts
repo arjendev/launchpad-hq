@@ -342,10 +342,12 @@ export function useConversationEntries(sessionId: string | null): {
           }
 
           case "tool.execution_start": {
-            const toolData = event.data as { toolCallId?: string; toolName?: string; arguments?: Record<string, unknown> };
+            const toolData = event.data as { toolCallId?: string; toolName?: string; arguments?: Record<string, unknown>; parentToolCallId?: string };
             const tName = toolData.toolName ?? "tool";
             const tArgs = toolData.arguments;
             const tCallId = toolData.toolCallId;
+            // parentToolCallId links inner events to their subagent container
+            const parentTool = toolData.parentToolCallId;
 
             // Hide agent infrastructure tools — they are plumbing, not interesting
             const INFRA_TOOLS = new Set(["read_agent", "write_agent", "list_agents", "stop_bash"]);
@@ -369,22 +371,41 @@ export function useConversationEntries(sessionId: string | null): {
             const desc = toolDescription(tName, tArgs);
             const detail = toolDetail(tName, tArgs);
 
+            // Determine the owning subagent container: explicit parentToolCallId
+            // takes precedence over the temporal stack
+            const owningSubagent = parentTool ?? subagentStackRef.current[subagentStackRef.current.length - 1];
+
             // Handle report_intent specially — update intent ref and emit as intent entry
             if (tName === "report_intent") {
               const intent = tArgs?.intent as string | undefined;
               if (intent) currentIntentRef.current = intent;
-              setRealtimeEntries((prev) => [
-                ...prev,
-                {
-                  id: `rt-intent-${ts}`,
-                  type: "event" as const,
-                  content: intent ?? "",
-                  timestamp: ts,
-                  eventType: "report_intent",
-                  toolCallId: tCallId,
-                  eventData: event.data as Record<string, unknown>,
-                },
-              ]);
+              const intentEntry: ConversationEntry = {
+                id: `rt-intent-${ts}`,
+                type: "event" as const,
+                content: intent ?? "",
+                timestamp: ts,
+                eventType: "report_intent",
+                toolCallId: tCallId,
+                eventData: event.data as Record<string, unknown>,
+              };
+              // Route intent into subagent container if inside one
+              if (owningSubagent) {
+                setRealtimeEntries((prev) => {
+                  const updated = [...prev];
+                  const containerIdx = updated.findIndex(
+                    (e) => e.toolCallId === owningSubagent && e.toolTag === "agent",
+                  );
+                  if (containerIdx >= 0) {
+                    const container = { ...updated[containerIdx] };
+                    container.subagentEntries = [...(container.subagentEntries ?? []), intentEntry];
+                    updated[containerIdx] = container;
+                    return updated;
+                  }
+                  return [...prev, intentEntry];
+                });
+              } else {
+                setRealtimeEntries((prev) => [...prev, intentEntry]);
+              }
               break;
             }
 
@@ -404,12 +425,11 @@ export function useConversationEntries(sessionId: string | null): {
             };
 
             // If inside a subagent, add to the container's inner entries
-            const activeSubagent = subagentStackRef.current[subagentStackRef.current.length - 1];
-            if (activeSubagent && tName !== "task") {
+            if (owningSubagent && tName !== "task") {
               setRealtimeEntries((prev) => {
                 const updated = [...prev];
                 const containerIdx = updated.findIndex(
-                  (e) => e.toolCallId === activeSubagent && e.toolTag === "agent",
+                  (e) => e.toolCallId === owningSubagent && e.toolTag === "agent",
                 );
                 if (containerIdx >= 0) {
                   const container = { ...updated[containerIdx] };
@@ -427,11 +447,12 @@ export function useConversationEntries(sessionId: string | null): {
           }
 
           case "tool.execution_complete": {
-            const completeData = event.data as { toolCallId?: string; toolName?: string; success?: boolean; result?: { content?: string; detailedContent?: string } };
+            const completeData = event.data as { toolCallId?: string; toolName?: string; success?: boolean; result?: { content?: string; detailedContent?: string }; parentToolCallId?: string };
             const cCallId = completeData.toolCallId;
             // Look up original args from the start event
             const origArgs = cCallId ? toolStartsRef.current.get(cCallId) : undefined;
             const cToolName = completeData.toolName ?? "tool";
+            const cParentTool = completeData.parentToolCallId;
 
             // Skip infrastructure tools (read_agent, etc.) — never rendered
             if (origArgs && (origArgs as Record<string, unknown>)._infraTool) {
@@ -443,8 +464,10 @@ export function useConversationEntries(sessionId: string | null): {
               break;
             }
 
-            // For `task` tool completions: just update the subagent container status,
-            // don't show the result as a separate tool card (it's already inside the container)
+            // For `task` tool completions: update toolStatus but NOT subagentStatus.
+            // The task tool returns immediately for background agents ("Agent started
+            // in background") — the actual subagent lifecycle is tracked via
+            // subagent.started / subagent.completed / subagent.failed events.
             if (cToolName === "task" && cCallId) {
               setRealtimeEntries((prev) => {
                 const updated = [...prev];
@@ -453,11 +476,8 @@ export function useConversationEntries(sessionId: string | null): {
                 );
                 if (containerIdx >= 0) {
                   const container = { ...updated[containerIdx] };
-                  // Mark done if not already (subagent.completed might have already set it)
-                  if (container.subagentStatus === "running") {
-                    container.subagentStatus = completeData.success ? "done" : "failed";
-                  }
                   container.toolStatus = completeData.success ? "completed" : "failed";
+                  // Don't touch subagentStatus — subagent.completed handles that
                   updated[containerIdx] = container;
                   return updated;
                 }
@@ -524,12 +544,13 @@ export function useConversationEntries(sessionId: string | null): {
             };
 
             // Check if this completion belongs to a subagent container
-            const activeSubagent = subagentStackRef.current[subagentStackRef.current.length - 1];
-            if (activeSubagent && cCallId !== activeSubagent) {
+            // (explicit parentToolCallId takes precedence over temporal stack)
+            const completeOwner = cParentTool ?? subagentStackRef.current[subagentStackRef.current.length - 1];
+            if (completeOwner && cCallId !== completeOwner) {
               setRealtimeEntries((prev) => {
                 const updated = [...prev];
                 const containerIdx = updated.findIndex(
-                  (e) => e.toolCallId === activeSubagent && e.toolTag === "agent",
+                  (e) => e.toolCallId === completeOwner && e.toolTag === "agent",
                 );
                 if (containerIdx >= 0) {
                   const container = { ...updated[containerIdx] };
@@ -837,13 +858,34 @@ export function useConversationEntries(sessionId: string | null): {
 
     // 3. Add realtime entries, deduplicating against REST data and within
     //    realtime itself (guards against duplicate daemon event forwarding).
+    //    Only dedup user/assistant entries by timestamp — tool/event/hq-tool
+    //    entries often share a timestamp with the assistant.message that
+    //    requested them and must NOT be filtered (e.g. SubagentContainer).
     const seenIds = new Set(result.map((e) => e.id));
     const restTimestamps = new Set(result.map((e) => e.timestamp));
     for (const entry of realtimeEntries) {
       if (seenIds.has(entry.id)) continue;
-      if (restTimestamps.has(entry.timestamp)) continue;
+      if ((entry.type === "user" || entry.type === "assistant") && restTimestamps.has(entry.timestamp)) continue;
       seenIds.add(entry.id);
       result.push(entry);
+    }
+
+    // 3b. Filter REST-sourced subagent messages when a container already holds them
+    //     (REST stores assistant.message events for subagents; the container's
+    //     subagentEntries already includes them — rendering both is a duplicate).
+    const containerParentIds = new Set(
+      realtimeEntries
+        .filter((e) => e.toolTag === "agent" && (e.subagentEntries?.length ?? 0) > 0)
+        .map((e) => e.toolCallId),
+    );
+    if (containerParentIds.size > 0) {
+      const filtered = result.filter((e) => {
+        if (e.type !== "assistant") return true;
+        const ptc = (e.eventData as Record<string, unknown> | undefined)?.parentToolCallId as string | undefined;
+        return !ptc || !containerParentIds.has(ptc);
+      });
+      result.length = 0;
+      result.push(...filtered);
     }
 
     // 4. Add streaming entry if present
