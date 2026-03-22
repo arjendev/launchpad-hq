@@ -11,6 +11,7 @@ import {
   useSessionTools,
   useAggregatedSession,
 } from "./session-hooks.js";
+import { toolTag, toolDescription, toolDetail } from "./tool-tags.js";
 
 /**
  * Merges REST messages + real-time WebSocket events into a unified
@@ -170,6 +171,12 @@ export function useConversationEntries(sessionId: string | null): {
   // Track the selected main agent name (from subagent.selected)
   const mainAgentNameRef = useRef<string | null>(null);
 
+  // Subagent stack: toolCallIds of active subagent containers (for temporal containment)
+  const subagentStackRef = useRef<string[]>([]);
+
+  // Current intent label from report_intent (for grouping tool calls)
+  const currentIntentRef = useRef<string | null>(null);
+
   // Subscribe directly to WebSocket copilot channel to avoid event batching loss.
   // Using useSubscription (which stores only the latest event in useState) causes
   // React 18 to batch rapid SDK events, losing intermediate assistant replies.
@@ -243,17 +250,17 @@ export function useConversationEntries(sessionId: string | null): {
             // Capture usage metadata from the preceding assistant.usage event
             const usageMeta = lastUsageRef.current;
             lastUsageRef.current = null;
+            // Clear intent on assistant message (tool group ended)
+            currentIntentRef.current = null;
             // Skip messages with only whitespace content — these are tool-request-only
             // messages where the SDK wraps toolRequests in a near-empty assistant.message.
             if (content.trim()) {
               const eData: Record<string, unknown> = {};
               if (msgData.parentToolCallId) {
                 eData.parentToolCallId = msgData.parentToolCallId;
-                // Look up the subagent display name from the task tool description
                 const subName = subagentNamesRef.current.get(msgData.parentToolCallId);
                 if (subName) eData.subagentName = subName;
               } else {
-                // Main agent message — attach the agent display name
                 if (mainAgentNameRef.current) eData.agentName = mainAgentNameRef.current;
               }
               if (usageMeta) {
@@ -263,16 +270,34 @@ export function useConversationEntries(sessionId: string | null): {
                 eData.outputTokens = usageMeta.outputTokens;
                 eData.initiator = usageMeta.initiator;
               }
-              setRealtimeEntries((prev) => [
-                ...prev,
-                {
-                  id: `rt-asst-${ts}`,
-                  type: "assistant",
-                  content: content.trim(),
-                  timestamp: ts,
-                  ...(Object.keys(eData).length > 0 ? { eventData: eData } : {}),
-                },
-              ]);
+
+              const asstEntry: ConversationEntry = {
+                id: `rt-asst-${ts}`,
+                type: "assistant",
+                content: content.trim(),
+                timestamp: ts,
+                ...(Object.keys(eData).length > 0 ? { eventData: eData } : {}),
+              };
+
+              // Route subagent messages into container
+              const parentSub = msgData.parentToolCallId ?? subagentStackRef.current[subagentStackRef.current.length - 1];
+              if (parentSub) {
+                setRealtimeEntries((prev) => {
+                  const updated = [...prev];
+                  const containerIdx = updated.findIndex(
+                    (e) => e.toolCallId === parentSub && e.toolTag === "agent",
+                  );
+                  if (containerIdx >= 0) {
+                    const container = { ...updated[containerIdx] };
+                    container.subagentEntries = [...(container.subagentEntries ?? []), asstEntry];
+                    updated[containerIdx] = container;
+                    return updated;
+                  }
+                  return [...prev, asstEntry];
+                });
+              } else {
+                setRealtimeEntries((prev) => [...prev, asstEntry]);
+              }
             }
             void qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
             break;
@@ -280,83 +305,173 @@ export function useConversationEntries(sessionId: string | null): {
 
           case "tool.execution_start": {
             const toolData = event.data as { toolCallId?: string; toolName?: string; arguments?: Record<string, unknown> };
+            const tName = toolData.toolName ?? "tool";
+            const tArgs = toolData.arguments;
+            const tCallId = toolData.toolCallId;
             // Save args for correlation with completion
-            if (toolData.toolCallId) {
-              toolStartsRef.current.set(toolData.toolCallId, toolData.arguments ?? {});
+            if (tCallId) {
+              toolStartsRef.current.set(tCallId, tArgs ?? {});
             }
             // Extract description for task tools to use as subagent display name
-            if (toolData.toolName === "task" && toolData.toolCallId) {
-              const desc = toolData.arguments?.description as string | undefined;
-              if (desc) subagentNamesRef.current.set(toolData.toolCallId, desc);
+            if (tName === "task" && tCallId) {
+              const desc = tArgs?.description as string | undefined;
+              if (desc) subagentNamesRef.current.set(tCallId, desc);
             }
-            setRealtimeEntries((prev) => [
-              ...prev,
-              {
-                id: `rt-tool-${ts}`,
-                type: "tool",
-                content: toolData.toolName ?? "",
-                toolName: toolData.toolName,
-                toolStatus: "running",
-                timestamp: ts,
-                eventData: event.data as Record<string, unknown>,
-              },
-            ]);
+
+            const tag = toolTag(tName, tArgs);
+            const desc = toolDescription(tName, tArgs);
+            const detail = toolDetail(tName, tArgs);
+
+            // Handle report_intent specially — update intent ref and emit as intent entry
+            if (tName === "report_intent") {
+              const intent = tArgs?.intent as string | undefined;
+              if (intent) currentIntentRef.current = intent;
+              setRealtimeEntries((prev) => [
+                ...prev,
+                {
+                  id: `rt-intent-${ts}`,
+                  type: "event" as const,
+                  content: intent ?? "",
+                  timestamp: ts,
+                  eventType: "report_intent",
+                  toolCallId: tCallId,
+                  eventData: event.data as Record<string, unknown>,
+                },
+              ]);
+              break;
+            }
+
+            const toolEntry: ConversationEntry = {
+              id: `rt-tool-${tCallId ?? ts}`,
+              type: "tool",
+              content: tName,
+              toolName: tName,
+              toolStatus: "running",
+              timestamp: ts,
+              toolCallId: tCallId,
+              toolTag: tag,
+              toolDescription: desc,
+              toolDetail: detail,
+              intentLabel: currentIntentRef.current ?? undefined,
+              eventData: event.data as Record<string, unknown>,
+            };
+
+            // If inside a subagent, add to the container's inner entries
+            const activeSubagent = subagentStackRef.current[subagentStackRef.current.length - 1];
+            if (activeSubagent && tName !== "task") {
+              setRealtimeEntries((prev) => {
+                const updated = [...prev];
+                const containerIdx = updated.findIndex(
+                  (e) => e.toolCallId === activeSubagent && e.toolTag === "agent",
+                );
+                if (containerIdx >= 0) {
+                  const container = { ...updated[containerIdx] };
+                  container.subagentEntries = [...(container.subagentEntries ?? []), toolEntry];
+                  updated[containerIdx] = container;
+                  return updated;
+                }
+                // Fallback: add as top-level
+                return [...prev, toolEntry];
+              });
+            } else {
+              setRealtimeEntries((prev) => [...prev, toolEntry]);
+            }
             break;
           }
 
           case "tool.execution_complete": {
-            const completeData = event.data as { toolCallId?: string; success?: boolean; result?: { content?: string; detailedContent?: string } };
+            const completeData = event.data as { toolCallId?: string; toolName?: string; success?: boolean; result?: { content?: string; detailedContent?: string } };
+            const cCallId = completeData.toolCallId;
             // Look up original args from the start event
-            const origArgs = completeData.toolCallId ? toolStartsRef.current.get(completeData.toolCallId) : undefined;
-            setRealtimeEntries((prev) => {
-              const idx = [...prev]
-                .reverse()
-                .findIndex((e) => e.type === "tool" && e.toolStatus === "running");
+            const origArgs = cCallId ? toolStartsRef.current.get(cCallId) : undefined;
+            const cToolName = completeData.toolName ?? (origArgs as Record<string, unknown> | undefined)?.toolName as string ?? "tool";
+
+            // Skip report_intent completions entirely
+            if (cToolName === "report_intent" || completeData.result?.content === "Intent logged") {
+              break;
+            }
+
+            const tag = origArgs ? toolTag(cToolName, origArgs) : undefined;
+            const desc = origArgs ? toolDescription(cToolName, origArgs) : undefined;
+            const detail = origArgs ? toolDetail(cToolName, origArgs) : undefined;
+            const resultContent = completeData.result?.content ?? "";
+
+            // Helper to update a matching running tool entry in an array
+            const updateInArray = (entries: ConversationEntry[]): ConversationEntry[] => {
+              // Try to find by toolCallId first, then fall back to reverse search for running
+              let idx = cCallId
+                ? entries.findIndex((e) => e.toolCallId === cCallId && e.type === "tool")
+                : -1;
+              if (idx < 0) {
+                idx = [...entries].reverse().findIndex((e) => e.type === "tool" && e.toolStatus === "running");
+                if (idx >= 0) idx = entries.length - 1 - idx;
+              }
               if (idx >= 0) {
-                const realIdx = prev.length - 1 - idx;
-                const updated = [...prev];
-                updated[realIdx] = {
-                  ...updated[realIdx],
+                const updated = [...entries];
+                updated[idx] = {
+                  ...updated[idx],
                   toolStatus: completeData.success ? "completed" : "failed",
-                  content: completeData.result?.content ?? updated[realIdx].content,
+                  content: resultContent || updated[idx].content,
+                  toolResult: resultContent,
+                  ...(tag && !updated[idx].toolTag ? { toolTag: tag } : {}),
+                  ...(desc && !updated[idx].toolDescription ? { toolDescription: desc } : {}),
+                  ...(detail && !updated[idx].toolDetail ? { toolDetail: detail } : {}),
                   eventData: {
-                    ...updated[realIdx].eventData,
+                    ...updated[idx].eventData,
                     ...event.data as Record<string, unknown>,
                     ...(origArgs ? { originalArguments: origArgs } : {}),
                   },
                 };
                 return updated;
               }
+              // No matching start — add as standalone completion
               return [
-                ...prev,
+                ...entries,
                 {
                   id: `rt-toolcomplete-${ts}`,
-                  type: "tool",
-                  content: completeData.result?.content ?? "",
-                  toolName: "tool",
-                  toolStatus: completeData.success ? "completed" : "failed",
+                  type: "tool" as const,
+                  content: resultContent,
+                  toolName: cToolName,
+                  toolStatus: (completeData.success ? "completed" : "failed") as "completed" | "failed",
                   timestamp: ts,
+                  toolCallId: cCallId,
+                  toolTag: tag,
+                  toolDescription: desc,
+                  toolDetail: detail,
+                  toolResult: resultContent,
                   eventData: {
                     ...event.data as Record<string, unknown>,
                     ...(origArgs ? { originalArguments: origArgs } : {}),
                   },
                 },
               ];
-            });
+            };
+
+            // Check if this completion belongs to a subagent container
+            const activeSubagent = subagentStackRef.current[subagentStackRef.current.length - 1];
+            if (activeSubagent && cCallId !== activeSubagent) {
+              setRealtimeEntries((prev) => {
+                const updated = [...prev];
+                const containerIdx = updated.findIndex(
+                  (e) => e.toolCallId === activeSubagent && e.toolTag === "agent",
+                );
+                if (containerIdx >= 0) {
+                  const container = { ...updated[containerIdx] };
+                  container.subagentEntries = updateInArray(container.subagentEntries ?? []);
+                  updated[containerIdx] = container;
+                  return updated;
+                }
+                // Fallback: update top-level
+                return updateInArray(prev);
+              });
+            } else {
+              setRealtimeEntries((prev) => updateInArray(prev));
+            }
             break;
           }
 
           case "session.idle":
-            setRealtimeEntries((prev) => [
-              ...prev,
-              {
-                id: `rt-idle-${ts}`,
-                type: "status",
-                content: "Session idle",
-                timestamp: ts,
-              },
-            ]);
-            // Refresh session status so isProcessing updates immediately
+            // Don't render idle as a conversation entry — just refresh session status
             void qc.invalidateQueries({ queryKey: ["aggregated-session", sessionId] });
             break;
 
@@ -406,7 +521,7 @@ export function useConversationEntries(sessionId: string | null): {
             break;
 
           case "assistant.usage": {
-            const ud = event.data as { model?: string; duration?: number; inputTokens?: number; outputTokens?: number; initiator?: string };
+            const ud = event.data as { model?: string; duration?: number; inputTokens?: number; outputTokens?: number; initiator?: string; parentToolCallId?: string };
             lastUsageRef.current = {
               model: ud.model ?? "",
               duration: ud.duration ?? 0,
@@ -414,39 +529,106 @@ export function useConversationEntries(sessionId: string | null): {
               outputTokens: ud.outputTokens ?? 0,
               initiator: ud.initiator ?? "",
             };
-            // Still emit as event entry for the inline renderer
-            setRealtimeEntries((prev) => [
-              ...prev,
-              {
-                id: `rt-evt-${event.type}-${ts}`,
-                type: "event" as const,
-                content: formatEventContent(event.type, event.data as Record<string, unknown>),
-                timestamp: ts,
-                eventType: event.type,
-                eventData: event.data as Record<string, unknown>,
-              },
-            ]);
+            // If inside a subagent, attach model info to the container
+            const usageSubagent = ud.parentToolCallId ?? subagentStackRef.current[subagentStackRef.current.length - 1];
+            if (usageSubagent) {
+              setRealtimeEntries((prev) => {
+                const updated = [...prev];
+                const containerIdx = updated.findIndex(
+                  (e) => e.toolCallId === usageSubagent && e.toolTag === "agent",
+                );
+                if (containerIdx >= 0) {
+                  const container = { ...updated[containerIdx] };
+                  container.subagentModel = ud.model;
+                  if (ud.duration) container.subagentDuration = ud.duration;
+                  updated[containerIdx] = container;
+                  return updated;
+                }
+                return prev;
+              });
+            }
+            // Absorbed into assistant message — no separate entry
             break;
           }
 
           case "subagent.selected": {
-            // Track the main agent's display name
+            // Track the main agent's display name — hidden from conversation
             const selData = event.data as { agentDisplayName?: string; agentName?: string };
             mainAgentNameRef.current = selData.agentDisplayName ?? selData.agentName ?? null;
-            // Invalidate the agent dropdown query so it refreshes
             void qc.invalidateQueries({ queryKey: ["session-agent", sessionId] });
-            // Emit as event entry
-            setRealtimeEntries((prev) => [
-              ...prev,
-              {
-                id: `rt-evt-${event.type}-${ts}`,
-                type: "event" as const,
-                content: formatEventContent(event.type, event.data as Record<string, unknown>),
-                timestamp: ts,
-                eventType: event.type,
-                eventData: event.data as Record<string, unknown>,
-              },
-            ]);
+            break;
+          }
+
+          case "subagent.started": {
+            // Push onto subagent stack for temporal containment
+            const startData = event.data as { toolCallId?: string; agentDisplayName?: string; agentName?: string };
+            const subCallId = startData.toolCallId;
+            if (subCallId) {
+              subagentStackRef.current = [...subagentStackRef.current, subCallId];
+              // Find the matching task tool entry and mark it as a subagent container
+              setRealtimeEntries((prev) => {
+                const updated = [...prev];
+                const idx = updated.findIndex((e) => e.toolCallId === subCallId && e.toolTag === "agent");
+                if (idx >= 0) {
+                  updated[idx] = {
+                    ...updated[idx],
+                    subagentStatus: "running",
+                    subagentEntries: updated[idx].subagentEntries ?? [],
+                    eventData: {
+                      ...updated[idx].eventData,
+                      agentDisplayName: startData.agentDisplayName,
+                      agentName: startData.agentName,
+                    },
+                  };
+                }
+                return updated;
+              });
+            }
+            break;
+          }
+
+          case "subagent.completed": {
+            // Pop from subagent stack
+            const compData = event.data as { toolCallId?: string };
+            const compCallId = compData.toolCallId;
+            if (compCallId) {
+              subagentStackRef.current = subagentStackRef.current.filter((id) => id !== compCallId);
+              setRealtimeEntries((prev) => {
+                const updated = [...prev];
+                const idx = updated.findIndex((e) => e.toolCallId === compCallId && e.toolTag === "agent");
+                if (idx >= 0) {
+                  updated[idx] = {
+                    ...updated[idx],
+                    subagentStatus: "done",
+                  };
+                }
+                return updated;
+              });
+            }
+            break;
+          }
+
+          case "subagent.failed": {
+            const failData = event.data as { toolCallId?: string; error?: string };
+            const failCallId = failData.toolCallId;
+            if (failCallId) {
+              subagentStackRef.current = subagentStackRef.current.filter((id) => id !== failCallId);
+              setRealtimeEntries((prev) => {
+                const updated = [...prev];
+                const idx = updated.findIndex((e) => e.toolCallId === failCallId && e.toolTag === "agent");
+                if (idx >= 0) {
+                  updated[idx] = {
+                    ...updated[idx],
+                    subagentStatus: "failed",
+                    eventData: {
+                      ...updated[idx].eventData,
+                      error: failData.error,
+                    },
+                  };
+                }
+                return updated;
+              });
+            }
             break;
           }
 
@@ -527,6 +709,8 @@ export function useConversationEntries(sessionId: string | null): {
       toolStartsRef.current.clear();
       subagentNamesRef.current.clear();
       mainAgentNameRef.current = null;
+      subagentStackRef.current = [];
+      currentIntentRef.current = null;
       setQueuedMessage(null);
       setSteeringMessage(null);
       if (steeringTimerRef.current) clearTimeout(steeringTimerRef.current);

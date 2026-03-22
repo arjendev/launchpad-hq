@@ -356,6 +356,22 @@ export interface ConversationEntry {
   isStreaming?: boolean;
   eventType?: string;
   eventData?: Record<string, unknown>;
+
+  // ── Tool call lifecycle (unified start + complete) ──
+  toolCallId?: string;
+  toolTag?: string;
+  toolDescription?: string;
+  toolDetail?: string;
+  toolResult?: string;
+
+  // ── Subagent container ──
+  subagentEntries?: ConversationEntry[];
+  subagentStatus?: "running" | "done" | "failed" | "killed";
+  subagentModel?: string;
+  subagentDuration?: number;
+
+  // ── Intent grouping ──
+  intentLabel?: string;
 }
 
 // ── Copilot session types (match server copilot/types.ts) ────

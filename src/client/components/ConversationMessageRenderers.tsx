@@ -1,5 +1,6 @@
 import { memo, useState } from "react";
 import {
+  ActionIcon,
   Badge,
   Box,
   Button,
@@ -19,10 +20,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 
 // ── Individual message components (memoized) ───────────
 
-export const UserMessage = memo(function UserMessage({ entry, expanded }: { entry: ConversationEntry; expanded?: boolean }) {
-  const [showTransformed, setShowTransformed] = useState(false);
-  const transformedContent = entry.eventData?.transformedContent as string | undefined;
-
+export const UserMessage = memo(function UserMessage({ entry }: { entry: ConversationEntry }) {
   return (
     <Group justify="flex-end" data-testid="user-message">
       <Paper
@@ -37,22 +35,6 @@ export const UserMessage = memo(function UserMessage({ entry, expanded }: { entr
         <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
           {entry.content}
         </Text>
-        {expanded && transformedContent && (
-          <Box mt={4}>
-            <Text
-              size="xs"
-              style={{ cursor: "pointer", opacity: 0.7 }}
-              onClick={() => setShowTransformed((v) => !v)}
-            >
-              {showTransformed ? "▲ Hide" : "▼ Show"} transformed content ({(transformedContent.length / 1024).toFixed(1)}KB)
-            </Text>
-            <Collapse in={showTransformed}>
-              <Code block style={{ fontSize: 10, maxHeight: 300, overflow: "auto", marginTop: 4, color: "#fff", backgroundColor: "rgba(0,0,0,0.3)", whiteSpace: "pre-wrap" }}>
-                {transformedContent}
-              </Code>
-            </Collapse>
-          </Box>
-        )}
       </Paper>
     </Group>
   );
@@ -70,14 +52,17 @@ export const AssistantMessage = memo(function AssistantMessage({
   const isSubagentMessage = !!parentToolCallId;
   const model = data.model as string | undefined;
   const duration = data.duration as number | undefined;
-  const inputTokens = data.inputTokens as number | undefined;
-  const outputTokens = data.outputTokens as number | undefined;
-  const initiator = data.initiator as string | undefined;
   const subagentName = data.subagentName as string | undefined;
   const mainAgentName = data.agentName as string | undefined;
+  const initiator = data.initiator as string | undefined;
   const agentLabel = isSubagentMessage
     ? (subagentName ?? "Sub-agent")
     : (mainAgentName ?? (initiator === "agent" ? "Agent" : undefined));
+
+  const metaParts: string[] = [];
+  if (agentLabel) metaParts.push(agentLabel);
+  if (model) metaParts.push(model);
+  if (duration != null) metaParts.push(`${(duration / 1000).toFixed(1)}s`);
 
   return (
     <Group justify="flex-start" data-testid="assistant-message">
@@ -93,20 +78,10 @@ export const AssistantMessage = memo(function AssistantMessage({
           } : {}),
         }}
       >
-        {/* Agent name + model annotation */}
-        {(agentLabel || model) && (
-          <Group gap={4} mb={2}>
-            {agentLabel && (
-              <Text size="xs" c={isSubagentMessage ? "violet" : "dimmed"} fw={500}>
-                🤖 {agentLabel}
-              </Text>
-            )}
-            {model && (
-              <Text size="xs" c="dimmed">
-                · {model}
-              </Text>
-            )}
-          </Group>
+        {metaParts.length > 0 && (
+          <Text size="xs" c="dimmed" mb={2}>
+            {metaParts.join(" · ")}
+          </Text>
         )}
         {entry.content.trim() && (
           <MarkdownContent content={entry.content} />
@@ -121,26 +96,16 @@ export const AssistantMessage = memo(function AssistantMessage({
             )}
           </Group>
         )}
-        {/* Timing annotation */}
-        {duration != null && (
-          <Text size="xs" c="dimmed" mt={2}>
-            ⏱ {(duration / 1000).toFixed(1)}s
-            {inputTokens != null ? ` · ${inputTokens.toLocaleString()} in` : ""}
-            {outputTokens != null ? ` / ${outputTokens.toLocaleString()} out` : ""}
-          </Text>
-        )}
       </Paper>
     </Group>
   );
 });
 
 export const HqToolCard = memo(function HqToolCard({ entry }: { entry: ConversationEntry }) {
-  const toolEmoji =
-    entry.hqToolName === "report_progress"
-      ? "📊"
-      : entry.hqToolName === "request_human_review"
-        ? "👁️"
-        : "🚫";
+  const name = entry.hqToolName ?? "tool";
+  const isBlocker = name === "report_blocker";
+  const isReview = name === "request_human_review";
+  const label = isBlocker ? "Blocked" : isReview ? "Review requested" : "Progress";
 
   const summary = entry.hqToolArgs
     ? Object.entries(entry.hqToolArgs)
@@ -153,19 +118,20 @@ export const HqToolCard = memo(function HqToolCard({ entry }: { entry: Conversat
       <Paper
         p="xs"
         radius="sm"
+        withBorder
         style={{
           maxWidth: "80%",
-          backgroundColor: "var(--lp-warning)",
-          color: "#000",
-          opacity: 0.95,
+          borderColor: isBlocker
+            ? "var(--mantine-color-red-4)"
+            : isReview
+              ? "var(--mantine-color-blue-4)"
+              : "var(--mantine-color-gray-4)",
+          ...(isBlocker ? { backgroundColor: "var(--mantine-color-red-0)" } : {}),
         }}
       >
-        <Group gap="xs" wrap="nowrap">
-          <Text size="sm">{toolEmoji}</Text>
-          <Text size="sm" fw={600}>
-            {entry.hqToolName}
-          </Text>
-        </Group>
+        <Text size="sm" fw={600}>
+          {label}
+        </Text>
         {summary && (
           <Text size="xs" mt={2} style={{ whiteSpace: "pre-wrap" }}>
             {summary}
@@ -173,21 +139,6 @@ export const HqToolCard = memo(function HqToolCard({ entry }: { entry: Conversat
         )}
       </Paper>
     </Group>
-  );
-});
-
-export const StatusDivider = memo(function StatusDivider({
-  entry,
-}: {
-  entry: ConversationEntry;
-}) {
-  return (
-    <Divider
-      label={entry.content}
-      labelPosition="center"
-      color="dimmed"
-      data-testid="status-divider"
-    />
   );
 });
 
@@ -207,7 +158,7 @@ export const ErrorBanner = memo(function ErrorBanner({
       }}
     >
       <Text size="sm" fw={500}>
-        ⚠ {entry.content}
+        ▲ {entry.content}
       </Text>
     </Paper>
   );
@@ -241,7 +192,7 @@ export const PermissionRequestCard = memo(function PermissionRequestCard({
     <Paper withBorder p="xs" radius="sm" style={{ borderColor: "var(--mantine-color-yellow-4)", borderStyle: "dashed" }}>
       <Stack gap={4}>
         <Group gap="xs">
-          <Badge size="xs" color="yellow">🔐 Permission</Badge>
+          <Badge size="xs" color="yellow" variant="light">Permission</Badge>
           <Text size="sm" fw={500}>Agent wants to use: {toolName}</Text>
         </Group>
         {toolArgs && Object.keys(toolArgs).length > 0 && (
@@ -252,10 +203,10 @@ export const PermissionRequestCard = memo(function PermissionRequestCard({
         {!decided && (
           <Group gap="xs">
             <Button size="xs" color="green" variant="light" onClick={() => handleDecision("allow")}>
-              ✅ Allow
+              Allow
             </Button>
             <Button size="xs" color="red" variant="light" onClick={() => handleDecision("deny")}>
-              ❌ Deny
+              Deny
             </Button>
           </Group>
         )}
@@ -293,10 +244,7 @@ export const UserInputRequestCard = memo(function UserInputRequestCard({
   return (
     <Paper withBorder p="xs" radius="sm" style={{ borderColor: "var(--mantine-color-blue-4)", borderStyle: "dashed" }}>
       <Stack gap={4}>
-        <Group gap="xs">
-          <Badge size="xs" color="blue">❓ Agent Question</Badge>
-        </Group>
-        <Text size="sm">{question}</Text>
+        <Text size="sm" fw={500}>?  {question}</Text>
         {!answered && choices && choices.length > 0 && (
           <Group gap="xs" wrap="wrap">
             {choices.map((c) => (
@@ -340,7 +288,12 @@ export const HIDDEN_EVENT_TYPES = new Set([
   "permission.completed",
   "session.background_tasks_changed",
   "subagent.selected",
+  "subagent.started",
+  "subagent.completed",
+  "subagent.failed",
+  "subagent.deselected",
   "assistant.turn_end",
+  "assistant.usage",
   "session.idle",
   "session.start",
   "session.resume",
@@ -349,172 +302,295 @@ export const HIDDEN_EVENT_TYPES = new Set([
   "session.plan_changed",
   "session.updated",
   "session.context_changed",
+  "session.usage_info",
+  "pending_messages.modified",
 ]);
 
-// ── Smart inline renderers ─────────────────────────────
+// ── New component system ───────────────────────────────
 
-/** Thin turn divider: ── Turn 2 ── ⏱ 7.0s */
+/** Thin turn divider — only shown for turn > 0 */
 export const TurnDivider = memo(function TurnDivider({ entry }: { entry: ConversationEntry }) {
-  const turnId = entry.eventData?.turnId as string | undefined;
+  const turnId = entry.eventData?.turnId as number | string | undefined;
+  // Skip the first turn — it's obvious
+  if (turnId === 0 || turnId === "0") return null;
   const label = turnId != null ? `Turn ${turnId}` : "New turn";
   return (
     <Divider
-      label={<Text size="xs" c="dimmed">{`── ${label} ──`}</Text>}
+      label={<Text size="xs" c="dimmed">{label}</Text>}
       labelPosition="center"
       color="dimmed"
-      my={4}
+      my={2}
       data-testid="turn-divider"
     />
   );
 });
 
-/** ⏱ Usage line — shows model timing inline */
-export const UsageLine = memo(function UsageLine({ entry }: { entry: ConversationEntry }) {
-  const data = entry.eventData ?? {};
-  const duration = data.duration as number | undefined;
-  const model = data.model as string | undefined;
-  const input = data.inputTokens as number | undefined;
-  const output = data.outputTokens as number | undefined;
-  const initiator = data.initiator as string | undefined;
-  if (!duration) return null;
-  const prefix = initiator === "sub-agent" ? "🤖" : "⏱";
+/** Floating intent label — shows above tool call groups */
+export const IntentLabel = memo(function IntentLabel({ entry }: { entry: ConversationEntry }) {
+  const intent = entry.content || (entry.eventData?.arguments as Record<string, unknown>)?.intent as string | undefined;
+  if (!intent) return null;
   return (
-    <Text size="xs" c="dimmed" data-testid="usage-line" ml="sm">
-      {prefix} {(duration / 1000).toFixed(1)}s
-      {model ? ` · ${model}` : ""}
-      {input != null ? ` · ${input.toLocaleString()} in` : ""}
-      {output != null ? ` / ${output.toLocaleString()} out` : ""}
+    <Text size="xs" c="dimmed" fs="italic" ml="sm" mt={4} mb={2} data-testid="intent-label">
+      {intent}
     </Text>
   );
 });
 
-/** 🔧 Tool one-liner — shows tool name + intent/description, expandable to args + result */
-export const InlineToolStart = memo(function InlineToolStart({ entry, expanded: globalExpanded }: { entry: ConversationEntry; expanded?: boolean }) {
+/** Unified tool call card — merges execution_start + execution_complete lifecycle */
+export const ToolCallCard = memo(function ToolCallCard({ entry, expanded: globalExpanded }: { entry: ConversationEntry; expanded?: boolean }) {
   const [localExpanded, setLocalExpanded] = useState(false);
   const showDetail = globalExpanded || localExpanded;
-  const data = entry.eventData ?? {};
-  const toolName = (data.toolName as string) ?? entry.toolName ?? "tool";
-  const args = data.arguments as Record<string, unknown> | undefined;
-  // Pick the best short summary from args
-  const summary = (args?.intent ?? args?.description ?? args?.pattern ?? args?.path ?? args?.query ?? args?.command) as string | undefined;
-  const shortSummary = summary
-    ? summary.length > 100 ? summary.slice(0, 100) + "…" : summary
-    : undefined;
+
   const isRunning = entry.toolStatus === "running";
-  // Special display for report_intent
-  const isReportIntent = toolName === "report_intent";
-  if (isReportIntent) {
-    const intent = args?.intent as string | undefined;
-    return (
-      <Box ml="sm" data-testid="inline-tool">
-        <Group gap={4} wrap="nowrap">
-          <Text size="xs" c="blue" fw={500}>🧠 {intent ?? "Thinking…"}</Text>
-          {isRunning && <Loader size={10} type="dots" />}
-        </Group>
-      </Box>
-    );
-  }
+  const isFailed = entry.toolStatus === "failed";
+  const isDone = entry.toolStatus === "completed";
+
+  const tag = entry.toolTag ?? "tool";
+  const description = entry.toolDescription ?? entry.toolName ?? "tool";
+  const detail = entry.toolDetail;
+  const result = entry.toolResult ?? entry.content;
+
+  // Truncate detail line
+  const shortDetail = detail
+    ? detail.length > 80 ? detail.slice(0, 80) + "…" : detail
+    : undefined;
+
+  // Status indicator
+  const indicator = isRunning ? "◌" : "●";
+  const indicatorColor = isFailed ? "red" : isDone ? "green" : "dimmed";
+
+  // Auto-expand failed tool calls
+  const isExpanded = showDetail || (isFailed && !!result);
 
   return (
-    <Box ml="sm" data-testid="inline-tool">
-      <Group
-        gap={4}
-        wrap="nowrap"
-        style={{ cursor: args ? "pointer" : undefined }}
-        onClick={() => args && setLocalExpanded((v) => !v)}
-      >
-        <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>🔧</Text>
-        <Text size="xs" fw={500} truncate>{toolName}</Text>
-        {shortSummary && <Text size="xs" c="dimmed" truncate>: {shortSummary}</Text>}
-        {isRunning && <Loader size={10} type="dots" />}
-        {args && <Text size="xs" c="dimmed">{showDetail ? "▲" : "▼"}</Text>}
-      </Group>
-      <Collapse in={showDetail}>
-        <Code block style={{ fontSize: 11, maxHeight: 150, overflow: "auto", marginTop: 2, whiteSpace: "pre-wrap" }}>
-          {JSON.stringify(args, null, 2)}
-        </Code>
-      </Collapse>
-    </Box>
-  );
-});
-
-/** ✅/❌ Tool completion — shows description, result content, click to expand */
-export const InlineToolComplete = memo(function InlineToolComplete({ entry, expanded: globalExpanded }: { entry: ConversationEntry; expanded?: boolean }) {
-  const [localExpanded, setLocalExpanded] = useState(false);
-  const data = entry.eventData ?? {};
-  const success = data.success !== false;
-  const result = data.result as { content?: string; detailedContent?: string } | undefined;
-  const resultContent = result?.content ?? entry.content ?? "";
-  const detailedContent = result?.detailedContent ?? "";
-  const origArgs = data.originalArguments as Record<string, unknown> | undefined;
-  const toolArgs = data.arguments as Record<string, unknown> | undefined;
-  const args = origArgs ?? toolArgs;
-  const description = (args?.description ?? args?.intent) as string | undefined;
-  const command = args?.command as string | undefined;
-  const displayContent = globalExpanded ? (detailedContent || resultContent) : resultContent;
-  const isTruncatable = !globalExpanded && displayContent.length > 120;
-  const shown = isTruncatable && !localExpanded
-    ? displayContent.slice(0, 120) + "…"
-    : displayContent;
-  const hasExpandable = isTruncatable || command;
-
-  // Skip rendering report_intent completions
-  if (resultContent === "Intent logged") return null;
-
-  return (
-    <Box ml="md" data-testid="inline-tool-result">
-      {/* Tool description (always shown if available) */}
-      {description && (
-        <Text size="xs" c="dimmed" fw={500} mb={1}>{description}</Text>
-      )}
-      {/* Command (expandable) */}
-      {command && (
-        <Group gap={4} wrap="nowrap" mb={1}>
-          <Code style={{ fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-            {globalExpanded || localExpanded ? command : (command.length > 80 ? command.slice(0, 80) + "…" : command)}
-          </Code>
-        </Group>
-      )}
-      {/* Result */}
-      <Group
-        gap={4}
-        wrap="nowrap"
-        style={{ cursor: hasExpandable ? "pointer" : undefined }}
-        onClick={() => hasExpandable && setLocalExpanded((v) => !v)}
-      >
-        <Text size="xs" c={success ? "green" : "red"} style={{ flexShrink: 0 }}>{success ? "✅" : "❌"}</Text>
-        <Text size="xs" c="dimmed" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-          {shown}
+    <Paper
+      ml="sm"
+      p={6}
+      radius="sm"
+      data-testid="tool-call-card"
+      withBorder={isDone || isFailed}
+      style={{
+        cursor: "pointer",
+        ...(isRunning ? {
+          borderStyle: "dashed",
+          borderWidth: 1,
+          borderColor: "var(--mantine-color-gray-4)",
+          opacity: 0.9,
+        } : {}),
+        ...(isFailed ? {
+          borderLeftColor: "var(--mantine-color-red-4)",
+          borderLeftWidth: 3,
+        } : {}),
+      }}
+      onClick={() => setLocalExpanded((v) => !v)}
+    >
+      {/* Header: indicator + description + tag */}
+      <Group gap={6} wrap="nowrap">
+        <Text
+          size="xs"
+          c={indicatorColor}
+          fw={700}
+          style={{
+            flexShrink: 0,
+            ...(isRunning ? {
+              animation: "pulse 1.5s ease-in-out infinite",
+            } : {}),
+          }}
+        >
+          {indicator}
         </Text>
-        {hasExpandable && <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>{localExpanded ? "▲" : "▼"}</Text>}
+        <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
+          {description}
+        </Text>
+        <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+          ({tag})
+        </Text>
+        {isFailed && (
+          <Badge size="xs" color="red" variant="light">failed</Badge>
+        )}
+        {(isDone || isFailed) && (
+          <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+            {localExpanded ? "▾" : "▸"}
+          </Text>
+        )}
       </Group>
-    </Box>
+
+      {/* Detail line — dimmed italic */}
+      {shortDetail && description !== detail && (
+        <Text size="xs" c="dimmed" fs="italic" ml={18} truncate>
+          {showDetail ? detail : shortDetail}
+        </Text>
+      )}
+
+      {/* Expanded: full result */}
+      <Collapse in={isExpanded}>
+        {result && result !== entry.toolName && (
+          <Code
+            block
+            style={{
+              fontSize: 11,
+              maxHeight: 200,
+              overflow: "auto",
+              marginTop: 4,
+              marginLeft: 18,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {result}
+          </Code>
+        )}
+      </Collapse>
+    </Paper>
   );
 });
 
-/** 🤖 Subagent start/complete one-liner */
-export const InlineSubagent = memo(function InlineSubagent({ entry }: { entry: ConversationEntry }) {
-  const data = entry.eventData ?? {};
-  const et = entry.eventType ?? "";
-  const name = (data.agentDisplayName as string) ?? (data.agentName as string) ?? "subagent";
-  const isStart = et === "subagent.started";
-  const isFail = et === "subagent.failed";
-  const icon = isStart ? "🤖" : isFail ? "❌" : "✅";
-  const label = isStart ? `Started: ${name}` : isFail ? `Failed: ${name}` : `Done: ${name}`;
-  const error = data.error as string | undefined;
+/** Subagent container — collapsible container with inner event rendering + kill button */
+export const SubagentContainer = memo(function SubagentContainer({
+  entry,
+  sessionId,
+  expanded: globalExpanded,
+}: {
+  entry: ConversationEntry;
+  sessionId: string;
+  expanded?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(true);
+  const [killing, setKilling] = useState(false);
+
+  const status = entry.subagentStatus ?? "running";
+  const isRunning = status === "running";
+  const isFailed = status === "failed" || status === "killed";
+  const isDone = status === "done";
+  const description = entry.toolDescription ?? "Agent task";
+  const model = entry.subagentModel;
+  const duration = entry.subagentDuration;
+  const innerEntries = entry.subagentEntries ?? [];
+  const error = entry.eventData?.error as string | undefined;
+
+  const indicator = isRunning ? "◌" : "●";
+  const indicatorColor = isFailed ? "red" : isDone ? "green" : "dimmed";
+
+  // Collapse when done (default)
+  const showInner = isRunning || isOpen;
+
+  const handleKill = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setKilling(true);
+    try {
+      await authFetch(`/api/copilot/aggregated/sessions/${encodeURIComponent(sessionId)}/abort`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toolCallId: entry.toolCallId }),
+      });
+    } catch {
+      // best-effort
+    }
+    setKilling(false);
+  };
 
   return (
-    <Box ml="sm" data-testid="inline-subagent">
-      <Group gap={4} wrap="nowrap">
-        <Text size="xs">{icon}</Text>
-        <Text size="xs" fw={500}>{label}</Text>
+    <Paper
+      ml="sm"
+      p={8}
+      radius="sm"
+      data-testid="subagent-container"
+      style={{
+        cursor: "pointer",
+        ...(isRunning ? {
+          borderStyle: "dashed",
+          borderWidth: 1,
+          borderColor: "var(--mantine-color-violet-4)",
+        } : {
+          border: "1px solid var(--mantine-color-gray-4)",
+        }),
+        ...(isFailed ? {
+          borderLeftColor: "var(--mantine-color-red-4)",
+          borderLeftWidth: 3,
+        } : {}),
+      }}
+      onClick={() => setIsOpen((v) => !v)}
+    >
+      {/* Header */}
+      <Group gap={6} wrap="nowrap">
+        <Text
+          size="xs"
+          c={indicatorColor}
+          fw={700}
+          style={{
+            flexShrink: 0,
+            ...(isRunning ? { animation: "pulse 1.5s ease-in-out infinite" } : {}),
+          }}
+        >
+          {indicator}
+        </Text>
+        <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
+          {description}
+        </Text>
+        {model && (
+          <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+            {model}
+          </Text>
+        )}
+        {isDone && duration != null && (
+          <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+            {(duration / 1000).toFixed(1)}s
+          </Text>
+        )}
+        {isFailed && (
+          <Badge size="xs" color="red" variant="light">
+            {status === "killed" ? "killed" : "failed"}
+          </Badge>
+        )}
+        {isRunning && (
+          <ActionIcon
+            size="xs"
+            variant="subtle"
+            color="red"
+            onClick={handleKill}
+            loading={killing}
+            title="Kill subagent"
+          >
+            <Text size="xs">✕</Text>
+          </ActionIcon>
+        )}
+        <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+          {showInner ? "▾" : "▸"}
+        </Text>
       </Group>
-      {error && <Text size="xs" c="red" ml="md">{error}</Text>}
-    </Box>
+
+      {/* Inner entries */}
+      <Collapse in={showInner}>
+        {innerEntries.length > 0 && (
+          <Stack gap={4} mt={6} ml={12}>
+            {innerEntries.map((inner) => (
+              <ConversationMessage
+                key={inner.id}
+                entry={inner}
+                sessionId={sessionId}
+                expanded={globalExpanded ?? false}
+              />
+            ))}
+          </Stack>
+        )}
+        {error && (
+          <Text size="xs" c="red" mt={4} ml={18}>
+            {error}
+          </Text>
+        )}
+      </Collapse>
+
+      {/* Collapsed summary for completed agents */}
+      {!showInner && innerEntries.length > 0 && (
+        <Text size="xs" c="dimmed" ml={18} mt={2}>
+          {innerEntries.filter((e) => e.type === "tool").length} tool calls
+        </Text>
+      )}
+    </Paper>
   );
 });
 
-/** 💭 Reasoning — shows actual reasoning text, collapsible */
+/** Reasoning — collapsible, no emoji */
 export const InlineReasoning = memo(function InlineReasoning({ entry, expanded: globalExpanded }: { entry: ConversationEntry; expanded?: boolean }) {
   const [localExpanded, setLocalExpanded] = useState(false);
   const showDetail = globalExpanded || localExpanded;
@@ -523,10 +599,10 @@ export const InlineReasoning = memo(function InlineReasoning({ entry, expanded: 
   // Skip if content looks like encrypted/opaque data (no spaces, very long base64-like)
   const isEncrypted = content.length > 50 && !content.includes(" ");
 
-  if (isEncrypted && !showDetail) {
+  if (isEncrypted) {
     return (
       <Text size="xs" c="dimmed" ml="sm" fs="italic" data-testid="inline-reasoning">
-        💭 Reasoning (encrypted)
+        Reasoning (redacted)
         {entry.isStreaming && <Loader size={10} type="dots" style={{ display: "inline", marginLeft: 4 }} />}
       </Text>
     );
@@ -542,27 +618,15 @@ export const InlineReasoning = memo(function InlineReasoning({ entry, expanded: 
         style={{ cursor: content.length > 150 ? "pointer" : undefined }}
         onClick={() => content.length > 150 && setLocalExpanded((v) => !v)}
       >
-        <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>💭</Text>
+        <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+          {showDetail ? "▾" : "▸"}
+        </Text>
         <Text size="xs" c="dimmed" fs="italic" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
           {showDetail ? content : preview}
         </Text>
         {entry.isStreaming && <Loader size={10} type="dots" />}
-        {content.length > 150 && <Text size="xs" c="dimmed">{showDetail ? "▲" : "▼"}</Text>}
       </Group>
     </Box>
-  );
-});
-
-/** Token usage badge — small inline display */
-export const InlineUsageInfo = memo(function InlineUsageInfo({ entry }: { entry: ConversationEntry }) {
-  const data = entry.eventData ?? {};
-  const current = data.currentTokens as number | undefined;
-  const limit = data.tokenLimit as number | undefined;
-  if (current == null) return null;
-  return (
-    <Text size="xs" c="dimmed" ml="sm" data-testid="inline-usage-info">
-      🪙 {current.toLocaleString()}{limit ? ` / ${limit.toLocaleString()}` : ""}
-    </Text>
   );
 });
 
@@ -582,7 +646,7 @@ export const InlineGenericEvent = memo(function InlineGenericEvent({ entry }: { 
       >
         <Badge size="xs" variant="light" color="gray">{et}</Badge>
         {entry.content && <Text size="xs" c="dimmed" truncate>{entry.content}</Text>}
-        {hasData && <Text size="xs" c="dimmed">{expanded ? "▲" : "▼"}</Text>}
+        {hasData && <Text size="xs" c="dimmed">{expanded ? "▾" : "▸"}</Text>}
       </Group>
       {hasData && (
         <Collapse in={expanded}>
@@ -594,6 +658,17 @@ export const InlineGenericEvent = memo(function InlineGenericEvent({ entry }: { 
     </Box>
   );
 });
+
+// ── CSS for pulse animation (injected once) ────────────
+if (typeof document !== "undefined") {
+  const styleId = "lp-tool-pulse";
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = `@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`;
+    document.head.appendChild(style);
+  }
+}
 
 // ── ConversationMessage dispatcher ─────────────────────
 
@@ -637,35 +712,32 @@ export const ConversationMessage = memo(function ConversationMessage({
 
     // Smart inline renderers
     if (et === "assistant.turn_start") return <TurnDivider entry={entry} />;
-    if (et === "assistant.usage") return null; // absorbed into assistant message annotation
-    if (et === "session.usage_info") return null; // shown in controls bar
-    if (et === "tool.execution_start") return <InlineToolStart entry={entry} expanded={expanded} />;
-    if (et === "tool.execution_complete") return <InlineToolComplete entry={entry} expanded={expanded} />;
-    if (et.startsWith("subagent.")) return <InlineSubagent entry={entry} />;
+    if (et === "report_intent") return <IntentLabel entry={entry} />;
     if (et === "assistant.reasoning" || et === "assistant.reasoning_delta") return <InlineReasoning entry={entry} expanded={expanded} />;
 
     // Everything else: generic expandable
     return expanded ? <InlineGenericEvent entry={entry} /> : null;
   }
 
-  // ── Tool entries from hooks ──
+  // ── Tool entries ──
   if (entry.type === "tool") {
-    if (entry.toolStatus === "running") {
-      return <InlineToolStart entry={entry} expanded={expanded} />;
+    // Subagent containers (task tool with subagent lifecycle)
+    if (entry.toolTag === "agent" && entry.subagentEntries != null) {
+      return <SubagentContainer entry={entry} sessionId={sessionId} expanded={expanded} />;
     }
-    return <InlineToolComplete entry={entry} expanded={expanded} />;
+    return <ToolCallCard entry={entry} expanded={expanded} />;
   }
 
   // ── Standard entries ──
   switch (entry.type) {
     case "user":
-      return <UserMessage entry={entry} expanded={expanded} />;
+      return <UserMessage entry={entry} />;
     case "assistant":
       return <AssistantMessage entry={entry} />;
     case "hq-tool":
       return <HqToolCard entry={entry} />;
     case "status":
-      return <StatusDivider entry={entry} />;
+      return null; // session.idle removed
     case "error":
       return <ErrorBanner entry={entry} />;
     default:
