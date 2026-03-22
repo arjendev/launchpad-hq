@@ -50,14 +50,24 @@ export const AssistantMessage = memo(function AssistantMessage({
   const data = entry.eventData ?? {};
   const parentToolCallId = data.parentToolCallId as string | undefined;
   const isSubagentMessage = !!parentToolCallId;
+
+  // Subagent messages inside a container: render content only (metadata is in container header)
+  if (isSubagentMessage) {
+    return (
+      <Box ml="sm" data-testid="assistant-message">
+        {entry.content.trim() && (
+          <MarkdownContent content={entry.content} />
+        )}
+        {entry.isStreaming && <Loader size={12} type="dots" />}
+      </Box>
+    );
+  }
+
   const model = data.model as string | undefined;
   const duration = data.duration as number | undefined;
-  const subagentName = data.subagentName as string | undefined;
   const mainAgentName = data.agentName as string | undefined;
   const initiator = data.initiator as string | undefined;
-  const agentLabel = isSubagentMessage
-    ? (subagentName ?? "Sub-agent")
-    : (mainAgentName ?? (initiator === "agent" ? "Agent" : undefined));
+  const agentLabel = mainAgentName ?? (initiator === "agent" ? "Agent" : undefined);
 
   const metaParts: string[] = [];
   if (agentLabel) metaParts.push(agentLabel);
@@ -70,13 +80,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         p="xs"
         radius="md"
         withBorder
-        style={{
-          maxWidth: "80%",
-          ...(isSubagentMessage ? {
-            borderColor: "var(--mantine-color-violet-4)",
-            borderLeftWidth: 3,
-          } : {}),
-        }}
+        style={{ maxWidth: "80%" }}
       >
         {metaParts.length > 0 && (
           <Text size="xs" c="dimmed" mb={2}>
@@ -518,7 +522,7 @@ export const SubagentContainer = memo(function SubagentContainer({
       }}
       onClick={() => setUserToggled((v) => !(v ?? true))}
     >
-      {/* Header: indicator · description · model · duration */}
+      {/* Header: indicator · description — model · duration */}
       <Group gap={6} wrap="nowrap">
         <Text
           size="xs"
@@ -535,13 +539,16 @@ export const SubagentContainer = memo(function SubagentContainer({
           Agent
         </Text>
         <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>·</Text>
-        <Text size="xs" fw={500} truncate style={{ flex: 1 }}>
+        <Text size="xs" fw={500} style={{ flexShrink: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {description}
         </Text>
         {metaParts.length > 0 && (
-          <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
-            · {metaParts.join(" · ")}
-          </Text>
+          <>
+            <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>—</Text>
+            <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+              {metaParts.join(" · ")}
+            </Text>
+          </>
         )}
         {isFailed && (
           <Badge size="xs" color="red" variant="light">
