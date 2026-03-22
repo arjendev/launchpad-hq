@@ -177,6 +177,9 @@ export function useConversationEntries(sessionId: string | null): {
   // Current intent label from report_intent (for grouping tool calls)
   const currentIntentRef = useRef<string | null>(null);
 
+  // Track subagent message content for parent echo deduplication
+  const subagentContentRef = useRef<Set<string>>(new Set());
+
   // Subscribe directly to WebSocket copilot channel to avoid event batching loss.
   // Using useSubscription (which stores only the latest event in useState) causes
   // React 18 to batch rapid SDK events, losing intermediate assistant replies.
@@ -256,9 +259,10 @@ export function useConversationEntries(sessionId: string | null): {
             // messages where the SDK wraps toolRequests in a near-empty assistant.message.
             if (content.trim()) {
               const eData: Record<string, unknown> = {};
-              if (msgData.parentToolCallId) {
+              const isSubagentMsg = !!msgData.parentToolCallId;
+              if (isSubagentMsg) {
                 eData.parentToolCallId = msgData.parentToolCallId;
-                const subName = subagentNamesRef.current.get(msgData.parentToolCallId);
+                const subName = subagentNamesRef.current.get(msgData.parentToolCallId!);
                 if (subName) eData.subagentName = subName;
               } else {
                 if (mainAgentNameRef.current) eData.agentName = mainAgentNameRef.current;
@@ -269,6 +273,28 @@ export function useConversationEntries(sessionId: string | null): {
                 eData.inputTokens = usageMeta.inputTokens;
                 eData.outputTokens = usageMeta.outputTokens;
                 eData.initiator = usageMeta.initiator;
+              }
+
+              // Dedup: track subagent content; suppress parent echoes
+              const normalized = content.trim().replace(/\*\*/g, "").replace(/^[^\w]*/, "").trim();
+              if (isSubagentMsg) {
+                // Save subagent message content for echo detection
+                subagentContentRef.current.add(normalized);
+                // Also save a short prefix for fuzzy matching (parent may prefix with agent name)
+                if (normalized.length > 40) {
+                  subagentContentRef.current.add(normalized.slice(0, 40));
+                }
+              } else if (subagentContentRef.current.size > 0) {
+                // Check if parent message is echoing a subagent's content
+                const isEcho = [...subagentContentRef.current].some((sub) =>
+                  normalized.includes(sub) || sub.includes(normalized),
+                );
+                if (isEcho) {
+                  // Clear the echo tracker and skip this message
+                  subagentContentRef.current.clear();
+                  void qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+                  break;
+                }
               }
 
               const asstEntry: ConversationEntry = {
@@ -308,6 +334,15 @@ export function useConversationEntries(sessionId: string | null): {
             const tName = toolData.toolName ?? "tool";
             const tArgs = toolData.arguments;
             const tCallId = toolData.toolCallId;
+
+            // Hide agent infrastructure tools — they are plumbing, not interesting
+            const INFRA_TOOLS = new Set(["read_agent", "write_agent", "list_agents", "stop_bash"]);
+            if (INFRA_TOOLS.has(tName)) {
+              // Still save for completion correlation
+              if (tCallId) toolStartsRef.current.set(tCallId, { ...tArgs ?? {}, _infraTool: true });
+              break;
+            }
+
             // Save args for correlation with completion
             if (tCallId) {
               toolStartsRef.current.set(tCallId, tArgs ?? {});
@@ -384,10 +419,39 @@ export function useConversationEntries(sessionId: string | null): {
             const cCallId = completeData.toolCallId;
             // Look up original args from the start event
             const origArgs = cCallId ? toolStartsRef.current.get(cCallId) : undefined;
-            const cToolName = completeData.toolName ?? (origArgs as Record<string, unknown> | undefined)?.toolName as string ?? "tool";
+            const cToolName = completeData.toolName ?? "tool";
+
+            // Skip infrastructure tools (read_agent, etc.) — never rendered
+            if (origArgs && (origArgs as Record<string, unknown>)._infraTool) {
+              break;
+            }
 
             // Skip report_intent completions entirely
             if (cToolName === "report_intent" || completeData.result?.content === "Intent logged") {
+              break;
+            }
+
+            // For `task` tool completions: just update the subagent container status,
+            // don't show the result as a separate tool card (it's already inside the container)
+            if (cToolName === "task" && cCallId) {
+              setRealtimeEntries((prev) => {
+                const updated = [...prev];
+                const containerIdx = updated.findIndex(
+                  (e) => e.toolCallId === cCallId && e.toolTag === "agent",
+                );
+                if (containerIdx >= 0) {
+                  const container = { ...updated[containerIdx] };
+                  // Mark done if not already (subagent.completed might have already set it)
+                  if (container.subagentStatus === "running") {
+                    container.subagentStatus = completeData.success ? "done" : "failed";
+                  }
+                  container.toolStatus = completeData.success ? "completed" : "failed";
+                  updated[containerIdx] = container;
+                  return updated;
+                }
+                // No container found — update as regular tool card (fall through below)
+                return prev;
+              });
               break;
             }
 
@@ -711,6 +775,7 @@ export function useConversationEntries(sessionId: string | null): {
       mainAgentNameRef.current = null;
       subagentStackRef.current = [];
       currentIntentRef.current = null;
+      subagentContentRef.current.clear();
       setQueuedMessage(null);
       setSteeringMessage(null);
       if (steeringTimerRef.current) clearTimeout(steeringTimerRef.current);

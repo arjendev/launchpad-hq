@@ -455,7 +455,8 @@ export const SubagentContainer = memo(function SubagentContainer({
   sessionId: string;
   expanded?: boolean;
 }) {
-  const [isOpen, setIsOpen] = useState(true);
+  // Manual open/close — null means "use default"
+  const [userToggled, setUserToggled] = useState<boolean | null>(null);
   const [killing, setKilling] = useState(false);
 
   const status = entry.subagentStatus ?? "running";
@@ -471,8 +472,8 @@ export const SubagentContainer = memo(function SubagentContainer({
   const indicator = isRunning ? "◌" : "●";
   const indicatorColor = isFailed ? "red" : isDone ? "green" : "dimmed";
 
-  // Collapse when done (default)
-  const showInner = isRunning || isOpen;
+  // Default: open when running, collapsed when done/failed (unless user toggled)
+  const showInner = userToggled ?? isRunning;
 
   const handleKill = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -509,7 +510,7 @@ export const SubagentContainer = memo(function SubagentContainer({
           borderLeftWidth: 3,
         } : {}),
       }}
-      onClick={() => setIsOpen((v) => !v)}
+      onClick={() => setUserToggled((v) => !(v ?? isRunning))}
     >
       {/* Header */}
       <Group gap={6} wrap="nowrap">
