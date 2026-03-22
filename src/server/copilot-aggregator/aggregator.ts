@@ -40,6 +40,21 @@ export interface ToolInvocationRecord {
   timestamp: number;
 }
 
+/** A raw event stored for later retrieval (timeline reconstruction) */
+export interface StoredEvent {
+  type: string;
+  data: Record<string, unknown>;
+  timestamp: string;
+  id?: string;
+  parentId?: string;
+}
+
+export interface PaginatedEvents {
+  events: StoredEvent[];
+  hasMore: boolean;
+  oldestTimestamp: string | null;
+}
+
 export type { AggregatedSession };
 
 export interface DaemonSdkState {
@@ -117,6 +132,7 @@ export class CopilotSessionAggregator extends EventEmitter {
   private sdkStates = new Map<string, DaemonSdkState>();
   private conversationHistory = new Map<string, CopilotMessage[]>();
   private toolInvocations = new Map<string, ToolInvocationRecord[]>();
+  private eventLogs = new Map<string, StoredEvent[]>();
   private tombstones = new Set<string>();
   private pendingRequests = new Map<string, {
     resolve: (data: unknown) => void;
@@ -125,6 +141,24 @@ export class CopilotSessionAggregator extends EventEmitter {
 
   /** Default timeout for request-response operations (ms) */
   static REQUEST_TIMEOUT = 10_000;
+
+  /** Maximum number of stored events per session */
+  static MAX_EVENTS_PER_SESSION = 10_000;
+
+  /** Append a stored event to the session's event log, capping at MAX_EVENTS_PER_SESSION */
+  private storeEvent(sessionId: string, event: StoredEvent): void {
+    let log = this.eventLogs.get(sessionId);
+    if (!log) {
+      log = [];
+      this.eventLogs.set(sessionId, log);
+    }
+    log.push(event);
+    if (log.length > CopilotSessionAggregator.MAX_EVENTS_PER_SESSION) {
+      // Drop oldest events
+      const excess = log.length - CopilotSessionAggregator.MAX_EVENTS_PER_SESSION;
+      log.splice(0, excess);
+    }
+  }
 
   // ── Session updates ────────────────────────────────────
 
@@ -191,6 +225,17 @@ export class CopilotSessionAggregator extends EventEmitter {
     let session = this.sessions.get(sessionId);
 
     if (event.type === "session.shutdown") {
+      // Store shutdown event before cleaning up
+      const shutdownTs = typeof event.timestamp === 'string' ? event.timestamp
+        : Number.isFinite(eventTs) ? new Date(eventTs).toISOString()
+        : new Date().toISOString();
+      this.storeEvent(sessionId, {
+        type: event.type,
+        data: (event.data ?? {}) as Record<string, unknown>,
+        timestamp: shutdownTs,
+        ...(event.id ? { id: event.id } : {}),
+        ...((event as SessionEvent & { parentId?: string | null }).parentId ? { parentId: (event as SessionEvent & { parentId?: string | null }).parentId! } : {}),
+      });
       if (session) {
         // Mark as ended (keep visible briefly for UI) rather than removing
         session.status = "ended";
@@ -274,6 +319,18 @@ export class CopilotSessionAggregator extends EventEmitter {
 
     // Enrich activity state
     this.updateActivity(session, event, eventTs);
+
+    // Store the raw event for later retrieval
+    const storedTimestamp = typeof event.timestamp === 'string' ? event.timestamp
+      : Number.isFinite(eventTs) ? new Date(eventTs).toISOString()
+      : new Date().toISOString();
+    this.storeEvent(sessionId, {
+      type: event.type,
+      data: (event.data ?? {}) as Record<string, unknown>,
+      timestamp: storedTimestamp,
+      ...(event.id ? { id: event.id } : {}),
+      ...((event as SessionEvent & { parentId?: string | null }).parentId ? { parentId: (event as SessionEvent & { parentId?: string | null }).parentId! } : {}),
+    });
 
     this.emit("session-event", sessionId, event);
   }
@@ -578,6 +635,13 @@ export class CopilotSessionAggregator extends EventEmitter {
     existing.push(record);
     this.toolInvocations.set(sessionId, existing);
 
+    // Store as a synthetic event in the event log
+    this.storeEvent(sessionId, {
+      type: "copilot:tool-invocation",
+      data: { tool, args, projectId },
+      timestamp: new Date(timestamp).toISOString(),
+    });
+
     // Update session status based on tool type
     const session = this.sessions.get(sessionId);
     if (session) {
@@ -603,6 +667,35 @@ export class CopilotSessionAggregator extends EventEmitter {
     return this.toolInvocations.get(sessionId) ?? [];
   }
 
+  // ── Event log ─────────────────────────────────────────
+
+  /** Paginated retrieval of stored events for a session.
+   *  Returns events in chronological order; `before` cursor paginates backwards. */
+  getEvents(sessionId: string, before?: string, limit = 100): PaginatedEvents {
+    const log = this.eventLogs.get(sessionId) ?? [];
+    const cap = Math.max(1, Math.min(limit, 500));
+
+    let endIndex = log.length; // exclusive upper bound
+    if (before) {
+      // Find the rightmost event strictly older than `before`
+      const beforeMs = new Date(before).getTime();
+      endIndex = 0;
+      for (let i = log.length - 1; i >= 0; i--) {
+        if (new Date(log[i].timestamp).getTime() < beforeMs) {
+          endIndex = i + 1;
+          break;
+        }
+      }
+    }
+
+    const startIndex = Math.max(0, endIndex - cap);
+    const events = log.slice(startIndex, endIndex);
+    const hasMore = startIndex > 0;
+    const oldestTimestamp = events.length > 0 ? events[0].timestamp : null;
+
+    return { events, hasMore, oldestTimestamp };
+  }
+
   // ── Session removal ─────────────────────────────────────
 
   /** Remove a single session and all associated data */
@@ -611,6 +704,7 @@ export class CopilotSessionAggregator extends EventEmitter {
     const existed = this.sessions.delete(sessionId);
     this.conversationHistory.delete(sessionId);
     this.toolInvocations.delete(sessionId);
+    this.eventLogs.delete(sessionId);
 
     if (existed) {
       this.emit("sessions-updated", this.getAllSessions());
@@ -629,6 +723,7 @@ export class CopilotSessionAggregator extends EventEmitter {
         this.sessions.delete(id);
         this.conversationHistory.delete(id);
         this.toolInvocations.delete(id);
+        this.eventLogs.delete(id);
       }
     }
 

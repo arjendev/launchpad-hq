@@ -797,4 +797,110 @@ describe("Copilot session routes", () => {
       expect(res.json().models[0].id).toBe("gpt-4o");
     });
   });
+
+  // ── GET /api/copilot/aggregated/sessions/:sessionId/events ──
+
+  describe("GET /api/copilot/aggregated/sessions/:sessionId/events", () => {
+    it("returns 404 for unknown session", async () => {
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions/nonexistent/events",
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error).toBe("not_found");
+    });
+
+    it("returns empty events for a session with no events", async () => {
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
+
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions/s1/events",
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.events).toEqual([]);
+      expect(body.hasMore).toBe(false);
+      expect(body.oldestTimestamp).toBeNull();
+    });
+
+    it("returns stored session events", async () => {
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
+      server.copilotAggregator.handleSessionEvent("d1", "s1", {
+        id: "evt-1",
+        timestamp: new Date(5000).toISOString(),
+        parentId: null,
+        type: "session.start",
+        data: {},
+      } as import("@github/copilot-sdk").SessionEvent);
+
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions/s1/events",
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.events).toHaveLength(1);
+      expect(body.events[0].type).toBe("session.start");
+      expect(body.events[0].id).toBe("evt-1");
+    });
+
+    it("respects limit query parameter", async () => {
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
+      for (let i = 0; i < 10; i++) {
+        server.copilotAggregator.handleSessionEvent("d1", "s1", {
+          id: `evt-${i}`,
+          timestamp: new Date(1000 + i * 100).toISOString(),
+          parentId: null,
+          type: "user.message",
+          data: { index: i },
+        } as import("@github/copilot-sdk").SessionEvent);
+      }
+
+      const res = await server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions/s1/events?limit=3",
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.events).toHaveLength(3);
+      expect(body.hasMore).toBe(true);
+    });
+
+    it("paginates with before cursor", async () => {
+      server.copilotAggregator.trackNewSession("d1", "proj-1", "s1");
+      for (let i = 0; i < 10; i++) {
+        server.copilotAggregator.handleSessionEvent("d1", "s1", {
+          id: `evt-${i}`,
+          timestamp: new Date(1000 + i * 100).toISOString(),
+          parentId: null,
+          type: "user.message",
+          data: { index: i },
+        } as import("@github/copilot-sdk").SessionEvent);
+      }
+
+      // Get page 1
+      const res1 = await server.inject({
+        method: "GET",
+        url: "/api/copilot/aggregated/sessions/s1/events?limit=3",
+      });
+      const page1 = res1.json();
+      expect(page1.events).toHaveLength(3);
+
+      // Get page 2 using cursor
+      const res2 = await server.inject({
+        method: "GET",
+        url: `/api/copilot/aggregated/sessions/s1/events?limit=3&before=${encodeURIComponent(page1.oldestTimestamp)}`,
+      });
+      const page2 = res2.json();
+      expect(page2.events).toHaveLength(3);
+      // Events should be older than page 1
+      expect(new Date(page2.events[2].timestamp).getTime()).toBeLessThan(
+        new Date(page1.events[0].timestamp).getTime()
+      );
+    });
+  });
 });

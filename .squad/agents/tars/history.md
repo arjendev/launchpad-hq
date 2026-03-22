@@ -52,3 +52,16 @@
 - **Test:** `npm run test` (all ~1165 tests), supports focused vitest runs
 - **Typecheck:** `npx tsc --noEmit` (server tsconfig includes `src/daemon/` and `src/shared/`)
 - **Decisions:** `.squad/decisions.md` is the authoritative decisions file
+
+## Learnings
+
+### Copilot CLI Session Attach Research (2026-03-22)
+
+- **SDK supports cross-client session resume:** `client.listSessions()` discovers ALL sessions from `~/.copilot/session-state/` regardless of which client created them. `client.resumeSession(id)` works for any session on disk.
+- **Three connection modes:** stdio (default, private), TCP (`useStdio: false, port: N`), and external server (`cliUrl: "host:port"`). TCP mode enables session sharing between multiple SDK clients.
+- **Session persistence is file-based:** Sessions stored at `~/.copilot/session-state/{uuid}/` with `workspace.yaml`, `events.jsonl` (can be 100MB+), `session.db` (SQLite), `plan.md`, and `inuse.{PID}.lock` advisory locks.
+- **Global session store:** `~/.copilot/session-store.db` is a shared SQLite database indexing all sessions.
+- **Daemon already discovers external sessions:** `pollSessions()` calls `listSessions()` every 30s, returns sessions from terminal CLI too. Just needs UI/protocol to expose them.
+- **cliUrl option is key:** `CopilotClient({ cliUrl: "localhost:PORT" })` connects to existing server without spawning. Combined with `--headless --port N`, enables shared server architecture.
+- **Lock files indicate active sessions:** `inuse.{PID}.lock` files in session dirs map PIDs to sessions. Multiple PIDs can hold locks simultaneously.
+- **Research report:** Full findings in `COPILOT_CLI_RESEARCH.md` at repo root.

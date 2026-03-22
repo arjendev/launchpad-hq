@@ -347,4 +347,173 @@ describe("CopilotSessionAggregator", () => {
       expect(aggregator.getToolInvocations("s1")).toEqual([]);
     });
   });
+
+  // ── Event log (getEvents) ─────────────────────────────
+
+  describe("getEvents", () => {
+    it("returns empty result for unknown session", () => {
+      const result = aggregator.getEvents("nonexistent");
+      expect(result.events).toEqual([]);
+      expect(result.hasMore).toBe(false);
+      expect(result.oldestTimestamp).toBeNull();
+    });
+
+    it("stores session events and retrieves them in chronological order", () => {
+      aggregator.trackNewSession("d1", "proj-1", "s1");
+
+      aggregator.handleSessionEvent("d1", "s1", mockEvent("session.start"));
+      aggregator.handleSessionEvent("d1", "s1", mockEvent("user.message"));
+      aggregator.handleSessionEvent("d1", "s1", mockEvent("assistant.message"));
+
+      const result = aggregator.getEvents("s1");
+      expect(result.events).toHaveLength(3);
+      expect(result.events[0].type).toBe("session.start");
+      expect(result.events[2].type).toBe("assistant.message");
+      expect(result.hasMore).toBe(false);
+    });
+
+    it("respects limit parameter", () => {
+      aggregator.trackNewSession("d1", "proj-1", "s1");
+
+      for (let i = 0; i < 10; i++) {
+        aggregator.handleSessionEvent("d1", "s1", {
+          id: `evt-${i}`,
+          timestamp: new Date(1000 + i * 100).toISOString(),
+          parentId: null,
+          type: "user.message",
+          data: { index: i },
+        } as SessionEvent);
+      }
+
+      const result = aggregator.getEvents("s1", undefined, 3);
+      expect(result.events).toHaveLength(3);
+      expect(result.hasMore).toBe(true);
+      // Should return the last 3 events (most recent page)
+      expect((result.events[0].data as Record<string, unknown>).index).toBe(7);
+      expect((result.events[2].data as Record<string, unknown>).index).toBe(9);
+    });
+
+    it("paginates backward using 'before' cursor", () => {
+      aggregator.trackNewSession("d1", "proj-1", "s1");
+
+      for (let i = 0; i < 10; i++) {
+        aggregator.handleSessionEvent("d1", "s1", {
+          id: `evt-${i}`,
+          timestamp: new Date(1000 + i * 100).toISOString(),
+          parentId: null,
+          type: "user.message",
+          data: { index: i },
+        } as SessionEvent);
+      }
+
+      // Get latest 3
+      const page1 = aggregator.getEvents("s1", undefined, 3);
+      expect(page1.events).toHaveLength(3);
+      expect(page1.oldestTimestamp).not.toBeNull();
+
+      // Get next older page using oldestTimestamp as cursor
+      const page2 = aggregator.getEvents("s1", page1.oldestTimestamp!, 3);
+      expect(page2.events).toHaveLength(3);
+      expect((page2.events[2].data as Record<string, unknown>).index).toBe(6);
+      expect(page2.hasMore).toBe(true);
+    });
+
+    it("caps limit at 500", () => {
+      aggregator.trackNewSession("d1", "proj-1", "s1");
+
+      for (let i = 0; i < 600; i++) {
+        aggregator.handleSessionEvent("d1", "s1", {
+          id: `evt-${i}`,
+          timestamp: new Date(1000 + i).toISOString(),
+          parentId: null,
+          type: "user.message",
+          data: {},
+        } as SessionEvent);
+      }
+
+      const result = aggregator.getEvents("s1", undefined, 999);
+      expect(result.events).toHaveLength(500);
+      expect(result.hasMore).toBe(true);
+    });
+
+    it("stores tool invocation events alongside session events", () => {
+      aggregator.trackNewSession("d1", "proj-1", "s1");
+      aggregator.handleSessionEvent("d1", "s1", mockEvent("session.start"));
+      aggregator.handleToolInvocation("s1", "proj-1", "report_progress", { status: "working" }, Date.now());
+
+      const result = aggregator.getEvents("s1");
+      expect(result.events).toHaveLength(2);
+      expect(result.events[0].type).toBe("session.start");
+      expect(result.events[1].type).toBe("copilot:tool-invocation");
+      expect(result.events[1].data).toHaveProperty("tool", "report_progress");
+    });
+
+    it("preserves id and parentId from original events", () => {
+      aggregator.trackNewSession("d1", "proj-1", "s1");
+
+      aggregator.handleSessionEvent("d1", "s1", {
+        id: "my-event-id",
+        parentId: "parent-id",
+        timestamp: new Date().toISOString(),
+        type: "tool.execution_start",
+        data: { toolName: "bash" },
+      } as SessionEvent);
+
+      const result = aggregator.getEvents("s1");
+      expect(result.events[0].id).toBe("my-event-id");
+      expect(result.events[0].parentId).toBe("parent-id");
+    });
+
+    it("drops oldest events when exceeding MAX_EVENTS_PER_SESSION", () => {
+      const origMax = CopilotSessionAggregator.MAX_EVENTS_PER_SESSION;
+      CopilotSessionAggregator.MAX_EVENTS_PER_SESSION = 5;
+      try {
+        aggregator.trackNewSession("d1", "proj-1", "s1");
+
+        for (let i = 0; i < 8; i++) {
+          aggregator.handleSessionEvent("d1", "s1", {
+            id: `evt-${i}`,
+            timestamp: new Date(1000 + i * 100).toISOString(),
+            parentId: null,
+            type: "user.message",
+            data: { index: i },
+          } as SessionEvent);
+        }
+
+        const result = aggregator.getEvents("s1");
+        expect(result.events).toHaveLength(5);
+        // Oldest 3 should have been dropped
+        expect((result.events[0].data as Record<string, unknown>).index).toBe(3);
+      } finally {
+        CopilotSessionAggregator.MAX_EVENTS_PER_SESSION = origMax;
+      }
+    });
+
+    it("cleans up event logs when session is removed", () => {
+      aggregator.trackNewSession("d1", "proj-1", "s1");
+      aggregator.handleSessionEvent("d1", "s1", mockEvent("session.start"));
+
+      aggregator.removeSession("s1");
+
+      expect(aggregator.getEvents("s1").events).toEqual([]);
+    });
+
+    it("cleans up event logs when daemon is removed", () => {
+      aggregator.trackNewSession("d1", "proj-1", "s1");
+      aggregator.handleSessionEvent("d1", "s1", mockEvent("session.start"));
+
+      aggregator.removeDaemon("d1");
+
+      expect(aggregator.getEvents("s1").events).toEqual([]);
+    });
+
+    it("stores session.shutdown events", () => {
+      aggregator.trackNewSession("d1", "proj-1", "s1");
+      aggregator.handleSessionEvent("d1", "s1", mockEvent("session.shutdown"));
+
+      const result = aggregator.getEvents("s1");
+      expect(result.events).toHaveLength(1);
+      expect(result.events[0].type).toBe("session.shutdown");
+    });
+  });
 });
