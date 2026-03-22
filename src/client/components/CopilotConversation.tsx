@@ -198,10 +198,22 @@ export function CopilotConversation({
 
   const currentModelId = sessionData?.model ?? "";
 
+  // Track pending model change — dropdown stays disabled until the server confirms
+  const [pendingModel, setPendingModel] = useState<string | null>(null);
+  const isModelPending = pendingModel !== null;
+
+  // Clear pending state when the confirmed model matches what we requested
+  useEffect(() => {
+    if (pendingModel && currentModelId === pendingModel) {
+      setPendingModel(null);
+    }
+  }, [currentModelId, pendingModel]);
+
   const handleModelChange = useCallback(
     (event: React.ChangeEvent<HTMLSelectElement>) => {
       const nextModel = event.currentTarget.value;
       if (nextModel && nextModel !== currentModelId) {
+        setPendingModel(nextModel);
         setModel.mutate({ sessionId, model: nextModel });
       }
     },
@@ -448,7 +460,7 @@ export function CopilotConversation({
                 data={modelOptions}
                 value={currentModelId}
                 onChange={handleModelChange}
-                disabled={setModel.isPending}
+                disabled={setModel.isPending || isModelPending}
                 size="sm"
                 style={{ width: isMobile ? undefined : 180, flex: isMobile ? 1 : undefined, flexShrink: 0 }}
               />

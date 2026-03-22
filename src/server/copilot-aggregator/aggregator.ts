@@ -258,8 +258,18 @@ export class CopilotSessionAggregator extends EventEmitter {
     if (event.type === "session.mode_changed" && 'mode' in event.data && isCopilotSessionMode(event.data.mode)) {
       session.mode = event.data.mode;
     }
-    if (event.type === "session.model_change" && 'model' in event.data) {
-      session.model = event.data.model as string;
+    if (event.type === "session.model_change") {
+      // SDK sends the new model as `newModel`; also accept `model` for compatibility
+      const d = event.data as Record<string, unknown>;
+      const m = (d.newModel ?? d.model) as string | undefined;
+      if (m) session.model = m;
+    }
+    // Also capture the initial model from session.tools_updated (fires before any model_change)
+    {
+      const e = event as { type: string; data?: Record<string, unknown> };
+      if (e.type === "session.tools_updated" && e.data && typeof e.data.model === "string" && !session.model) {
+        session.model = e.data.model;
+      }
     }
 
     // Enrich activity state

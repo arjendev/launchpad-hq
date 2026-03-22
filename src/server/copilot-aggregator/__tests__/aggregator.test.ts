@@ -119,6 +119,25 @@ describe("CopilotSessionAggregator", () => {
 
       expect(handler).toHaveBeenCalledWith("s1", event);
     });
+
+    it("captures model from session.model_change using newModel field", () => {
+      aggregator.trackNewSession("d1", "proj-1", "s1");
+      aggregator.handleSessionEvent("d1", "s1", mockEvent("session.model_change", { newModel: "claude-opus-4.6" }));
+      expect(aggregator.getSession("s1")!.model).toBe("claude-opus-4.6");
+    });
+
+    it("captures initial model from session.tools_updated", () => {
+      aggregator.trackNewSession("d1", "proj-1", "s1");
+      aggregator.handleSessionEvent("d1", "s1", mockEvent("session.tools_updated" as string, { model: "claude-sonnet-4.5" }) as SessionEvent);
+      expect(aggregator.getSession("s1")!.model).toBe("claude-sonnet-4.5");
+    });
+
+    it("does not overwrite model from model_change with tools_updated", () => {
+      aggregator.trackNewSession("d1", "proj-1", "s1");
+      aggregator.handleSessionEvent("d1", "s1", mockEvent("session.model_change", { newModel: "claude-opus-4.6" }));
+      aggregator.handleSessionEvent("d1", "s1", mockEvent("session.tools_updated" as string, { model: "claude-sonnet-4.5" }) as SessionEvent);
+      expect(aggregator.getSession("s1")!.model).toBe("claude-opus-4.6");
+    });
   });
 
   // ── handleSdkStateChange ──────────────────────────────

@@ -30,7 +30,7 @@ function formatEventContent(eventType: string, data: Record<string, unknown>): s
     case "session.title_changed":
       return `Title: ${data.title ?? ""}`;
     case "session.model_change":
-      return `Model changed to ${data.model ?? "unknown"}`;
+      return `Model changed to ${data.newModel ?? data.model ?? "unknown"}`;
     case "session.mode_changed":
       return `Mode: ${data.mode ?? "unknown"}`;
     case "session.plan_changed":
@@ -753,6 +753,11 @@ export function useConversationEntries(sessionId: string | null): {
 
           case "pending_messages.modified":
             // Handled via queuedMessage state — no timeline entry needed
+            break;
+
+          case "session.model_change":
+            // Immediately refresh the aggregated session so the model dropdown updates
+            void qc.invalidateQueries({ queryKey: ["aggregated-session", sessionId] });
             break;
 
           default: {
