@@ -170,7 +170,7 @@ const copilotSessionRoutes: FastifyPluginAsync = async (server) => {
       const { before, limit: limitStr } = request.query;
       const limit = limitStr ? Math.max(1, Math.min(Number(limitStr) || 100, 500)) : 100;
 
-      const result = server.copilotAggregator.getEvents(sessionId, before, limit);
+      const result = await server.copilotAggregator.getEvents(sessionId, before, limit);
       return reply.send(result);
     },
   );

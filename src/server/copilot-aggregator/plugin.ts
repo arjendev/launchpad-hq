@@ -12,9 +12,12 @@ import type {
   SessionType,
 } from "../../shared/protocol.js";
 import { CopilotSessionAggregator } from "./aggregator.js";
+import { EventPersistence } from "./event-persistence.js";
 import { getTracer, isTracingEnabled } from "../observability/tracing.js";
 import { SpanStatusCode } from "@opentelemetry/api";
 import { sanitizeForSpan } from "../observability/sanitize.js";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -23,7 +26,12 @@ declare module "fastify" {
 }
 
 async function copilotAggregatorPlugin(fastify: FastifyInstance) {
-  const aggregator = new CopilotSessionAggregator();
+  const dataDir = join(homedir(), ".launchpad", "session-events");
+  const persistence = process.env.VITEST ? undefined : new EventPersistence({ dataDir });
+  if (persistence) {
+    fastify.log.info({ dataDir }, "Event persistence enabled");
+  }
+  const aggregator = new CopilotSessionAggregator(persistence);
   const registry = fastify.daemonRegistry;
 
   // Map toolCallId → subagent display name, so assistant.message events from
@@ -237,7 +245,8 @@ async function copilotAggregatorPlugin(fastify: FastifyInstance) {
   // ── Decorate ──────────────────────────────────────────
   fastify.decorate("copilotAggregator", aggregator);
 
-  fastify.addHook("onClose", () => {
+  fastify.addHook("onClose", async () => {
+    await aggregator.flushEvents();
     aggregator.removeAllListeners();
   });
 }

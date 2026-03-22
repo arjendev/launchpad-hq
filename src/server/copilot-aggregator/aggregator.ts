@@ -15,6 +15,7 @@ import type {
   ActiveSubagent,
   SessionPhase,
 } from "../../shared/protocol.js";
+import type { EventPersistence } from "./event-persistence.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -139,11 +140,26 @@ export class CopilotSessionAggregator extends EventEmitter {
     timer: ReturnType<typeof setTimeout>;
   }>();
 
+  /** Optional disk persistence for event logs */
+  private readonly persistence?: EventPersistence;
+  /** Tracks which sessions have been hydrated from disk */
+  private hydratedSessions = new Set<string>();
+  /** Pending cleanup timers (sessionId → timer) */
+  private cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
   /** Default timeout for request-response operations (ms) */
   static REQUEST_TIMEOUT = 10_000;
 
   /** Maximum number of stored events per session */
   static MAX_EVENTS_PER_SESSION = 10_000;
+
+  /** Delay before cleaning up event files for ended sessions (ms) */
+  static CLEANUP_DELAY_MS = 30_000;
+
+  constructor(persistence?: EventPersistence) {
+    super();
+    this.persistence = persistence;
+  }
 
   /** Append a stored event to the session's event log, capping at MAX_EVENTS_PER_SESSION */
   private storeEvent(sessionId: string, event: StoredEvent): void {
@@ -154,10 +170,11 @@ export class CopilotSessionAggregator extends EventEmitter {
     }
     log.push(event);
     if (log.length > CopilotSessionAggregator.MAX_EVENTS_PER_SESSION) {
-      // Drop oldest events
       const excess = log.length - CopilotSessionAggregator.MAX_EVENTS_PER_SESSION;
       log.splice(0, excess);
     }
+    // Persist to disk (fire-and-forget)
+    this.persistence?.appendEvent(sessionId, event);
   }
 
   // ── Session updates ────────────────────────────────────
@@ -669,9 +686,33 @@ export class CopilotSessionAggregator extends EventEmitter {
 
   // ── Event log ─────────────────────────────────────────
 
+  /**
+   * Hydrate the in-memory event log from disk if not already loaded.
+   * Must be called before reading the event log for a session after HQ restart.
+   */
+  private async hydrateFromDisk(sessionId: string): Promise<void> {
+    if (!this.persistence || this.hydratedSessions.has(sessionId)) return;
+    this.hydratedSessions.add(sessionId);
+
+    const diskEvents = await this.persistence.loadEvents(sessionId);
+    if (diskEvents.length === 0) return;
+
+    const memLog = this.eventLogs.get(sessionId) ?? [];
+    if (memLog.length === 0) {
+      // Fast path: memory empty, just use disk
+      this.eventLogs.set(sessionId, diskEvents);
+    } else {
+      // Memory has post-restart events that are also on disk (since we always
+      // flush before loadEvents). Disk is the superset — use it directly.
+      this.eventLogs.set(sessionId, diskEvents);
+    }
+  }
+
   /** Paginated retrieval of stored events for a session.
    *  Returns events in chronological order; `before` cursor paginates backwards. */
-  getEvents(sessionId: string, before?: string, limit = 100): PaginatedEvents {
+  async getEvents(sessionId: string, before?: string, limit = 100): Promise<PaginatedEvents> {
+    await this.hydrateFromDisk(sessionId);
+
     const log = this.eventLogs.get(sessionId) ?? [];
     const cap = Math.max(1, Math.min(limit, 500));
 
@@ -705,6 +746,8 @@ export class CopilotSessionAggregator extends EventEmitter {
     this.conversationHistory.delete(sessionId);
     this.toolInvocations.delete(sessionId);
     this.eventLogs.delete(sessionId);
+    this.hydratedSessions.delete(sessionId);
+    this.scheduleEventCleanup(sessionId);
 
     if (existed) {
       this.emit("sessions-updated", this.getAllSessions());
@@ -724,6 +767,8 @@ export class CopilotSessionAggregator extends EventEmitter {
         this.conversationHistory.delete(id);
         this.toolInvocations.delete(id);
         this.eventLogs.delete(id);
+        this.hydratedSessions.delete(id);
+        this.scheduleEventCleanup(id);
       }
     }
 
@@ -732,6 +777,40 @@ export class CopilotSessionAggregator extends EventEmitter {
     if (removedSessionIds.length > 0) {
       this.emit("sessions-updated", this.getAllSessions());
     }
+  }
+
+  // ── Event persistence lifecycle ────────────────────────
+
+  /** Schedule cleanup of the JSONL file for a session (with delay for client to load final events) */
+  scheduleEventCleanup(sessionId: string): void {
+    if (!this.persistence) return;
+    // Cancel any existing timer
+    const existing = this.cleanupTimers.get(sessionId);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(() => {
+      this.cleanupTimers.delete(sessionId);
+      void this.persistence!.cleanup(sessionId);
+    }, CopilotSessionAggregator.CLEANUP_DELAY_MS);
+
+    this.cleanupTimers.set(sessionId, timer);
+  }
+
+  /** Immediately clean up the JSONL file for a session */
+  async cleanupSessionEvents(sessionId: string): Promise<void> {
+    // Cancel any pending scheduled cleanup
+    const existing = this.cleanupTimers.get(sessionId);
+    if (existing) {
+      clearTimeout(existing);
+      this.cleanupTimers.delete(sessionId);
+    }
+    this.hydratedSessions.delete(sessionId);
+    await this.persistence?.cleanup(sessionId);
+  }
+
+  /** Flush all pending event writes to disk (call on shutdown) */
+  async flushEvents(): Promise<void> {
+    await this.persistence?.flushAll();
   }
 
   // ── Queries ────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { CopilotSessionAggregator } from "../aggregator.js";
 import type { SessionMetadata, SessionEvent } from "@github/copilot-sdk";
 import type { AggregatedSession } from "../../../shared/protocol.js";
@@ -351,28 +351,28 @@ describe("CopilotSessionAggregator", () => {
   // ── Event log (getEvents) ─────────────────────────────
 
   describe("getEvents", () => {
-    it("returns empty result for unknown session", () => {
-      const result = aggregator.getEvents("nonexistent");
+    it("returns empty result for unknown session", async () => {
+      const result = await aggregator.getEvents("nonexistent");
       expect(result.events).toEqual([]);
       expect(result.hasMore).toBe(false);
       expect(result.oldestTimestamp).toBeNull();
     });
 
-    it("stores session events and retrieves them in chronological order", () => {
+    it("stores session events and retrieves them in chronological order", async () => {
       aggregator.trackNewSession("d1", "proj-1", "s1");
 
       aggregator.handleSessionEvent("d1", "s1", mockEvent("session.start"));
       aggregator.handleSessionEvent("d1", "s1", mockEvent("user.message"));
       aggregator.handleSessionEvent("d1", "s1", mockEvent("assistant.message"));
 
-      const result = aggregator.getEvents("s1");
+      const result = await aggregator.getEvents("s1");
       expect(result.events).toHaveLength(3);
       expect(result.events[0].type).toBe("session.start");
       expect(result.events[2].type).toBe("assistant.message");
       expect(result.hasMore).toBe(false);
     });
 
-    it("respects limit parameter", () => {
+    it("respects limit parameter", async () => {
       aggregator.trackNewSession("d1", "proj-1", "s1");
 
       for (let i = 0; i < 10; i++) {
@@ -385,7 +385,7 @@ describe("CopilotSessionAggregator", () => {
         } as SessionEvent);
       }
 
-      const result = aggregator.getEvents("s1", undefined, 3);
+      const result = await aggregator.getEvents("s1", undefined, 3);
       expect(result.events).toHaveLength(3);
       expect(result.hasMore).toBe(true);
       // Should return the last 3 events (most recent page)
@@ -393,7 +393,7 @@ describe("CopilotSessionAggregator", () => {
       expect((result.events[2].data as Record<string, unknown>).index).toBe(9);
     });
 
-    it("paginates backward using 'before' cursor", () => {
+    it("paginates backward using 'before' cursor", async () => {
       aggregator.trackNewSession("d1", "proj-1", "s1");
 
       for (let i = 0; i < 10; i++) {
@@ -407,18 +407,18 @@ describe("CopilotSessionAggregator", () => {
       }
 
       // Get latest 3
-      const page1 = aggregator.getEvents("s1", undefined, 3);
+      const page1 = await aggregator.getEvents("s1", undefined, 3);
       expect(page1.events).toHaveLength(3);
       expect(page1.oldestTimestamp).not.toBeNull();
 
       // Get next older page using oldestTimestamp as cursor
-      const page2 = aggregator.getEvents("s1", page1.oldestTimestamp!, 3);
+      const page2 = await aggregator.getEvents("s1", page1.oldestTimestamp!, 3);
       expect(page2.events).toHaveLength(3);
       expect((page2.events[2].data as Record<string, unknown>).index).toBe(6);
       expect(page2.hasMore).toBe(true);
     });
 
-    it("caps limit at 500", () => {
+    it("caps limit at 500", async () => {
       aggregator.trackNewSession("d1", "proj-1", "s1");
 
       for (let i = 0; i < 600; i++) {
@@ -431,24 +431,24 @@ describe("CopilotSessionAggregator", () => {
         } as SessionEvent);
       }
 
-      const result = aggregator.getEvents("s1", undefined, 999);
+      const result = await aggregator.getEvents("s1", undefined, 999);
       expect(result.events).toHaveLength(500);
       expect(result.hasMore).toBe(true);
     });
 
-    it("stores tool invocation events alongside session events", () => {
+    it("stores tool invocation events alongside session events", async () => {
       aggregator.trackNewSession("d1", "proj-1", "s1");
       aggregator.handleSessionEvent("d1", "s1", mockEvent("session.start"));
       aggregator.handleToolInvocation("s1", "proj-1", "report_progress", { status: "working" }, Date.now());
 
-      const result = aggregator.getEvents("s1");
+      const result = await aggregator.getEvents("s1");
       expect(result.events).toHaveLength(2);
       expect(result.events[0].type).toBe("session.start");
       expect(result.events[1].type).toBe("copilot:tool-invocation");
       expect(result.events[1].data).toHaveProperty("tool", "report_progress");
     });
 
-    it("preserves id and parentId from original events", () => {
+    it("preserves id and parentId from original events", async () => {
       aggregator.trackNewSession("d1", "proj-1", "s1");
 
       aggregator.handleSessionEvent("d1", "s1", {
@@ -459,12 +459,12 @@ describe("CopilotSessionAggregator", () => {
         data: { toolName: "bash" },
       } as SessionEvent);
 
-      const result = aggregator.getEvents("s1");
+      const result = await aggregator.getEvents("s1");
       expect(result.events[0].id).toBe("my-event-id");
       expect(result.events[0].parentId).toBe("parent-id");
     });
 
-    it("drops oldest events when exceeding MAX_EVENTS_PER_SESSION", () => {
+    it("drops oldest events when exceeding MAX_EVENTS_PER_SESSION", async () => {
       const origMax = CopilotSessionAggregator.MAX_EVENTS_PER_SESSION;
       CopilotSessionAggregator.MAX_EVENTS_PER_SESSION = 5;
       try {
@@ -480,7 +480,7 @@ describe("CopilotSessionAggregator", () => {
           } as SessionEvent);
         }
 
-        const result = aggregator.getEvents("s1");
+        const result = await aggregator.getEvents("s1");
         expect(result.events).toHaveLength(5);
         // Oldest 3 should have been dropped
         expect((result.events[0].data as Record<string, unknown>).index).toBe(3);
@@ -489,31 +489,96 @@ describe("CopilotSessionAggregator", () => {
       }
     });
 
-    it("cleans up event logs when session is removed", () => {
+    it("cleans up event logs when session is removed", async () => {
       aggregator.trackNewSession("d1", "proj-1", "s1");
       aggregator.handleSessionEvent("d1", "s1", mockEvent("session.start"));
 
       aggregator.removeSession("s1");
 
-      expect(aggregator.getEvents("s1").events).toEqual([]);
+      expect((await aggregator.getEvents("s1")).events).toEqual([]);
     });
 
-    it("cleans up event logs when daemon is removed", () => {
+    it("cleans up event logs when daemon is removed", async () => {
       aggregator.trackNewSession("d1", "proj-1", "s1");
       aggregator.handleSessionEvent("d1", "s1", mockEvent("session.start"));
 
       aggregator.removeDaemon("d1");
 
-      expect(aggregator.getEvents("s1").events).toEqual([]);
+      expect((await aggregator.getEvents("s1")).events).toEqual([]);
     });
 
-    it("stores session.shutdown events", () => {
+    it("stores session.shutdown events", async () => {
       aggregator.trackNewSession("d1", "proj-1", "s1");
       aggregator.handleSessionEvent("d1", "s1", mockEvent("session.shutdown"));
 
-      const result = aggregator.getEvents("s1");
+      const result = await aggregator.getEvents("s1");
       expect(result.events).toHaveLength(1);
       expect(result.events[0].type).toBe("session.shutdown");
+    });
+  });
+
+  // ── Disk persistence integration ─────────────────────
+  describe("disk persistence integration", () => {
+    let tempDir: string;
+
+    beforeEach(async () => {
+      const { mkdtemp } = await import("node:fs/promises");
+      const { join } = await import("node:path");
+      const { tmpdir } = await import("node:os");
+      tempDir = await mkdtemp(join(tmpdir(), "agg-persist-"));
+    });
+
+    afterEach(async () => {
+      const { rm } = await import("node:fs/promises");
+      await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("loads events from disk when in-memory is empty (simulated HQ restart)", async () => {
+      const { EventPersistence } = await import("../event-persistence.js");
+      const persistence = new EventPersistence({ dataDir: tempDir, flushIntervalMs: 10 });
+
+      // Pre-restart: write events via aggregator with persistence
+      const agg1 = new CopilotSessionAggregator(persistence);
+      agg1.trackNewSession("d1", "proj-1", "s1");
+      agg1.handleSessionEvent("d1", "s1", {
+        id: "evt-0",
+        timestamp: new Date(1000).toISOString(),
+        parentId: null,
+        type: "session.start",
+        data: {},
+      } as SessionEvent);
+      agg1.handleSessionEvent("d1", "s1", {
+        id: "evt-1",
+        timestamp: new Date(2000).toISOString(),
+        parentId: null,
+        type: "user.message",
+        data: { content: "hello" },
+      } as SessionEvent);
+      await agg1.flushEvents();
+
+      // Simulate restart: new aggregator + new persistence (same dir)
+      const persistence2 = new EventPersistence({ dataDir: tempDir, flushIntervalMs: 10 });
+      const agg2 = new CopilotSessionAggregator(persistence2);
+      agg2.trackNewSession("d1", "proj-1", "s1"); // re-tracked on reconnect
+
+      const result = await agg2.getEvents("s1");
+      expect(result.events).toHaveLength(2);
+      expect(result.events[0].type).toBe("session.start");
+      expect(result.events[1].type).toBe("user.message");
+    });
+
+    it("cleanupSessionEvents deletes the JSONL file", async () => {
+      const { EventPersistence } = await import("../event-persistence.js");
+      const persistence = new EventPersistence({ dataDir: tempDir, flushIntervalMs: 10 });
+
+      const agg = new CopilotSessionAggregator(persistence);
+      agg.trackNewSession("d1", "proj-1", "s1");
+      agg.handleSessionEvent("d1", "s1", mockEvent("session.start"));
+      await agg.flushEvents();
+
+      expect(await persistence.hasEvents("s1")).toBe(true);
+      await agg.cleanupSessionEvents("s1");
+      expect(await persistence.hasEvents("s1")).toBe(false);
     });
   });
 });
