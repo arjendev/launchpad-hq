@@ -572,10 +572,10 @@ export const SubagentContainer = memo(function SubagentContainer({
         </Text>
       </Group>
 
-      {/* Inner entries */}
+      {/* Inner entries — stop propagation so clicks don't collapse the container */}
       <Collapse in={showInner}>
         {innerEntries.length > 0 && (
-          <Stack gap={4} mt={6} ml={12}>
+          <Stack gap={4} mt={6} ml={12} onClick={(e: React.MouseEvent) => e.stopPropagation()}>
             {innerEntries.map((inner) => (
               <ConversationMessage
                 key={inner.id}
